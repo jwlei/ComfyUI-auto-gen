@@ -1,0 +1,16 @@
+# Environment variables (Critical for security)
+.env
+
+# What runs make
+/runs
+/output
+/uploaded
+/inputs
+/logs
+
+__pycache__/
+*.pyc
+venv/
+
+# YouTube API credentials (NEVER commit!)
+client_secrets.json
