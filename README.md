@@ -64,6 +64,8 @@ queued in the panel waits for you to press Resume.
 again**. In a continuous take every shot after it renders again too, because each starts on the last frame of the
 one before.
 
+**Open folder** shows the tab's folder in File Explorer. It's only there on this PC, not on your phone.
+
 **Delete** removes the film along with its clips and prompts. **Shut down** force-stops everything and closes
 ComfyUI if the panel started it. Queued jobs come back on hold next time.
 

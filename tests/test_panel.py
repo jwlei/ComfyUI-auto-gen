@@ -343,6 +343,20 @@ class PanelTest(unittest.TestCase):
         for bad_id in ("..", "run_1", "..%2F..%2Fetc"):
             self.assertEqual(self.client.get(f"/runs/{bad_id}").status_code, 404, bad_id)
 
+    @unittest.skipUnless(os.name == "nt", "File Explorer is Windows only")
+    def test_open_folder_only_on_this_pc(self):
+        with mock.patch.object(webapp.os, "startfile") as startfile:
+            self.assertTrue(self.client.post("/folders/uploaded/open").get_json()["ok"])
+            startfile.assert_called_once_with(paths.UPLOADED_DIR)
+            self.assertTrue(os.path.isdir(paths.UPLOADED_DIR), "it exists before the first upload")
+            startfile.reset_mock()
+            self.assertEqual(self.client.post("/folders/nowhere/open").status_code, 404)
+            phone = {"REMOTE_ADDR": "192.168.1.20"}
+            self.assertEqual(self.client.post("/folders/output/open", environ_base=phone).status_code, 403)
+            startfile.assert_not_called()
+            self.assertIn(b'File Explorer." hidden>', self.client.get("/", environ_base=phone).data)
+        self.assertNotIn(b'File Explorer." hidden>', self.client.get("/").data)
+
     def test_upload_needs_keys(self):
         self.assertEqual(self.client.post("/publish", data={"privacy": "private"}).status_code, 400)
         self.assertIn(b"disabled title", self.client.get("/").data)
