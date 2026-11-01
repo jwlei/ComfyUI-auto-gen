@@ -38,6 +38,8 @@ def parse_size(text):
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Turns one image and a short prompt into a film of up to 10 minutes, made of ComfyUI clips.")
     parser.add_argument("image", nargs="?", help="The image the film opens on.")
+    parser.add_argument("--no-image", action="store_true", help="Make the film from text alone, if the workflow can: give only the prompt.")
+    parser.add_argument("--reference", action="append", default=[], metavar="IMAGE", help="Another image, for a workflow that takes several.")
     parser.add_argument("prompt", nargs="?", help="What should happen, in a sentence or two.")
     parser.add_argument("--duration", type=parse_duration, default="2m", help="Film length: 90, 3m or 2m30 (default 2m, from 5 seconds to 10 minutes).")
     parser.add_argument("--start", choices=("chain", "image"), default="chain",
@@ -58,8 +60,10 @@ def parse_args(argv=None):
         parser.error("--redo needs --resume.")
     if args.plan_only and args.resume:
         parser.error("--plan-only writes a new plan: --resume already has one.")
-    if not (args.resume or args.list or args.check or (args.image and args.prompt)):
-        parser.error("give an image and a prompt, or --resume RUN, --list or --check.")
+    if args.no_image:
+        args.image, args.prompt = None, args.image
+    if not (args.resume or args.list or args.check or (args.prompt and (args.image or args.no_image))):
+        parser.error("give an image and a prompt, --no-image and a prompt, or --resume RUN, --list or --check.")
     return args
 
 
@@ -117,18 +121,25 @@ def preflight(needs_comfy):
 
 
 def plan_run(args, stages):
-    image = media.load_image(args.image)
-    width, height = args.size or media.render_size(*image.size)
+    images = [media.load_image(path) for path in ([args.image] if args.image else []) + args.reference]
+    takes = ComfyClient().takes()
+    if not takes["min_images"] <= len(images) <= takes["max_images"]:
+        raise RuntimeError(f"This workflow takes {takes['min_images']}-{takes['max_images']} images, not {len(images)}.")
+    # A clip can only start on the last one's final frame if an image is all it takes.
+    start = args.start if takes["max_images"] == 1 else "image"
+    width, height = args.size or media.render_size(*(images[0].size if images else media.DEFAULT_SHAPE))
     llm = args.llm or planner.default_llm()
     if not planner.llm_configured(llm):
         raise RuntimeError(f"{llm} has no credentials: see .env.example.")
-    state = RunState.new(args.prompt, args.duration, args.start, width, height, llm, args.privacy if args.upload else None)
+    state = RunState.new(args.prompt, args.duration, start, width, height, llm, args.privacy if args.upload else None,
+                         os.getenv("COMFYUI_WORKFLOW") or None, len(images))
     print(f"🗂️ Run folder: {state.id}")
 
     print_stage("Plan", stages)
     print(f"🧠 {llm} is writing {planner.shot_count(state.seconds)} prompts for a {state.seconds}s film at {width}x{height}...")
-    title, shots = planner.plan_film(media.preview_jpeg(image), args.prompt, state.seconds, state.start, llm)
-    media.save_input(image, state.image_path)
+    title, shots = planner.plan_film([media.preview_jpeg(image) for image in images], args.prompt, state.seconds, state.start, llm)
+    for image, path in zip(images, state.image_paths):
+        media.save_input(image, path)
     state.update(title=title, shots=shots)
 
     print(f"🎞️ {title}")
@@ -138,19 +149,19 @@ def plan_run(args, stages):
     return state
 
 
-def start_frame(state, index):
+def clip_images(state, index):
     if state.start == "chain" and index > 0:
-        return media.last_frame(state.clip_path(index - 1), state.frame_path)
-    return state.image_path
+        return [media.last_frame(state.clip_path(index - 1), state.frame_path)]
+    return state.image_paths
 
 
-def render_shot(state, comfy, index, image):
+def render_shot(state, comfy, index, images):
     """Renders until the file holds up, on a new seed each time. Returns its path, or None."""
     shot = state.shots[index]
     save_as = os.path.join(state.clips_dir, f"shot_{index + 1:03d}")
     for attempt in range(1, CLIP_ATTEMPTS + 1):
         try:
-            clip = comfy.render(shot["prompt"], image, shot["seconds"], state.width, state.height, save_as)
+            clip = comfy.render(shot["prompt"], images, shot["seconds"], state.width, state.height, save_as)
         except (RuntimeError, OSError, ValueError) as e:
             print(f"      ❌ {e} (attempt {attempt}/{CLIP_ATTEMPTS}).")
             continue
@@ -173,11 +184,12 @@ def render_clips(state, comfy):
         started = time.time()
         print(f"   🎬 Clip {index + 1}/{total} · {shot['title']} · {shot['seconds']}s")
         try:
-            image = comfy.upload(start_frame(state, index), f"autocomfyui_{state.id}.png")
+            images = [comfy.upload(path, f"autocomfyui_{state.id}{'' if number == 1 else f'_{number}'}.png")
+                      for number, path in enumerate(clip_images(state, index), 1)]
         except (OSError, ffmpeg.Error) as e:
             print(f"   ❌ Could not give ComfyUI the start frame: {e}")
             return False
-        clip = render_shot(state, comfy, index, image)
+        clip = render_shot(state, comfy, index, images)
         if not clip:
             print(f"   ❌ Clip {index + 1} failed.")
             return False
@@ -211,6 +223,9 @@ def run(args):
         state = RunState.load(args.resume)
         if not state or not state.shots:
             raise RuntimeError(f"No saved run called '{args.resume}'. --list shows them.")
+        # The rest of the film has to match the clips already made.
+        if state.workflow:
+            os.environ["COMFYUI_WORKFLOW"] = state.workflow
         if args.redo is not None:
             if not 1 <= args.redo <= len(state.shots):
                 raise RuntimeError(f"This film has shots 1-{len(state.shots)}, not {args.redo}.")

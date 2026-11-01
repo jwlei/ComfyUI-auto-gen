@@ -38,6 +38,7 @@ from modules import media, paths, planner
 from modules.comfy import ComfyClient, client_id
 from modules.run_eta import RunEta
 from modules.run_state import STAGES, RunState, folder_size, list_runs, run_id_in
+from modules.saved_workflows import list_saved
 
 load_dotenv(os.path.join(paths.PROJECT_ROOT, ".env"))
 
@@ -480,6 +481,34 @@ def comfyui_online():
     return _comfyui_cache["online"]
 
 
+BUILT_IN_TAKES = {"min_images": 1, "max_images": 1}
+_saved_workflows_cache = {"at": 0.0, "online": None, "value": []}
+_saved_workflows_lock = threading.Lock()
+
+
+def saved_workflows():
+    # Cached briefly: it asks ComfyUI about every node it has. Not across ComfyUI starting, which is when they appear.
+    online = comfyui_online()
+    with _saved_workflows_lock:
+        cache = _saved_workflows_cache
+        if time.time() - cache["at"] > 30 or cache["online"] != online:
+            cache.update(at=time.time(), online=online, value=list_saved(comfyui_url(), paths.SAVED_WORKFLOWS_DIR))
+        return cache["value"]
+
+
+def chosen_workflow(form):
+    """What makes a run use the workflow chosen on the form, and the images it takes. Returns (env, takes, error)."""
+    name = form.get("workflow")
+    if not name:
+        return {}, BUILT_IN_TAKES, None
+    entry = next((w for w in saved_workflows() if w["name"] == name), None)
+    if not entry:
+        return None, None, f"ComfyUI has no saved workflow called {name} any more."
+    if "problem" in entry:
+        return None, None, f"{entry['label']} can't run: {entry['problem']}"
+    return {"COMFYUI_WORKFLOW": entry["path"]}, entry["takes"], None
+
+
 # What each node of the LTX workflow is doing, in plain words.
 COMFY_LABELS = {
     "UNETLoader": "Loading the video model", "UnetLoaderGGUF": "Loading the video model",
@@ -697,11 +726,15 @@ def start_comfyui_for_run():
         return True
 
 
+def item_images(item):
+    return ([item["image"]] if item.get("image") else []) + item.get("references", [])
+
+
 def prepare_run(item):
     """ComfyUI starts when the run does, not when it is queued: it may not be needed for hours."""
     if item.get("resume") and not RunState.load(item["resume"]):
         return "its saved run is gone"
-    if item.get("image") and not os.path.exists(item["image"]):
+    if not all(os.path.exists(path) for path in item_images(item)):
         return "its image is gone"
     if item.get("plan_only"):
         return None  # Writing the prompts needs no GPU
@@ -803,7 +836,7 @@ def stop_run():
 
 def clean_inputs():
     """Images whose job has finished or gone: the run keeps its own copy, so nothing needs these any more."""
-    needed = {item.get("image") for item in run_queue.pending()}
+    needed = {path for item in run_queue.pending() for path in item_images(item)}
     try:
         for name in os.listdir(paths.INPUTS_DIR):
             path = os.path.join(paths.INPUTS_DIR, name)
@@ -934,6 +967,9 @@ def generate():
     flags, error = build_options(request.form)
     if error:
         return {"ok": False, "error": error}, 400
+    env, takes, error = chosen_workflow(request.form)
+    if error:
+        return {"ok": False, "error": error}, 400
     prompt = (request.form.get("prompt") or "").strip()
     if not prompt:
         return {"ok": False, "error": "Say what should happen in the film."}, 400
@@ -941,26 +977,33 @@ def generate():
     if not planner.llm_configured(llm):
         return {"ok": False, "error": f"{llm} has no credentials. See .env.example."}, 400
 
-    upload = request.files.get("image")
-    if not upload or not upload.filename:
+    uploads = [upload for upload in request.files.getlist("image") if upload.filename]
+    if len(uploads) < takes["min_images"]:
         return {"ok": False, "error": "Choose the image the film opens on."}, 400
+    if len(uploads) > takes["max_images"]:
+        return {"ok": False, "error": ("This workflow makes its clips from text alone: leave the image out." if not takes["max_images"]
+                                       else f"This workflow takes at most {takes['max_images']} images.")}, 400
     try:
-        image = media.load_image(upload.stream)
+        images = [media.load_image(upload.stream) for upload in uploads]
     except RuntimeError:
         return {"ok": False, "error": "That file isn't an image this can read."}, 400
 
     # Kept in a folder of its own, under a name of our own: queued, it may wait for hours.
     clean_inputs()
-    image_path = os.path.join(paths.INPUTS_DIR, f"{secrets.token_hex(8)}.png")
-    media.save_input(image, image_path)
+    image_paths = [os.path.join(paths.INPUTS_DIR, f"{secrets.token_hex(8)}.png") for _ in images]
+    for image, path in zip(images, image_paths):
+        media.save_input(image, path)
 
-    argv = [sys.executable, "main.py", *flags, "--", image_path, prompt]
+    references = [flag for path in image_paths[1:] for flag in ("--reference", path)]
+    argv = [sys.executable, "main.py", *flags, *references, *([] if images else ["--no-image"]), "--", *image_paths[:1], prompt]
     plan_only = "--plan-only" in flags
     seconds = int(flags[flags.index("--duration") + 1])
     length = f"{seconds}s" if seconds < 60 else f"{seconds // 60}:{seconds % 60:02d}"
     detail = [f"{length} film", llm, "review the prompts first" if plan_only else "renders straight away"]
-    item = {"label": queue_label(prompt), "detail": " · ".join(detail), "argv": argv, "env": {},
-            "image": image_path, "plan_only": plan_only, "estimate": RunEta(argv, STAGE_TIMINGS).plan()["total"]}
+    if env:
+        detail.append(request.form["workflow"].removesuffix(".json"))
+    item = {"label": queue_label(prompt), "detail": " · ".join(detail), "argv": argv, "env": env,
+            "image": image_paths[0] if image_paths else None, "references": image_paths[1:], "plan_only": plan_only, "estimate": RunEta(argv, STAGE_TIMINGS).plan()["total"]}
     queued = run_queue.add(item)
     if item.get("error"):
         return {"ok": False, "error": item["error"]}, 500
@@ -1077,8 +1120,11 @@ def check():
     flags, error = build_options(request.form)
     if error:
         return {"ok": False, "error": error}, 400
+    env, _, error = chosen_workflow(request.form)
+    if error:
+        return {"ok": False, "error": error}, 400
     argv = [sys.executable, "main.py", "--check", "--llm", flags[flags.index("--llm") + 1]]
-    if not job.start(argv):
+    if not job.start(argv, env):
         return {"ok": False, "error": "A run is already in progress."}, 409
     return {"ok": True}
 
@@ -1167,6 +1213,13 @@ def status():
                           **(comfy_monitor.snapshot() if comfy_monitor else {})}
     payload["gpu"] = gpu_stats()
     return payload
+
+
+@app.route("/api/workflows")
+@password_required
+def workflows():
+    found = [{key: w[key] for key in ("name", "label", "takes", "problem") if key in w} for w in saved_workflows()]
+    return {"online": comfyui_online(), "workflows": found}
 
 
 @app.route("/videos/<folder>/<path:name>")

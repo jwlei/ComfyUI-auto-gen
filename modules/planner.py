@@ -54,6 +54,10 @@ CONTINUITY = {
     shot is its own moment growing out of that same opening frame: a different action, a different
     camera move, a different development of the idea, in an order that still builds.""",
 }
+# With no image every clip starts from its prompt, and with references from all of them.
+SEPARATE_CLIPS = """Every clip is made on its own, with a fade between clips. So each shot is its own
+    moment: a different action, a different camera move, a different development of the idea, in an
+    order that still builds."""
 
 
 class Shot(BaseModel):
@@ -130,23 +134,44 @@ def fit_durations(lengths, target):
     return fitted
 
 
-def _instructions(brief, seconds, start):
+def _what_it_opens_on(images):
+    if not images:
+        return "There is no image: you decide how everything looks, in keeping with the brief."
+    if images == 1:
+        return "The attached image is the film's opening frame. Look at it closely: the subject,\n    the place, the light, the style."
+    return (f"The {images} attached images are references the video model gets with every clip. Look at them closely:\n"
+            f"    the subjects, the places, the light, the style.")
+
+
+def _how_it_looks(images):
+    if not images:
+        return """- Nothing shows the video model how anything looks, so describe the subject, place, light and
+      style in full, in the same words every time, or the clips won't match."""
+    if images == 1:
+        return """- The start frame already shows how everything looks, so call the subject by the same few words
+      every time ("the woman in the red coat") instead of describing it again in full."""
+    pictures = " and ".join(f"<Picture {number}>" for number in range(1, images + 1))
+    return f"""- The references show how everything looks. Call them {pictures}, in the order they are attached,
+      instead of describing them again in full."""
+
+
+def _instructions(brief, seconds, start, images=1):
     count = shot_count(seconds)
     clips = "one clip" if count == 1 else f"{count} consecutive clips"
     shots = "one shot" if count == 1 else f"{count} shots in order"
     shape = (f"Give the film a beginning, a development and a real ending, rather than {count} versions of the same moment."
              if count >= MIN_SHOTS_FOR_A_STORY else "This is too short for a story: show one clear moment that feels complete.")
     together = f"Use {seconds}." if count == 1 else f"All of them together add up to {seconds}."
-    continuity = "" if count == 1 else CONTINUITY[start]
+    continuity = "" if count == 1 else SEPARATE_CLIPS if start == "image" and images != 1 else CONTINUITY[start]
+    in_keeping = "the brief and\n    the image, and never contradicting them" if images else "the brief, and never contradicting it"
+    sees = "one prompt and one start frame" if images == 1 else "one prompt and its images" if images else "one prompt"
     return f"""
     You are directing a {seconds}-second film made of {clips} from an AI video
-    model (LTX-2). The attached image is the film's opening frame. Look at it closely: the subject,
-    the place, the light, the style.
+    model (LTX-2). {_what_it_opens_on(images)}
 
     The brief, in the words of the person making it: "{brief}"
 
-    The brief is short on purpose. Invent the detail the film needs, in keeping with the brief and
-    the image, and never contradicting them. {shape} Bring in no new main characters unless
+    The brief is short on purpose. Invent the detail the film needs, in keeping with {in_keeping}. {shape} Bring in no new main characters unless
     the brief asks for them.
 
     {continuity}
@@ -156,13 +181,12 @@ def _instructions(brief, seconds, start):
     - seconds: a whole number from {MIN_SHOT_SECONDS} to {MAX_SHOT_SECONDS}. {together}
     - prompt: the text the video model gets, following the rules below.
 
-    The video model sees one prompt and one start frame at a time, and knows nothing about the film:
+    The video model sees {sees} at a time, and knows nothing about the film:
     - One flowing paragraph in the present tense, 60-120 words.
     - Describe what happens in order, as it can really happen in that shot's seconds. One clear main
       action per shot: a crowded prompt comes out as a blur.
     - Name one camera move, and describe the light and the sound.
-    - The start frame already shows how everything looks, so call the subject by the same few words
-      every time ("the woman in the red coat") instead of describing it again in full.
+    {_how_it_looks(images)}
     - Sound comes from the scene itself: footsteps, wind, a room. No music, because it would jump
       every time one clip hands over to the next. No speech unless the brief asks for it.
     - No titles, captions, text on screen or logos.
@@ -266,11 +290,14 @@ def _generate(contents, config, retries=4):
     raise RuntimeError("Gemini failed on every model:\n   " + "\n   ".join(failures))
 
 
+def _image_list(image_jpeg):
+    """One image's bytes, several in a list, or None."""
+    return image_jpeg if isinstance(image_jpeg, list) else [image_jpeg] if image_jpeg else []
+
+
 def _ask_gemini(prompt, model, image_jpeg=None):
     config = types.GenerateContentConfig(response_mime_type="application/json", response_schema=model)
-    contents = [prompt]
-    if image_jpeg:
-        contents.insert(0, types.Part.from_bytes(data=image_jpeg, mime_type="image/jpeg"))
+    contents = [types.Part.from_bytes(data=image, mime_type="image/jpeg") for image in _image_list(image_jpeg)] + [prompt]
     return _generate(contents, config).text or ""
 
 
@@ -281,10 +308,9 @@ def _ask_claude(prompt, schema, image_jpeg=None):
     Returns the reply's JSON text. Asks for the server-side fallback: a request one
     model's safety classifier declines is run on another instead of failing the plan.
     """
-    content = [{"type": "text", "text": prompt}]
-    if image_jpeg:
-        data = base64.standard_b64encode(image_jpeg).decode("utf-8")
-        content.insert(0, {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": data}})
+    content = [{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                            "data": base64.standard_b64encode(image).decode("utf-8")}}
+               for image in _image_list(image_jpeg)] + [{"type": "text", "text": prompt}]
     try:
         with anthropic.Anthropic().beta.messages.stream(
             model=os.getenv("CLAUDE_MODEL") or DEFAULT_CLAUDE_MODEL,
@@ -325,11 +351,11 @@ def _ask(llm, prompt, model, schema, image_jpeg=None):
 
 def plan_film(image_jpeg, brief, seconds, start, llm="gemini"):
     """
-    Turns the image and the short brief into a film's shot list. One request for the
+    Turns the image (several in a list, or none) and the short brief into a film's shot list. One request for the
     whole film rather than one per clip: the prompts have to know each other, and a
     long film would otherwise spend more than a free model's whole daily quota.
     """
-    instructions = _instructions(brief, seconds, start)
+    instructions = _instructions(brief, seconds, start, len(_image_list(image_jpeg)))
 
     problem = None
     for attempt in range(1, PLAN_ATTEMPTS + 1):

@@ -1,12 +1,15 @@
 import copy
+import io
 import json
 import os
 import random
 import time
 
 import requests
+from PIL import Image
 
 from modules.paths import PROJECT_ROOT
+from modules.saved_workflows import frames_for, image_slots, takes
 
 DEFAULT_COMFYUI_URL = "http://127.0.0.1:8188"
 DEFAULT_WORKFLOW = os.path.join(PROJECT_ROOT, "comfyui", "video_workflow.json")
@@ -27,9 +30,10 @@ class ComfyClient:
     Renders clips with a ComfyUI workflow exported in API format.
 
     The workflow sits next to a '.map.json' that says which node inputs to fill,
-    as "<node id>.<input name>": prompt and image (required), text_to_video,
-    seconds, width, height. Any 'seed' / 'noise_seed' input is randomised on every
-    run.
+    as "<node id>.<input name>": prompt (required), image (image_2... for more, and
+    image_link where one is plugged in if it can be left out), text_to_video, seconds
+    (or frames, with fps saying where its frame rate is), width, height. Any 'seed' /
+    'noise_seed' input is randomised on every run.
     """
 
     def __init__(self):
@@ -65,10 +69,12 @@ class ComfyClient:
                 raise RuntimeError(f"{map_path}: '{field}' points at '{path}', which is not in the workflow.")
             fields[field] = (node_id, input_name)
 
-        for required in ("prompt", "image"):
-            if required not in fields:
-                raise RuntimeError(f"{map_path} must map '{required}'.")
+        if "prompt" not in fields:
+            raise RuntimeError(f"{map_path} must map 'prompt'.")
         return workflow, fields
+
+    def takes(self):
+        return takes(self.fields)
 
     def is_reachable(self):
         try:
@@ -97,13 +103,33 @@ class ComfyClient:
             node_id, input_name = self.fields[field]
             workflow[node_id]["inputs"][input_name] = value
 
-    def render(self, prompt, image, seconds, width, height, save_as):
-        """Renders one clip and saves it as save_as plus its extension. Returns the path, or raises."""
+    def _fill_images(self, workflow, images):
+        """Empty inputs come out of the workflow, or get a stand-in if its text switch needs them to exist."""
+        self._set(workflow, "text_to_video", not images)
+        for position, slot in enumerate(image_slots(self.fields)):
+            if position < len(images):
+                self._set(workflow, slot, images[position])
+            elif f"{slot}_link" in self.fields:
+                node_id, input_name = self.fields[f"{slot}_link"]
+                del workflow[node_id]["inputs"][input_name]
+            else:
+                self._set(workflow, slot, self._stand_in_image())
+
+    def _stand_in_image(self):
+        buffer = io.BytesIO()
+        Image.new("RGB", (64, 64)).save(buffer, format="PNG")
+        buffer.seek(0)
+        return self._send_image(buffer, "pipeline_no_image.png")
+
+    def render(self, prompt, images, seconds, width, height, save_as):
+        """Renders one clip from these uploaded images and saves it as save_as plus its extension. Returns the path, or raises."""
         workflow = copy.deepcopy(self.workflow)
         self._set(workflow, "prompt", prompt)
-        self._set(workflow, "image", image)
-        self._set(workflow, "text_to_video", False)
+        self._fill_images(workflow, images)
         self._set(workflow, "seconds", seconds)
+        if "frames" in self.fields:
+            node_id, input_name = self.fields["fps"]
+            self._set(workflow, "frames", frames_for(seconds, workflow[node_id]["inputs"][input_name]))
         self._set(workflow, "width", width)
         self._set(workflow, "height", height)
 
@@ -189,9 +215,12 @@ class ComfyClient:
     def upload(self, path, name):
         """Uploads to ComfyUI's input folder and returns the value LoadImage expects."""
         with open(path, "rb") as f:
-            response = requests.post(f"{self.url}/upload/image",
-                                     files={"image": (name, f, "application/octet-stream")},
-                                     data={"overwrite": "true"}, timeout=60)
+            return self._send_image(f, name)
+
+    def _send_image(self, file, name):
+        response = requests.post(f"{self.url}/upload/image",
+                                 files={"image": (name, file, "application/octet-stream")},
+                                 data={"overwrite": "true"}, timeout=60)
         response.raise_for_status()
         data = response.json()
         return f"{data['subfolder']}/{data['name']}" if data.get("subfolder") else data["name"]

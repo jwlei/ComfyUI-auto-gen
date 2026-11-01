@@ -35,11 +35,13 @@ class RunState:
     shots: list = None  # [{title, seconds, prompt}]. Edit the prompts here before rendering, if you like.
     clips: dict = field(default_factory=dict)  # {shot index: file name in clips/}
     final: str = None
+    workflow: str = None  # The workflow file it renders with, if not the built-in one
+    image_count: int = 1  # 0 for a film from text alone, several for a workflow that takes references
 
     @classmethod
-    def new(cls, brief, seconds, start, width, height, llm="gemini", upload=None):
+    def new(cls, brief, seconds, start, width, height, llm="gemini", upload=None, workflow=None, image_count=1):
         return cls(id=f"run_{datetime.now():%Y%m%d_%H%M%S}", brief=brief, seconds=seconds, start=start,
-                   width=width, height=height, llm=llm, upload=upload)
+                   width=width, height=height, llm=llm, upload=upload, workflow=workflow, image_count=image_count)
 
     @classmethod
     def load(cls, run_id):
@@ -68,6 +70,11 @@ class RunState:
     @property
     def image_path(self):
         return os.path.join(self.folder, "input.png")
+
+    @property
+    def image_paths(self):
+        return [self.image_path if number == 1 else os.path.join(self.folder, f"input_{number}.png")
+                for number in range(1, self.image_count + 1)]
 
     @property
     def frame_path(self):

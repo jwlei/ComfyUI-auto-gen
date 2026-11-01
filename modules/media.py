@@ -8,6 +8,7 @@ from PIL import Image, ImageOps
 
 # The pixel count the workflow's models and memory use were tuned at (1280x736).
 RENDER_AREA = 1280 * 736
+DEFAULT_SHAPE = (1280, 736)  # With no image to take the shape from
 # The workflow halves the size, then upscales: both have to stay on the model's grid.
 SIZE_STEP = 32
 MAX_INPUT_EDGE = 2048

@@ -17,7 +17,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fakes import close, fake_claude, fake_comfy, make_clip, plan_reply
+from fakes import (OBJECT_INFO, close, fake_claude, fake_comfy, make_clip, plan_reply, reference_workflow, saved_workflow,
+                   text_only_workflow)
 
 from PIL import Image
 
@@ -46,6 +47,7 @@ class PanelTest(unittest.TestCase):
         self.addCleanup(patcher.stop)
         webapp._comfyui_cache["at"] = 0.0
         webapp._runs_cache["at"] = 0.0
+        webapp._saved_workflows_cache["at"] = 0.0
         # The fake renders instantly, which would otherwise teach the ETA that all renders do.
         if os.path.exists(webapp.STAGE_TIMINGS):
             os.remove(webapp.STAGE_TIMINGS)
@@ -342,6 +344,110 @@ class PanelTest(unittest.TestCase):
         self.assertTrue(os.path.exists(secret))
         for bad_id in ("..", "run_1", "..%2F..%2Fetc"):
             self.assertEqual(self.client.get(f"/runs/{bad_id}").status_code, 404, bad_id)
+
+    # --- Workflows saved in ComfyUI ---
+
+    def save_workflows(self):
+        broken = saved_workflow()
+        next(n for n in broken["nodes"] if n["id"] == 1)["widgets_values"] = ["gone.safetensors"]
+        self.comfy.saved, self.comfy.object_info = {"wan.json": saved_workflow(), "broken.json": broken,
+                                                    "r2v.json": reference_workflow(), "t2v.json": text_only_workflow()}, OBJECT_INFO
+
+    def test_saved_workflows_are_listed_with_why_one_cant_run(self):
+        self.save_workflows()
+        reply = self.client.get("/api/workflows").get_json()
+        self.assertTrue(reply["online"])
+        self.assertEqual(reply["workflows"], [
+            {"name": "broken.json", "label": "broken", "problem": "Needs gone.safetensors, which isn't installed."},
+            {"name": "r2v.json", "label": "r2v", "takes": {"min_images": 0, "max_images": 2}},
+            {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0}},
+            {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1}}])
+
+    def test_a_run_renders_with_the_chosen_workflow_and_keeps_it(self):
+        self.save_workflows()
+        self.assertEqual(self.generate(workflow="broken.json").status_code, 400)
+        self.assertEqual(self.generate(workflow="nowhere.json").status_code, 400)
+        self.assertTrue(self.generate(workflow="wan.json").get_json()["ok"])
+        self.wait_idle()
+
+        run = self.only_run()
+        self.assertTrue(run.final, [l["text"] for l in webapp.job.lines][-15:])
+        self.assertEqual(os.path.basename(run.workflow), "wan.json")
+        sent = self.comfy.prompts[0]["prompt"]
+        self.assertEqual(sent["2"]["inputs"]["text"], "Prompt number 1.")
+        self.assertEqual(sent["3"]["inputs"]["text"], "saved negative")
+        self.assertEqual(sent["4"]["inputs"]["image"], "uploaded.png")
+        seconds = run.shots[0]["seconds"]
+        self.assertEqual(sent["5"]["inputs"]["length"], seconds * 24 + 1, "in frames, at the workflow's 24 fps")
+        self.assertEqual((sent["5"]["inputs"]["width"], sent["5"]["inputs"]["height"]), (64, 64))
+        self.assertIs(sent["11"]["inputs"]["save_output"], False)
+
+        rendered = len(self.comfy.prompts)
+        self.assertTrue(self.client.post(f"/runs/{run.id}/redo/8").get_json()["ok"])
+        self.wait_idle()
+        self.assertEqual(len(self.comfy.prompts), rendered + 1)
+        self.assertIn("5", self.comfy.prompts[-1]["prompt"], "the redo uses it too")
+
+    def test_without_an_image_the_input_comes_out_of_the_workflow(self):
+        self.save_workflows()
+        self.assertTrue(self.generate(workflow="wan.json", image=None).get_json()["ok"])
+        self.wait_idle()
+        run = self.only_run()
+        self.assertTrue(run.final, [l["text"] for l in webapp.job.lines][-15:])
+        self.assertEqual(run.image_count, 0)
+        first, second = (p["prompt"] for p in self.comfy.prompts[:2])
+        self.assertNotIn("start_image", first["5"]["inputs"], "text only, so it doesn't load the saved example")
+        self.assertEqual(second["5"]["inputs"]["start_image"], ["4", 0], "after that, it continues from the last frame")
+        self.assertEqual(second["4"]["inputs"]["image"], "uploaded.png")
+        self.assertEqual(len(self.comfy.uploads), len(self.comfy.prompts) - 1)
+
+    def test_a_text_only_workflow_takes_no_image(self):
+        self.save_workflows()
+        self.assertEqual(self.generate(workflow="t2v.json").status_code, 400, "it has nowhere to put an image")
+        self.assertTrue(self.generate(workflow="t2v.json", image=None).get_json()["ok"])
+        self.wait_idle()
+        run = self.only_run()
+        self.assertTrue(run.final, [l["text"] for l in webapp.job.lines][-15:])
+        self.assertEqual(run.start, "image", "nothing to start the next clip on")
+        self.assertEqual(self.comfy.uploads, [])
+
+    def test_a_reference_workflow_gets_every_clip_all_its_images(self):
+        self.save_workflows()
+        image = lambda: (io.BytesIO(png_bytes()), "ref.png")
+        self.assertEqual(self.generate(workflow="r2v.json", image=[image(), image(), image()]).status_code, 400)
+        self.assertTrue(self.generate(workflow="r2v.json", image=[image(), image()]).get_json()["ok"])
+        self.wait_idle()
+        run = self.only_run()
+        self.assertTrue(run.final, [l["text"] for l in webapp.job.lines][-15:])
+        self.assertEqual((run.image_count, run.start), (2, "image"))
+        for sent in (p["prompt"] for p in self.comfy.prompts):
+            self.assertEqual((sent["2"]["inputs"]["image"], sent["1"]["inputs"]["image"]), ("uploaded.png", "uploaded.png"))
+            self.assertEqual(sent["6"]["inputs"]["width"], 64, "the size picker's link is replaced")
+            self.assertEqual(sent["3"]["inputs"]["value"][:6], "Prompt")
+        self.assertTrue(os.path.exists(run.image_paths[1]))
+
+    def test_the_built_in_workflow_still_needs_its_image(self):
+        self.assertEqual(self.generate(image=None).status_code, 400)
+        self.assertEqual(self.generate(image=[(io.BytesIO(png_bytes()), "a.png"), (io.BytesIO(png_bytes()), "b.png")]).status_code, 400)
+
+    def test_saved_workflows_stay_listed_with_comfyui_off(self):
+        self.save_workflows()
+        self.client.get("/api/workflows")
+        webapp._comfyui_cache.update(at=0.0)
+        with mock.patch.dict(os.environ, {"COMFYUI_URL": "http://127.0.0.1:9"}):
+            reply = self.client.get("/api/workflows").get_json()
+            self.assertFalse(reply["online"])
+            self.assertEqual(reply["workflows"], [
+                {"name": "r2v.json", "label": "r2v", "takes": {"min_images": 0, "max_images": 2}},
+                {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0}},
+                {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1}}])
+            self.assertEqual(os.path.basename(webapp.chosen_workflow({"workflow": "wan.json"})[0]["COMFYUI_WORKFLOW"]), "wan.json")
+        webapp._comfyui_cache.update(at=0.0)
+
+    def test_the_built_in_workflow_is_still_the_default(self):
+        self.assertEqual(webapp.chosen_workflow({}), ({}, webapp.BUILT_IN_TAKES, None))
+        self.assertEqual(webapp.chosen_workflow({"workflow": ""}), ({}, webapp.BUILT_IN_TAKES, None))
+        self.assertIn(b'<select id="workflow"', self.client.get("/").data)
 
     @unittest.skipUnless(os.name == "nt", "File Explorer is Windows only")
     def test_open_folder_only_on_this_pc(self):

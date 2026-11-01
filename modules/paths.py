@@ -10,6 +10,8 @@ UPLOADED_DIR = os.path.join(DATA_ROOT, "uploaded")
 # Images the panel received, until the run they were queued for has made its own copy.
 INPUTS_DIR = os.path.join(DATA_ROOT, "inputs")
 LOGS_DIR = os.path.join(DATA_ROOT, "logs")
+# The workflows saved in ComfyUI, as the pipeline runs them.
+SAVED_WORKFLOWS_DIR = os.path.join(LOGS_DIR, "workflows")
 
 
 def move_to_uploaded(path):

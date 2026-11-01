@@ -113,8 +113,36 @@ Ctrl+C cancels the clip in ComfyUI, and `--resume` continues. The plan is in `ru
 
 ## Using another workflow
 
-Set `COMFYUI_WORKFLOW` to a workflow saved with ComfyUI's **Export (API)**. Next to it, put a file with the
-same name ending in `.map.json`, which says which node inputs to fill (see
+**ComfyUI workflow** in the panel lists what you saved in ComfyUI. The panel converts the one you pick into API
+format when it lists them, and finds its prompt, image, length and size inputs from the graph. **Built-in LTX**
+stays the default and works as before.
+
+The form asks for what the chosen workflow can take:
+
+| Workflow | Images | Without one |
+| --- | --- | --- |
+| I2V | 1, required | Can't run |
+| I2V/T2V with a switch titled "text to video" | 0-1 | The switch goes to text |
+| TI2V, where the image plugs into an optional input | 0-1 | The image comes out of the workflow |
+| T2V, with no Load Image | None | Always from text |
+| R2V, with several Load Image nodes | Up to that many | The empty ones come out, if they're optional |
+
+Without an image, the LLM describes everything in full in every prompt and the film is 1280x736, unless you set
+a size. With references, every clip gets all of them and the LLM calls them `<Picture 1>`, `<Picture 2>`. A T2V or
+R2V workflow can't start a clip on the last frame of the one before, so its clips are separate moments.
+
+It works out which input is the prompt by following the sampler's positive input back to its text, or from a
+node's own `prompt` input. For length it wants a number node with "seconds" or "duration" in its title, or a
+`length` input next to `width` and `height`. For size, integer nodes titled "width" and "height", or those same
+inputs. A workflow that can't run stays in the list, greyed out, and the hint says why: a model or node that isn't
+installed, or subgraphs. A saved `SaveVideo` becomes VideoHelperSuite's Video Combine, the only way to keep its
+clips out of ComfyUI's output folder.
+
+A run keeps its workflow when you continue it or redo a shot. The conversions sit in `logs/workflows/`, so with
+ComfyUI off the panel still lists the ones it had last time, and a run starts it.
+
+From the command line, set `COMFYUI_WORKFLOW` to a workflow saved with ComfyUI's **Export (API)**. Next to it, put
+a file with the same name ending in `.map.json`, which says which node inputs to fill (see
 `comfyui/video_workflow.map.json`). `prompt` and `image` are required.
 
 Clips are kept out of ComfyUI's output folder: they render to its temp folder and are downloaded from there.
@@ -132,12 +160,13 @@ modules/media.py      images, frames and joining clips, with ffmpeg
 modules/run_state.py  what each run has finished
 modules/run_eta.py    estimates, learned from earlier runs
 modules/publisher.py  uploads to YouTube
+modules/saved_workflows.py  turns the workflows saved in ComfyUI into what the pipeline runs
 comfyui/              the workflow and which of its inputs get filled
 runs/<run>/           a run's state, input image and clips, kept until you delete the film
 output/               finished films
 uploaded/             films that went to YouTube
 inputs/               images the panel received, until a run has its own copy
-logs/                 ETA timings, saved queues, the panel's log
+logs/                 ETA timings, saved queues, the panel's log, converted workflows
 ```
 
 ## Tests

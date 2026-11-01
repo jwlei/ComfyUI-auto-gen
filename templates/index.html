@@ -190,9 +190,11 @@
 <form class="card" id="form">
   <div class="section">
     <div class="section-title">What to make</div>
-    <label for="image">Opening image</label>
-    <input id="image" name="image" type="file" accept="image/*">
-    <img class="preview hidden" id="preview" alt="The image the film opens on">
+    <div id="imageBox">
+      <label for="image" id="imageLabel">Opening image</label>
+      <input id="image" name="image" type="file" accept="image/*">
+      <img class="preview hidden" id="preview" alt="The image the film opens on">
+    </div>
 
     <label for="prompt">What should happen</label>
     <textarea id="prompt" name="prompt" placeholder="e.g. A storm rolls in over the harbour and the fishing boats race home"></textarea>
@@ -209,6 +211,12 @@
       {% for llm in llms %}<option value="{{ llm.name }}" {% if not llm.ready %}disabled{% endif %}>{{ llm.label }}{% if not llm.ready %} (no key in .env){% endif %}</option>{% endfor %}
     </select>
     <div class="hint">A film takes one request, whatever its length.</div>
+
+    <label for="workflow">ComfyUI workflow</label>
+    <select id="workflow" name="workflow">
+      <option value="">Built-in LTX</option>
+    </select>
+    <div class="hint" id="workflowHint">The workflows you saved in ComfyUI. The image above changes to what the chosen one takes. A run keeps the one it started with, also when you continue it later.</div>
 
     <label for="start">How clips connect</label>
     <select id="start" name="start">
@@ -351,9 +359,50 @@ function loadForm() {
     else if (!el.options || [...el.options].some(o => o.value === String(data[el.name]) && !o.disabled)) el.value = data[el.name];
   }
 }
+// --- Workflows saved in ComfyUI ---
+const WORKFLOW_HINT = $('workflowHint').textContent;
+const BUILT_IN_TAKES = { min_images: 1, max_images: 1 };
+let workflowsFor = null, workflowTakes = {};
+function rememberedWorkflow() {
+  try { return (JSON.parse(localStorage.getItem(STORE_KEY)) || {}).workflow || ''; } catch (e) { return ''; }
+}
+async function loadWorkflows() {
+  let data;
+  try { data = await (await fetch('/api/workflows')).json(); } catch (e) { return; }
+  const select = $('workflow');
+  const key = JSON.stringify(data);
+  // Writing the options closes the list, and this also runs as it opens.
+  if (select.dataset.key === key) return;
+  const wanted = select.dataset.key ? select.value : rememberedWorkflow();
+  select.dataset.key = key;
+  select.innerHTML = '<option value="">Built-in LTX</option>' + data.workflows.map(w =>
+    `<option value="${esc(w.name)}" ${w.problem ? 'disabled' : ''}>${esc(w.label)}${w.problem ? " (can't run)" : ''}</option>`).join('');
+  if (data.workflows.some(w => w.name === wanted && !w.problem)) select.value = wanted;
+  workflowTakes = Object.fromEntries(data.workflows.map(w => [w.name, w.takes]));
+  syncImageInput();
+  const off = data.online ? '' : ' ComfyUI is off, so this lists the ones it had last time.';
+  const stuck = data.workflows.filter(w => w.problem).map(w => ` ${w.label} can't run: ${w.problem}`).join('');
+  $('workflowHint').textContent = WORKFLOW_HINT + off + stuck;
+}
+$('workflow').addEventListener('focus', loadWorkflows);
+function syncImageInput() {
+  const { min_images: low, max_images: high } = workflowTakes[$('workflow').value] || BUILT_IN_TAKES;
+  $('imageBox').classList.toggle('hidden', high === 0);
+  $('image').multiple = high > 1;
+  if (($('image').files || []).length > high) {
+    $('image').value = '';
+    $('preview').classList.add('hidden');
+  }
+  $('imageLabel').textContent = high > 1 ? `Reference images (up to ${high}${low ? '' : ', optional'})`
+    : low ? 'Opening image' : 'Opening image (optional: without one it starts from text)';
+  // Starting on the last frame only works when one image is all a clip takes.
+  $('start').disabled = high !== 1;
+}
+
 const AVERAGE_SHOT_SECONDS = 8;
 function clipCount(n) { return `${n} ${n === 1 ? 'clip' : 'clips'}`; }
 function syncForm() {
+  syncImageInput();
   const seconds = +$('duration').value;
   $('durationText').textContent = `${fmt(seconds)} · about ${clipCount(Math.max(1, Math.round(seconds / AVERAGE_SHOT_SECONDS)))}`;
 }
@@ -893,6 +942,7 @@ async function poll() {
   if (data.lines.length) renderLog(data.lines);
 
   const c = data.comfyui;
+  if (c.online !== workflowsFor) { workflowsFor = c.online; loadWorkflows(); }
   $('comfyDot').className = 'dot ' + (c.online ? 'ok' : 'fail');
   $('comfyText').textContent = 'ComfyUI: ' + (c.online ? 'running'
     : c.starting ? 'starting… (loading models)'
