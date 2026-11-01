@@ -55,8 +55,6 @@ STOP_FAILED = "It could not be stopped. End it in Task Manager (python.exe)."
 STARTED_AT = time.time()
 # A phone photo is well under this; the limit only stops a mistake filling the disk.
 MAX_UPLOAD_BYTES = 50 * 2 ** 20
-MIN_FILM_SECONDS = 60
-MAX_FILM_SECONDS = 300
 DEFAULT_FILM_SECONDS = 120
 
 app = Flask(__name__)
@@ -857,7 +855,7 @@ def index():
         stages=STAGES,
         llms=[{"name": name, "label": label, "ready": planner.llm_configured(name)} for name, label in planner.LLMS],
         default_llm=planner.default_llm(),
-        film_limits=[MIN_FILM_SECONDS, MAX_FILM_SECONDS, DEFAULT_FILM_SECONDS],
+        film_limits=[planner.MIN_FILM_SECONDS, planner.MAX_FILM_SECONDS, DEFAULT_FILM_SECONDS],
         can_upload=youtube_configured(),
     )
 
@@ -872,8 +870,8 @@ def build_options(form):
         seconds = int(form.get("duration") or DEFAULT_FILM_SECONDS)
     except ValueError:
         return None, "Film length must be a whole number of seconds."
-    if not MIN_FILM_SECONDS <= seconds <= MAX_FILM_SECONDS:
-        return None, f"Film length must be {MIN_FILM_SECONDS}-{MAX_FILM_SECONDS} seconds."
+    if not planner.MIN_FILM_SECONDS <= seconds <= planner.MAX_FILM_SECONDS:
+        return None, f"Film length must be {planner.MIN_FILM_SECONDS}-{planner.MAX_FILM_SECONDS} seconds."
     flags += ["--duration", str(seconds)]
 
     start = form.get("start") or "chain"
@@ -948,8 +946,9 @@ def generate():
 
     argv = [sys.executable, "main.py", *flags, "--", image_path, prompt]
     plan_only = "--plan-only" in flags
-    minutes = int(flags[flags.index("--duration") + 1]) / 60
-    detail = [f"{minutes:g} min film", llm, "review the prompts first" if plan_only else "renders straight away"]
+    seconds = int(flags[flags.index("--duration") + 1])
+    length = f"{seconds}s" if seconds < 60 else f"{seconds // 60}:{seconds % 60:02d}"
+    detail = [f"{length} film", llm, "review the prompts first" if plan_only else "renders straight away"]
     item = {"label": queue_label(prompt), "detail": " · ".join(detail), "argv": argv, "env": {},
             "image": image_path, "plan_only": plan_only, "estimate": RunEta(argv, STAGE_TIMINGS).plan()["total"]}
     queued = run_queue.add(item)

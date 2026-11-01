@@ -283,9 +283,26 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(sum(planner.fit_durations([9, 9, 9, 9], 30)), 30)
 
     def test_shot_counts_for_the_film_limits(self):
-        for seconds in (60, 90, 150, 300):
+        for seconds in range(planner.MIN_FILM_SECONDS, planner.MAX_FILM_SECONDS + 1):
             count = planner.shot_count(seconds)
-            self.assertTrue(count * planner.MIN_SHOT_SECONDS <= seconds <= count * planner.MAX_SHOT_SECONDS)
+            self.assertTrue(count * planner.MIN_SHOT_SECONDS <= seconds <= count * planner.MAX_SHOT_SECONDS, seconds)
+        self.assertEqual(planner.shot_count(5), 1)
+        self.assertEqual(planner.shot_count(600), 75)
+
+    def test_a_ten_minute_plan_fits(self):
+        shots = [{"title": f"S{i}", "seconds": 8, "prompt": f"p{i}"} for i in range(75)]
+        with mock.patch.object(planner, "_ask", return_value=self.reply(shots)):
+            _, planned = planner.plan_film(b"jpeg", "brief", 600, "chain")
+        self.assertEqual((len(planned), sum(s["seconds"] for s in planned)), (75, 600))
+
+    def test_very_short_films_arent_asked_for_a_story(self):
+        one = planner._instructions("a storm", 5, "chain")
+        self.assertIn("made of one clip", one)
+        self.assertIn("exactly one shot.", one)
+        self.assertIn("one clear moment", one)
+        self.assertNotIn("last frame of the clip before", one, "there is no clip before")
+        self.assertNotIn("a real ending", one)
+        self.assertIn("a real ending", planner._instructions("a storm", 60, "chain"))
 
     def reply(self, shots, title="Film"):
         return json.dumps({"title": title, "shots": shots})
@@ -397,9 +414,9 @@ class ClaudeTest(unittest.TestCase):
 
 class ArgsTest(unittest.TestCase):
     def test_durations(self):
-        for text, seconds in (("90", 90), ("90s", 90), ("3m", 180), ("2m30", 150), ("5m", 300), ("1m", 60)):
+        for text, seconds in (("5", 5), ("5s", 5), ("90", 90), ("3m", 180), ("2m30", 150), ("10m", 600)):
             self.assertEqual(main.parse_duration(text), seconds)
-        for text in ("30", "6m", "soon", "", "m"):
+        for text in ("4", "10m1", "11m", "soon", "", "m"):
             with self.assertRaises(Exception):
                 main.parse_duration(text)
 

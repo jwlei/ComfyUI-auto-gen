@@ -1,6 +1,6 @@
 # auto-comfyui
 
-Turns one image and a short prompt into a 1-5 minute film. An LLM looks at the image and writes a detailed
+Turns one image and a short prompt into a film, from a single 5-second clip up to 10 minutes. An LLM looks at the image and writes a detailed
 prompt per shot, ComfyUI renders each shot as a clip, and ffmpeg joins them. It runs from a web panel or the
 command line.
 
@@ -78,8 +78,8 @@ If a continuous take drifts away from how your image looks, try separate moments
 
 ## Time and cost
 
-Rendering takes about 30 minutes per minute of film on the GPU this was built on, so a 5-minute film takes around
-2.5 hours. The ETA learns from each run. ComfyUI's queue is shared, so other work there takes its turn between
+Rendering takes about 30 minutes per minute of film on the GPU this was built on, so a 10-minute film takes around
+5 hours. The ETA learns from each run. ComfyUI's queue is shared, so other work there takes its turn between
 clips.
 
 A film's prompts take one LLM request, however long the film is, and an upload's title and description take one
@@ -93,7 +93,7 @@ python main.py harbour.jpg "a storm rolls in over the harbour" --duration 3m --l
 
 | Option | What it does |
 |---|---|
-| `--duration` | Film length: `90`, `3m` or `2m30`. 1-5 minutes, default `2m`. |
+| `--duration` | Film length: `90`, `3m` or `2m30`. From 5 seconds to 10 minutes, default `2m`. |
 | `--llm` | `gemini` or `claude`. Default: `LLM_PROVIDER`, else `gemini`. |
 | `--start` | `chain` for one continuous take (default), `image` for separate moments. |
 | `--size 1280x736` | Render size. By default it takes the image's shape at the workflow's pixel count. |

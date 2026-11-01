@@ -2,7 +2,7 @@ import json
 import os
 import time
 
-from modules.planner import AVERAGE_SHOT_SECONDS
+from modules.planner import AVERAGE_SHOT_SECONDS, shot_count
 from modules.run_state import STAGES, RunState
 
 # Used until a finished step has been timed.
@@ -51,7 +51,7 @@ class RunEta:
             self.film_seconds = int(_option(argv, "--duration", 0))
         except ValueError:
             self.film_seconds = 0
-        self.shots = max(1, round(self.film_seconds / AVERAGE_SHOT_SECONDS))
+        self.shots = shot_count(self.film_seconds)
         self.kept_stages = ()
         self.kept_seconds = 0
 

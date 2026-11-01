@@ -178,7 +178,7 @@
 <div class="top">
   <div class="title">
     <h1>🎞️ auto-comfyui</h1>
-    <p class="sub">One image and a short prompt become a 1-5 minute film. An LLM writes each shot's prompt, ComfyUI renders the clips, ffmpeg joins them.</p>
+    <p class="sub">One image and a short prompt become a film of up to 10 minutes. An LLM writes each shot's prompt, ComfyUI renders the clips, ffmpeg joins them.</p>
   </div>
   <div style="display:flex;gap:14px;align-items:center">
     <a href="#" id="shutdown" title="Force-stops everything, then the panel's server. Start it again with start_webapp.pyw or the AutoComfyUI shortcut.">Shut down</a>
@@ -199,7 +199,7 @@
     <div class="hint">A sentence or two is enough: the LLM looks at the image and writes the detailed prompt for every shot.</div>
 
     <div class="range-head" style="margin-top:12px"><label for="duration">Film length</label><output id="durationText"></output></div>
-    <input id="duration" name="duration" type="range" min="{{ film_limits[0] }}" max="{{ film_limits[1] }}" step="10" value="{{ film_limits[2] }}">
+    <input id="duration" name="duration" type="range" min="{{ film_limits[0] }}" max="{{ film_limits[1] }}" step="5" value="{{ film_limits[2] }}">
   </div>
 
   <div class="section">
@@ -351,9 +351,10 @@ function loadForm() {
   }
 }
 const AVERAGE_SHOT_SECONDS = 8;
+function clipCount(n) { return `${n} ${n === 1 ? 'clip' : 'clips'}`; }
 function syncForm() {
   const seconds = +$('duration').value;
-  $('durationText').textContent = `${fmt(seconds)} · about ${Math.round(seconds / AVERAGE_SHOT_SECONDS)} shots`;
+  $('durationText').textContent = `${fmt(seconds)} · about ${clipCount(Math.max(1, Math.round(seconds / AVERAGE_SHOT_SECONDS)))}`;
 }
 $('form').addEventListener('change', () => { syncForm(); saveForm(); });
 $('duration').addEventListener('input', syncForm);
@@ -647,7 +648,7 @@ function renderPlan() {
   const when = queueAhead === null || review ? ''
     : ` · ${queueAhead ? 'after the jobs ahead, ' : ''}done around ${clockIn(queueAhead + plan.total)}`;
   $('estimateTotal').innerHTML = `Estimated time: <b>${fmtEta(plan.total)}</b>${when}`;
-  const clips = `${plan.clips} clips of about ${plan.clip_seconds} s, ${fmtEta(plan.clip_render)} each. A clip that fails renders again, which adds that time.`;
+  const clips = `${clipCount(plan.clips)} of about ${plan.clip_seconds} s, ${fmtEta(plan.clip_render)} each. A clip that fails renders again, which adds that time.`;
   $('estimateDetail').textContent = review ? `${clips} Only the prompts are written now: rendering waits until you press Render the film.` : clips;
   $('estimateDetail').title = plan.steps.map(s => `${s.name}: ${fmtEta(s.seconds)}`).join('\n');
 }

@@ -17,12 +17,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fakes import close, fake_claude, fake_comfy, make_clip
+from fakes import close, fake_claude, fake_comfy, make_clip, plan_reply
 
 from PIL import Image
 
 import webapp
-from modules import paths
+from modules import media, paths
 from modules.run_state import RunState, list_runs
 
 
@@ -216,6 +216,36 @@ class PanelTest(unittest.TestCase):
                          "the two finished clips aren't rendered again")
         self.assertEqual(len(status["videos"]["output"]), 1)
 
+    def test_a_film_of_one_clip(self):
+        self.claude.reply = plan_reply(shots=1, seconds=5)
+        self.assertTrue(self.generate(duration="5").get_json()["ok"])
+        self.wait_idle()
+        status = self.status()
+        self.assertEqual(status["returncode"], 0, status["lines"])
+        self.assertEqual(len(self.comfy.prompts), 1)
+        self.assertEqual(self.comfy.prompts[0]["prompt"]["291"]["inputs"]["value"], 5)
+        self.assertEqual(len(status["videos"]["output"]), 1)
+        film = os.path.join(paths.OUTPUT_DIR, status["videos"]["output"][0]["name"])
+        self.assertAlmostEqual(media.duration(film), 5, delta=0.1, msg="a first clip keeps all its frames")
+
+    def test_the_estimate_covers_the_whole_range(self):
+        short = self.client.post("/api/estimate", data={"duration": "5"}).get_json()
+        long = self.client.post("/api/estimate", data={"duration": "600"}).get_json()
+        self.assertEqual((short["clips"], long["clips"]), (1, 75))
+        self.assertGreater(long["total"], 5 * 3600 * 0.9, "about 5 hours at the default render speed")
+        self.assertLess(short["total"], 600)
+
+    def test_a_short_film_says_so_in_the_queue(self):
+        self.comfy.script = ["hang"]
+        self.claude.reply = plan_reply(shots=1, seconds=5)
+        self.assertTrue(self.generate(duration="5").get_json()["ok"])
+        self.wait_until(lambda: self.comfy.hanging, "the clip to start")
+        self.assertTrue(self.generate(duration="150", review="1").get_json()["queued"])
+        self.assertTrue(self.generate(duration="5", review="1").get_json()["queued"])
+        details = [item["detail"] for item in self.status()["queue"]["items"]]
+        self.assertTrue(details[0].startswith("2:30 film"), details)
+        self.assertTrue(details[1].startswith("5s film"), details)
+
     def test_a_run_that_fails_can_be_continued(self):
         self.comfy.script = ["ok", "error", "error"]
         self.assertTrue(self.generate().get_json()["ok"])
@@ -277,7 +307,8 @@ class PanelTest(unittest.TestCase):
             ({"prompt": ""}, "what should happen"),
             ({"image": None}, "image"),
             ({"image": (io.BytesIO(b"not an image"), "x.png")}, "isn't an image"),
-            ({"duration": "30"}, "60-300"),
+            ({"duration": "4"}, "5-600"),
+            ({"duration": "605"}, "5-600"),
             ({"duration": "soon"}, "whole number"),
             ({"start": "sideways"}, "start mode"),
             ({"llm": "gpt"}, "Unknown LLM"),

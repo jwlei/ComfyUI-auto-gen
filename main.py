@@ -13,8 +13,6 @@ from modules.comfy import ComfyClient
 from modules.run_state import STAGES, RunState, list_runs
 
 CLIP_ATTEMPTS = 2
-MIN_FILM_SECONDS = 60
-MAX_FILM_SECONDS = 300
 # Clip render time per second of video, from the yt-auto-shorts runs on this GPU.
 RENDER_SECONDS_PER_SECOND = 31
 
@@ -25,8 +23,8 @@ def parse_duration(text):
     if not match or not any(match.groups()):
         raise argparse.ArgumentTypeError(f"'{text}' is not a duration. Use 90, 3m or 2m30.")
     seconds = int(match.group(1) or 0) * 60 + int(match.group(2) or 0)
-    if not MIN_FILM_SECONDS <= seconds <= MAX_FILM_SECONDS:
-        raise argparse.ArgumentTypeError(f"The film has to be {MIN_FILM_SECONDS}-{MAX_FILM_SECONDS} seconds long, got {seconds}.")
+    if not planner.MIN_FILM_SECONDS <= seconds <= planner.MAX_FILM_SECONDS:
+        raise argparse.ArgumentTypeError(f"The film has to be {planner.MIN_FILM_SECONDS}-{planner.MAX_FILM_SECONDS} seconds long, got {seconds}.")
     return seconds
 
 
@@ -38,10 +36,10 @@ def parse_size(text):
 
 
 def parse_args(argv=None):
-    parser = argparse.ArgumentParser(description="Turns one image and a short prompt into a 1-5 minute film of ComfyUI clips.")
+    parser = argparse.ArgumentParser(description="Turns one image and a short prompt into a film of up to 10 minutes, made of ComfyUI clips.")
     parser.add_argument("image", nargs="?", help="The image the film opens on.")
     parser.add_argument("prompt", nargs="?", help="What should happen, in a sentence or two.")
-    parser.add_argument("--duration", type=parse_duration, default="2m", help="Film length: 90, 3m or 2m30 (default 2m, 1-5 minutes).")
+    parser.add_argument("--duration", type=parse_duration, default="2m", help="Film length: 90, 3m or 2m30 (default 2m, from 5 seconds to 10 minutes).")
     parser.add_argument("--start", choices=("chain", "image"), default="chain",
                         help="Start each clip on the last frame of the one before (chain, default), or on the input image.")
     parser.add_argument("--llm", choices=[name for name, _ in planner.LLMS], default=None,

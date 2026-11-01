@@ -38,6 +38,11 @@ const run = code => vm.runInContext(code, context);
 // Remembered options never touch the file input, which throws if you set its value.
 assert(run('NOT_REMEMBERED').includes('image'));
 
+// The film length range comes from the server, and goes down to one clip.
+assert(/id="duration"[^>]*min="5"[^>]*max="600"[^>]*step="5"/.test(html));
+assert.strictEqual(run('clipCount(1)'), '1 clip');
+assert.strictEqual(run('clipCount(75)'), '75 clips');
+
 // Times.
 assert.strictEqual(run('stepEta({state:"kept",seconds:0})'), 'kept');
 assert.strictEqual(run('stepEta({state:"done",seconds:65})'), '1:05');

@@ -1,4 +1,5 @@
 import base64
+import math
 import os
 import re
 import threading
@@ -27,15 +28,21 @@ RETRYABLE_STATUSES = (429, 500, 502, 503, 504)
 # Longest a single retry will sleep. A daily-quota 429 reports delays far past
 # anything worth blocking a run on.
 MAX_RETRY_WAIT = 90
-# A whole film's prompts come back in one reply, which takes a while. A model that
-# says nothing for this long is overloaded or stuck, so move on.
-DEFAULT_TIMEOUT = 180
+# A whole film's prompts come back in one reply: about 75 of them at the longest,
+# which takes a while. A model that says nothing for this long is overloaded or
+# stuck, so move on.
+DEFAULT_TIMEOUT = 360
 
+# How long a whole film can be, in seconds: one shortest clip, up to 10 minutes.
+MIN_FILM_SECONDS = 5
+MAX_FILM_SECONDS = 600
 # How long the video model can make a clip, in seconds. Shorter clips can't hold an
 # action; longer ones run out of the workflow's memory.
 MIN_SHOT_SECONDS = 5
 MAX_SHOT_SECONDS = 10
 AVERAGE_SHOT_SECONDS = 8
+# Too few clips to tell a story with: they show one moment instead.
+MIN_SHOTS_FOR_A_STORY = 3
 PLAN_ATTEMPTS = 3
 
 CONTINUITY = {
@@ -107,7 +114,8 @@ def llm_configured(llm):
 
 
 def shot_count(seconds):
-    return max(1, round(seconds / AVERAGE_SHOT_SECONDS))
+    """The ceiling matters at 11s, which rounds to one clip that couldn't be long enough."""
+    return max(math.ceil(seconds / MAX_SHOT_SECONDS), round(seconds / AVERAGE_SHOT_SECONDS), 1)
 
 
 def fit_durations(lengths, target):
@@ -124,23 +132,28 @@ def fit_durations(lengths, target):
 
 def _instructions(brief, seconds, start):
     count = shot_count(seconds)
+    clips = "one clip" if count == 1 else f"{count} consecutive clips"
+    shots = "one shot" if count == 1 else f"{count} shots in order"
+    shape = (f"Give the film a beginning, a development and a real ending, rather than {count} versions of the same moment."
+             if count >= MIN_SHOTS_FOR_A_STORY else "This is too short for a story: show one clear moment that feels complete.")
+    together = f"Use {seconds}." if count == 1 else f"All of them together add up to {seconds}."
+    continuity = "" if count == 1 else CONTINUITY[start]
     return f"""
-    You are directing a {seconds}-second film made of {count} consecutive clips from an AI video
+    You are directing a {seconds}-second film made of {clips} from an AI video
     model (LTX-2). The attached image is the film's opening frame. Look at it closely: the subject,
     the place, the light, the style.
 
     The brief, in the words of the person making it: "{brief}"
 
     The brief is short on purpose. Invent the detail the film needs, in keeping with the brief and
-    the image, and never contradicting them. Give the film a beginning, a development and a real
-    ending, rather than {count} versions of the same moment. Bring in no new main characters unless
+    the image, and never contradicting them. {shape} Bring in no new main characters unless
     the brief asks for them.
 
-    {CONTINUITY[start]}
+    {continuity}
 
-    Return a title for the film, and exactly {count} shots in order. For each shot:
+    Return a title for the film, and exactly {shots}. For each shot:
     - title: 2-5 words.
-    - seconds: a whole number from {MIN_SHOT_SECONDS} to {MAX_SHOT_SECONDS}. All of them together add up to {seconds}.
+    - seconds: a whole number from {MIN_SHOT_SECONDS} to {MAX_SHOT_SECONDS}. {together}
     - prompt: the text the video model gets, following the rules below.
 
     The video model sees one prompt and one start frame at a time, and knows nothing about the film:
@@ -314,7 +327,7 @@ def plan_film(image_jpeg, brief, seconds, start, llm="gemini"):
     """
     Turns the image and the short brief into a film's shot list. One request for the
     whole film rather than one per clip: the prompts have to know each other, and a
-    5-minute film would otherwise spend most of a free model's daily quota.
+    long film would otherwise spend more than a free model's whole daily quota.
     """
     instructions = _instructions(brief, seconds, start)
 
