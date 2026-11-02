@@ -804,7 +804,7 @@ function renderVideos() {
         : `<a href="/download/${folder}/${url}">Download</a>`;
       return `
       <div class="vid" data-name="${name}">
-        <video controls preload="metadata" playsinline src="/videos/${folder}/${url}#t=0.1"></video>
+        <video controls preload="none" playsinline poster="/posters/${folder}/${url}" src="/videos/${folder}/${url}#t=0.1"></video>
         <h3>${v.topic ? esc(v.topic) : '<span style="color:var(--muted)">No topic recorded</span>'}</h3>
         <div class="meta" title="${name}">${v.model ? `${esc(v.model)} · ` : ''}${name} · ${v.created} · ${v.size_mb} MB</div>
         <div class="acts">${main}<button type="button" class="del" data-del="${name}">Delete</button></div>
@@ -1465,13 +1465,32 @@ function renderStrips(data) {
 
 // --- Status polling ---
 let stoppedCount = 0, wasRunning = false, uploadRunning = false, runsQueued = 0, uploadsQueued = 0, submitting = false;
+// Longer than a status takes, shorter than anyone would wait for one.
+const POLL_TIMEOUT = 8000;
+let pollNumber = 0, serverStarted = null;
+function formInProgress() {
+  return $('shotsDialog').open || ['topic', 'output', 'prompt', 'narration'].some(id => $(id).value);
+}
 async function poll() {
+  const mine = ++pollNumber;
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), POLL_TIMEOUT);
   let data;
   try {
-    data = await (await fetch('/api/status')).json();
+    const response = await fetch('/api/status', { cache: 'no-store', signal: abort.signal });
+    // Signed out in the meantime: nothing here would ever update again.
+    if (response.redirected) { location.reload(); return; }
+    data = await response.json();
   } catch (e) {
-    return; // transient; the next tick retries
+    return; // transient, or stuck and given up on; the next tick retries
+  } finally {
+    clearTimeout(timer);
   }
+  if (mine !== pollNumber) return;  // A newer one has gone out since
+
+  // A new server has new code: pick it up, unless that would lose what is being typed.
+  if (serverStarted && serverStarted !== data.server_started && !formInProgress()) { location.reload(); return; }
+  serverStarted = data.server_started;
 
   const running = data.running;
   if (wasRunning && !running) {
@@ -1679,5 +1698,9 @@ syncVideoForm();
 markJump();
 poll();
 setInterval(poll, 2000);
+// A phone pauses a page it isn't showing, so catch up as soon as it is shown again.
+document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+window.addEventListener('pageshow', poll);
+window.addEventListener('focus', poll);
 </script>
 {% endblock %}

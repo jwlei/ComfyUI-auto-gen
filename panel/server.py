@@ -1012,6 +1012,7 @@ def launcher_refresh():
 @password_required
 def status():
     payload = job.snapshot()
+    payload["server_started"] = STARTED_AT
     payload["queue"] = run_queue.snapshot()
     payload["stopped_runs"] = stopped_runs()
     payload["upload"] = uploads.snapshot()
@@ -1053,6 +1054,17 @@ def video_file(folder, name):
     return send_file(safe_video_path(folder, name), mimetype="video/mp4", conditional=True)
 
 
+@app.route("/posters/<folder>/<path:name>")
+@password_required
+def poster(folder, name):
+    """The picture a Short shows before it plays, as videos only load once you press play."""
+    stem = os.path.splitext(safe_video_path(folder, name))[0]
+    for candidate in (f"{stem}.jpg", f"{stem}.still.jpg"):
+        if os.path.exists(candidate):
+            return send_file(candidate, mimetype="image/jpeg", max_age=3600)
+    abort(404)
+
+
 @app.route("/download/<folder>/<path:name>")
 @password_required
 def download(folder, name):
@@ -1079,6 +1091,13 @@ def open_folder(folder):
 @password_required
 def delete(folder, name):
     return PIPELINES[FOLDER_PIPELINES.get(folder, "shorts")].delete_video(folder, safe_video_path(folder, name))
+
+
+@app.after_request
+def never_cache_status(response):
+    if request.path == "/api/status":
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 class _QuietPolling(logging.Filter):

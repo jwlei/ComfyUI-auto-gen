@@ -397,6 +397,23 @@ class SwitchTest(unittest.TestCase):
     def setUp(self):
         self.client = webapp.app.test_client()
 
+    def test_a_short_has_a_poster_as_it_loads_nothing_until_played(self):
+        folder = webapp.FOLDERS["output"]
+        os.makedirs(folder, exist_ok=True)
+        files = [os.path.join(folder, name) for name in ("a.mp4", "a.still.jpg", "b.mp4")]
+        for path in files:
+            open(path, "wb").close()
+            self.addCleanup(os.remove, path)
+        self.assertEqual(self.client.get("/posters/output/a.mp4").status_code, 200)
+        self.assertEqual(self.client.get("/posters/output/b.mp4").status_code, 404)
+        self.assertEqual(self.client.get("/posters/output/nope.mp4").status_code, 404)
+        self.assertEqual(self.client.get("/posters/output/..%2F..%2Fsecret.mp4").status_code, 404)
+
+    def test_the_status_is_never_cached_and_names_its_server(self):
+        reply = self.client.get("/api/status")
+        self.assertEqual(reply.headers["Cache-Control"], "no-store")
+        self.assertEqual(reply.get_json()["server_started"], webapp.STARTED_AT)
+
     def test_both_addresses_open_the_same_page_on_their_side(self):
         for address, side in (("/", ""), ("/shorts", "shorts"), ("/video", "video")):
             page = self.client.get(address).get_data(as_text=True)

@@ -23,12 +23,13 @@ function element(id) {
 }
 const els = {};
 const context = {
-  document: { getElementById: id => (els[id] = els[id] || element(id)), documentElement: { style: { setProperty() {} } }, body: element('body') },
+  document: { getElementById: id => (els[id] = els[id] || element(id)), documentElement: { style: { setProperty() {} } }, body: element('body'), addEventListener() {}, hidden: false },
   history: { replaceState() {} },
   window: { addEventListener() {}, innerHeight: 800 },
   localStorage: { getItem: () => null, setItem() {} },
   fetch: async () => { throw new Error('offline'); },
   FormData: class { delete() {} append() {} },
+  location: { reload() { context.reloads++; } }, reloads: 0, AbortController,
   URL, setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, requestAnimationFrame: () => 0, cancelAnimationFrame() {},
   confirm: () => true, alert() {}, console, Date, Math, JSON, Set, Object, String,
 };
@@ -212,6 +213,9 @@ assert.strictEqual(els.uploadStripHint.textContent, 'A.mp4');
 assert.strictEqual(els.uploadStripBar.style.width, '33%');
 assert.deepStrictEqual([...html.matchAll(/<a href="#(\w+)"/g)].map(m => m[1]), ['runCard', 'optionsCard', 'queueCard', 'logCard', 'quotaCard', 'videosCard']);
 
+// Nothing a video does can hold up the status: no video loads until you press play.
+assert(!/preload="(metadata|auto)"/.test(script) && !/preload="(metadata|auto)"/.test(html), 'videos must not hold the browser\'s connections');
+
 // Every link goes somewhere, in the page's own order, or the wrong section lights up.
 const links = [...html.matchAll(/<a href="#(\w+)"/g)].map(m => m[1]);
 for (const id of links) assert(ids.has(id), `#${id} is on the page`);
@@ -244,4 +248,36 @@ run(`renderQueue(queue, { items: [{ id: 3, label: 'a <film>', detail: 'd', estim
 assert(queue.innerHTML.includes('<b>Runs (1)</b>'));
 assert(queue.innerHTML.includes('data-resume') && queue.innerHTML.includes('data-remove="3"') && queue.innerHTML.includes('a &lt;film&gt;'));
 
-console.log('all page checks passed');
+// The status recovers by itself.
+(async () => {
+  const quiet = { ...idle, lines: [], queue: { items: [], results: [], held: false, current: null }, stopped_runs: [], videos: { output: [], uploaded: [], video: [] },
+    comfyui: { online: true }, quota: { groups: [], resets_in: 100 }, gpu: null, upload: { lines: [], running: false, elapsed: 0, queue: { items: [], results: [], held: false, current: null } } };
+  const answer = (body, extra = {}) => async () => ({ json: async () => body, redirected: false, ...extra });
+
+  // A poll that never answers is given up on, and the next one still gets through.
+  context.fetch = (url, options) => new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(new Error('aborted'))));
+  context.setTimeout = fn => { fn(); return 0; };
+  await run('poll()');
+  context.setTimeout = () => 0;
+  context.fetch = answer({ ...quiet, server_started: 1, returncode: 0 });
+  await run('poll()');
+  assert.strictEqual(els.jumpRun.textContent, 'Done', 'it works again straight after a stuck one');
+
+  // Signed out: the page goes to the login rather than sit there stale.
+  context.fetch = answer({}, { redirected: true });
+  await run('poll()');
+  assert.strictEqual(context.reloads, 1);
+
+  // A new server means new code, unless that would lose what is being typed.
+  context.reloads = 0;
+  context.document.getElementById('topic').value = 'Half typed';
+  context.fetch = answer({ ...quiet, server_started: 2 });
+  await run('poll()');
+  assert.strictEqual(context.reloads, 0, 'a typed topic is not lost');
+  run("serverStarted = 1");
+  context.document.getElementById('topic').value = '';
+  await run('poll()');
+  assert.strictEqual(context.reloads, 1);
+
+  console.log('all page checks passed');
+})().catch(e => { console.error(e); process.exit(1); });
