@@ -224,8 +224,24 @@
     .stick { position: static; margin: 0 0 12px; padding: 0; background: none; border: 0; }
     .switch { padding: 0; max-width: 360px; }
     .wrap { padding-bottom: 20px; }
-    .run-card { grid-column: 1 / -1; }
-    .form-actions { grid-column: 1 / -1; }
+    /* Status stays in sight above the rest, what's running on the left and what's around it on the right. */
+    .run-card {
+      grid-column: 1 / -1; position: sticky; top: 0; z-index: 5; max-height: 38vh; overflow: auto;
+      display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 340px); grid-auto-flow: row dense; gap: 0 24px;
+    }
+    .run-card > * { grid-column: 1; }
+    .run-card > .sys, .run-card > .gpu, .run-card > #uploadBox, .run-card > .phone { grid-column: 2; }
+    .run-card > .sys { margin-top: 18px; }
+    .run-card > .gpu { margin: 6px 0; }
+    .options-col > .card { margin-bottom: 0; }
+    /* However far down the options go, Generate stays in reach. */
+    .form-actions {
+      grid-column: 1 / -1; position: sticky; bottom: -16px; z-index: 4;
+      margin: 12px -16px -16px; padding: 12px 16px 16px;
+      background: var(--panel); border-top: 1px solid var(--line); border-radius: 0 0 14px 14px;
+    }
+    .form-actions #formNote, .form-actions .err { margin-top: 8px; }
+    #stop { width: auto; padding: 8px 18px; justify-self: start; }
     #formVideo { display: block; }
     .wrap { max-width: 1880px; padding: 14px 20px 20px; }
     .top { align-items: baseline; margin-bottom: 12px; }
@@ -260,7 +276,8 @@
     }
     .dashboard > .card { overflow: auto; }
     .side, .options-col { overflow: auto; min-height: 0; }
-    .run-card { max-height: 34vh; }
+    .run-card { position: static; max-height: 34vh; }
+    body.on-video .vid video { flex: none; }
     .side > .card { flex: none; }
     .videos-card { grid-column: auto; display: flex; flex-direction: column; overflow: hidden !important; }
     .carousel { flex: 1; min-height: 0; }
