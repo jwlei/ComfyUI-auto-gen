@@ -216,6 +216,18 @@ assert.deepStrictEqual([...html.matchAll(/<a href="#(\w+)"/g)].map(m => m[1]), [
 // Nothing a video does can hold up the status: no video loads until you press play.
 assert(!/preload="(metadata|auto)"/.test(script) && !/preload="(metadata|auto)"/.test(html), 'videos must not hold the browser\'s connections');
 
+// Each side only previews its own videos.
+const made = name => ({ name, created: '01/11 12:00', size_mb: 1, mtime: 1 });
+run(`lastVideos = ${JSON.stringify({ output: [made('a_short.mp4')], uploaded: [made('uploaded_short.mp4')], video: [made('a_film.mp4')] })}`);
+run("setPipeline('video', false)");
+assert(els.videos.innerHTML.includes('a_film.mp4') && !els.videos.innerHTML.includes('short.mp4'), 'Video shows films only');
+run("setPipeline('shorts', false)");
+assert(els.videos.innerHTML.includes('a_short.mp4') && !els.videos.innerHTML.includes('a_film.mp4'), 'Shorts shows Shorts only');
+assert(!els.videos.innerHTML.includes('uploaded_short.mp4'), 'and what is ready, until you open Uploaded');
+run("setTab('uploaded')");
+assert(els.videos.innerHTML.includes('uploaded_short.mp4') && !els.videos.innerHTML.includes('a_film.mp4'));
+run("setPipeline('shorts', false)");
+
 // Every link goes somewhere, in the page's own order, or the wrong section lights up.
 const links = [...html.matchAll(/<a href="#(\w+)"/g)].map(m => m[1]);
 for (const id of links) assert(ids.has(id), `#${id} is on the page`);
