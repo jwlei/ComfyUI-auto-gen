@@ -37,6 +37,14 @@ DEFAULT_GEMINI_TTS_RPM = 3
 RATE_LIMIT_RETRIES = 3
 
 # Silence detection used to split the single narration take back into scenes.
+# Gemini sometimes reads a text twice in one take. Normal reads run 0.38-0.45s a word, and a doubled one
+# about 0.83s (short_20261101_132941). Nothing else notices: cutting into scenes scales to whatever comes back.
+MAX_SECONDS_PER_WORD = 0.65
+# On top of that, for the pauses asked for between paragraphs and a little breath at either end.
+SECONDS_PER_PAUSE = 1
+SPARE_SECONDS = 2
+# A second try costs one request. A model that does it twice running hands over to the next.
+READ_ATTEMPTS = 2
 SILENCE_NOISE = "-35dB"
 SILENCE_MIN = 0.2
 
@@ -224,6 +232,20 @@ class AudioEngine:
             f.write(audio)
         os.replace(path + ".tmp", path)
 
+    def _read_once(self, path, text, style, model, pauses=0):
+        """Voices the text to path, making sure it was only read once. Returns the audio's length, or raises."""
+        words = len(text.split())
+        longest = words * MAX_SECONDS_PER_WORD + pauses * SECONDS_PER_PAUSE + SPARE_SECONDS
+        for attempt in range(1, READ_ATTEMPTS + 1):
+            self._voice_file(path, text, style, model)
+            seconds = self.get_audio_duration(path)
+            if seconds <= longest:
+                return seconds
+            # Gone, or a run continued later would keep it as already paid for.
+            os.remove(path)
+            print(f"   ⚠️ {seconds:.0f}s of audio for {words} words: it was read more than once (attempt {attempt}/{READ_ATTEMPTS}).")
+        raise GeminiTTSError(model, 200, f"read {words} words for {seconds:.0f}s on every try, far longer than the text")
+
     def _narrate_single_take(self, script_data, model):
         """
         Voices the whole script in ONE request, then cuts it into scenes at the
@@ -238,8 +260,7 @@ class AudioEngine:
 
         # By model, as a video is only ever voiced by one.
         take_path = os.path.join(self.output_dir, f"narration_full_{model}.wav")
-        self._voice_file(take_path, text, style, model)
-        total = self.get_audio_duration(take_path)
+        total = self._read_once(take_path, text, style, model, pauses=len(script_data) - 1)
         if total <= 0:
             raise GeminiTTSError(model, 200, "returned unreadable audio")
 
@@ -289,8 +310,7 @@ class AudioEngine:
         for scene in script_data:
             style = f"{self.style}. Mood: {scene['mood']}" if scene.get('mood') else self.style
             file_path = os.path.join(self.output_dir, f"scene_{scene['id']}_{model}.wav")
-            self._voice_file(file_path, scene['text'], style, model)
-            duration = self.get_audio_duration(file_path)
+            duration = self._read_once(file_path, scene['text'], style, model)
             if duration <= 0:
                 raise GeminiTTSError(model, 200, f"scene {scene['id']} returned unreadable audio")
             scene['audio_path'] = file_path
@@ -307,7 +327,7 @@ class AudioEngine:
                 errors.append(f"{model}: daily quota used up")
                 continue
             try:
-                self._voice_file(path, text, self.style, model)
+                self._read_once(path, text, self.style, model, pauses=text.count("\n\n"))
                 return path
             except Exception as e:
                 print(f"   ⚠️ {model} failed: {e}")

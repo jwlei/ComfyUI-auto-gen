@@ -323,7 +323,7 @@ class VoiceKeptTest(unittest.TestCase):
         os.makedirs(self.folder)
         self.addCleanup(shutil.rmtree, self.folder, ignore_errors=True)
         self.asked = []
-        self.scenes = lambda: [{"id": 1, "text": "x" * 40, "mood": ""}, {"id": 2, "text": "y" * 40, "mood": ""}]
+        self.scenes = lambda: [{"id": 1, "text": "x " * 20, "mood": ""}, {"id": 2, "text": "y " * 20, "mood": ""}]
 
     def wav(self, seconds_per_scene, gaps=True):
         rate = 8000
@@ -379,6 +379,45 @@ class VoiceKeptTest(unittest.TestCase):
             self.assertEqual(len(self.engine()._narrate_gemini(self.scenes())), 2)
         self.assertEqual(self.asked, ["y"])
         self.assertEqual([f for f in os.listdir(self.folder) if f.endswith(".tmp")], [])
+
+    def test_a_doubled_take_is_voiced_once_more_and_not_used(self):
+        doubled, good = self.wav([40], gaps=False), self.wav([6, 6])
+        replies = iter([doubled, good])
+        with self.requests(lambda text: next(replies)):
+            narrated = self.engine()._narrate_gemini(self.scenes())
+        self.assertEqual(self.asked, ["x", "x"], "one more take, not one per scene")
+        self.assertEqual(len(narrated), 2)
+        self.assertLess(sum(scene["duration"] for scene in narrated), 14)
+
+    def test_a_kept_take_that_was_doubled_is_not_trusted(self):
+        with open(os.path.join(self.folder, "narration_full_v1.wav"), "wb") as f:
+            f.write(self.wav([40], gaps=False))
+        good = self.wav([6, 6])
+        with self.requests(lambda text: good):
+            self.assertEqual(len(self.engine()._narrate_gemini(self.scenes())), 2)
+        self.assertEqual(self.asked, ["x"], "a run continued later gets a clean take")
+
+    def test_a_model_that_keeps_doubling_hands_over_to_the_next(self):
+        doubled, good = self.wav([40], gaps=False), self.wav([6, 6])
+        engine = self.engine()
+        engine.gemini_models = ["v1", "v2"]
+
+        def request(engine, text, style, model):
+            self.asked.append(model)
+            return doubled if model == "v1" else good
+
+        with mock.patch.object(audio.AudioEngine, "_gemini_request", request):
+            self.assertEqual(len(engine._narrate_gemini(self.scenes())), 2)
+        self.assertEqual(self.asked, ["v1", "v1", "v2"])
+        self.assertEqual(sorted(f for f in os.listdir(self.folder) if f.startswith("narration")), ["narration_full_v2.wav"])
+
+    def test_normal_reads_pass_including_the_slowest_seen(self):
+        engine = self.engine()
+        path = os.path.join(self.folder, "slow.wav")
+        with open(path, "wb") as f:
+            f.write(self.wav([0.51 * 20], gaps=False))
+        with self.requests(lambda text: self.fail("it was fine")):
+            self.assertGreater(engine._read_once(path, "word " * 20, "calm", "v1"), 10)
 
     def test_a_cut_off_file_is_not_taken_for_a_good_one(self):
         take, one = self.wav([6], gaps=False), self.wav([2])

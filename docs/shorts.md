@@ -449,6 +449,8 @@ python -m pipelines.shorts.main --runs 3 --upload             # batch, each one 
 
 ## Troubleshooting
 
+- **Narration that repeats:** Gemini sometimes reads a text twice in one take. A take far too long for its words (over 0.65s a word) is thrown away and voiced once more, then handed to the next model. The check goes by length, so a partial repeat that stays under that limit isn't caught.
+
 **Q: The video is black or corrupt (0x80004005 error).**
 
 - **Fix:** This is usually a Windows codec issue. The updated `composer.py` forces `pix_fmt='yuv420p'`. Try opening the file with VLC Media Player.
