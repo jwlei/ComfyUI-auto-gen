@@ -45,6 +45,21 @@ class SizeTest(unittest.TestCase):
         self.assertEqual(media.render_size(3840, 2160), (3840, 2160))
         self.assertEqual(media.render_size(1272, 2772), (1280, 2784), "the OnePlus 15")
 
+    def test_an_edit_never_gets_a_size_its_encoder_would_wrap_around(self):
+        self.assertEqual(media._reference_latent(1376, 768), (171, 96), "what put a band down the right edge of a real image")
+        sizes = [(1376, 768), (800, 1200), (832, 1248)] + [(width, height) for _, width, height in media.DESKTOP_SIZES + media.PHONE_SIZES]
+        for width, height in sizes:
+            made = media.edit_render_size(width, height)
+            self.assertEqual([side % 2 for side in media._reference_latent(*made)], [0, 0], (width, height))
+            self.assertGreaterEqual(made, (width, 0), "never narrower, as it's cropped down to the size asked for")
+            self.assertGreaterEqual(made[1], height)
+            self.assertEqual([side % media.SIZE_STEP for side in made], [0, 0], "and still on the model's grid")
+            self.assertLess(made[0] * made[1], width * height * 1.12, "with little to crop")
+
+    def test_a_size_with_nothing_wrong_is_left_as_it_is(self):
+        self.assertEqual(media.edit_render_size(1024, 1024), (1024, 1024))
+        self.assertEqual(media.edit_render_size(1392, 752), (1392, 752), "what ComfyUI's own template uses")
+
     def test_the_screens_on_offer(self):
         offered = {(width, height) for _, width, height in media.DESKTOP_SIZES + media.PHONE_SIZES}
         self.assertLessEqual({(1920, 1080), (2560, 1440), (3840, 2160), (1272, 2772)}, offered)
@@ -234,7 +249,7 @@ class PanelTest(unittest.TestCase):
     def sent_prompt(self, prompt):
         return self.inputs(prompt, "PrimitiveStringMultiline")["value"] if any(
             node["class_type"] == "PrimitiveStringMultiline" for node in prompt["prompt"].values()) else next(
-            node["inputs"]["prompt"] for node in prompt["prompt"].values() if node["class_type"] == "TextEncodeEdit" and node["inputs"]["prompt"])
+            node["inputs"]["prompt"] for node in prompt["prompt"].values() if node["class_type"] == "TextEncodeQwenImageEditPlus" and node["inputs"]["prompt"])
 
     # --- Which kind of run ---
 
@@ -333,24 +348,37 @@ class PanelTest(unittest.TestCase):
             with Image.open(run.image_path(run.shots[0])) as image:
                 self.assertEqual(image.size, tuple(int(side) for side in preset.split("x")), "and what you get is the screen's")
 
-    def test_an_edit_for_a_phone_gets_its_source_fitted_on_the_grid(self):
+    def test_an_edit_for_a_phone_comes_out_exactly_that_size(self):
         self.make(image=True, aspect="1272x2772", count="1")
-        self.assertEqual(self.uploaded_size(), (1280, 2784))
+        self.assertEqual(self.uploaded_size(), media.edit_render_size(1272, 2772))
+        self.assertEqual(self.finished_size(), (1272, 2772))
+
+    def test_only_the_edit_encoder_gets_the_special_size(self):
+        self.make(aspect="1376x768", count="1")
+        latent = self.inputs(self.comfy.prompts[0], "EmptyLatentImage")
+        self.assertEqual((latent["width"], latent["height"]), (1376, 768), "Krea has no such encoder")
 
     def uploaded_size(self):
         return Image.open(io.BytesIO(self.comfy.uploads[0])).size
 
+    def finished_size(self):
+        run = self.only_run()
+        with Image.open(run.image_path(run.shots[0])) as image:
+            return image.size
+
     def test_an_edit_can_match_the_images_resolution(self):
         self.make(image=True, aspect="image", megapixels="image", count="1")
-        self.assertEqual(self.uploaded_size(), (800, 1200), "a workflow that follows its source comes out this size")
+        self.assertEqual(self.uploaded_size(), media.edit_render_size(800, 1200), "a workflow that follows its source comes out this size")
+        self.assertEqual(self.finished_size(), (800, 1200), "and what's over is cropped off")
 
     def test_an_edit_can_match_its_shape_at_a_pixel_count(self):
         self.make(image=True, aspect="image", megapixels="1", count="1")
-        self.assertEqual(self.uploaded_size(), (832, 1248))
+        self.assertEqual(self.finished_size(), (832, 1248))
 
     def test_an_edit_can_be_given_a_size_of_its_own(self):
         self.make(image=True, aspect="16:9", megapixels="1", count="1")
-        self.assertEqual(self.uploaded_size(), (1360, 768))
+        self.assertEqual(self.uploaded_size(), (1360, 768), "nothing wrong with this one")
+        self.assertEqual(self.finished_size(), (1360, 768))
         self.assertEqual(self.only_run().image_count, 1)
         with Image.open(self.only_run().input_paths[0]) as source:
             self.assertEqual(source.size, (800, 1200), "the original is kept whole")

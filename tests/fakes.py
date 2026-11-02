@@ -5,6 +5,7 @@ Imported before anything else in the tests, so every file they make goes to a
 throwaway folder, including from the pipeline processes the panel starts.
 """
 import atexit
+import io
 import json
 import os
 import shutil
@@ -121,7 +122,8 @@ class _ComfyHandler(_Handler):
                 else:
                     # What a real one does with an empty latent: the size it was told.
                     latent = next((node["inputs"] for node in data["prompt"].values() if node["class_type"] == "EmptyLatentImage"), {})
-                    Image.new("RGB", (latent.get("width", 32), latent.get("height", 32)), (number * 40 % 256, 20, 40)).save(path)
+                    made = (latent["width"], latent["height"]) if latent else Image.open(io.BytesIO(state.uploads[-1])).size if state.uploads else (32, 32)
+                    Image.new("RGB", made, (number * 40 % 256, 20, 40)).save(path)
             else:
                 make_clip(os.path.join(state.folder, f"{prompt_id}.mp4"), 0.5 if step == "short" else seconds,
                           color=f"0x{(number * 40) % 256:02x}2040", audio=step != "silent")
@@ -207,7 +209,7 @@ OBJECT_INFO = {kind: {"display_name": kind, "input": {"required": required}} for
     "PrimitiveBoolean": {"value": ["BOOLEAN", {}]},
     "ComfySwitchNode": {"switch": ["BOOLEAN", {}]},
     "TextGenerate": {"prompt": ["STRING", {}], "clip": ["CLIP"]},
-    "TextEncodeEdit": {"prompt": ["STRING", {}], "clip": ["CLIP"]},
+    "TextEncodeQwenImageEditPlus": {"prompt": ["STRING", {}], "clip": ["CLIP"]},
     "FluxKontextImageScale": {"image": ["IMAGE"]},
     "VAEEncode": {"pixels": ["IMAGE"]},
 }.items()}
@@ -215,7 +217,7 @@ OBJECT_INFO = {kind: {"display_name": kind, "input": {"required": required}} for
 OBJECT_INFO["LatentVideo"]["input"]["optional"] = {"start_image": ["IMAGE"]}
 OBJECT_INFO["ReferenceToVideo"]["input"]["optional"] = {"ref_images": ["COMFY_AUTOGROW_V3", {}]}
 OBJECT_INFO["ComfySwitchNode"]["input"]["optional"] = {"on_false": ["COMFY_MATCHTYPE_V3", {}], "on_true": ["COMFY_MATCHTYPE_V3", {}]}
-OBJECT_INFO["TextEncodeEdit"]["input"]["optional"] = {"image1": ["IMAGE"], "image2": ["IMAGE"]}
+OBJECT_INFO["TextEncodeQwenImageEditPlus"]["input"]["optional"] = {"image1": ["IMAGE"], "image2": ["IMAGE"]}
 
 
 def saved_workflow():
@@ -335,8 +337,8 @@ def edit_image_workflow():
            "nodes": [
                _ui_node(1, "CheckpointLoader", {"ckpt_name": "model.safetensors"}, outputs=["MODEL", "CLIP"]),
                _ui_node(160, "FluxKontextImageScale", links={"image": 362}, outputs=["IMAGE"]),
-               _ui_node(149, "TextEncodeEdit", links={"clip": 1, "image1": 322, "image2": 366, "prompt": 378}, outputs=["CONDITIONING"]),
-               _ui_node(151, "TextEncodeEdit", links={"clip": 2, "image1": 325, "image2": 363, "prompt": 370}, outputs=["CONDITIONING"]),
+               _ui_node(149, "TextEncodeQwenImageEditPlus", links={"clip": 1, "image1": 322, "image2": 366, "prompt": 378}, outputs=["CONDITIONING"]),
+               _ui_node(151, "TextEncodeQwenImageEditPlus", links={"clip": 2, "image1": 325, "image2": 363, "prompt": 370}, outputs=["CONDITIONING"]),
                _ui_node(156, "VAEEncode", links={"pixels": 334}, outputs=["LATENT"]),
                _ui_node(169, "KSampler", {"steps": 40}, {"model": 3, "positive": 4, "negative": 5, "latent_image": 6, "seed": 387}, ["LATENT"]),
                _ui_node(158, "VAEDecode", links={"samples": 7}, outputs=["IMAGE"]),

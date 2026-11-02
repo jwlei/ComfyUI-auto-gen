@@ -142,7 +142,7 @@ class ImageWorkflowTest(unittest.TestCase):
         self.assertEqual(api[fields["prompt"][0]]["inputs"]["prompt"], "saved instruction", "the positive one, not the negative")
         self.assertEqual(image_takes(fields), {"min_images": 1, "max_images": 1, "size": True}, "its size follows the image, which it can't run without")
         self.assertNotIn("FluxKontextImageScale", [node["class_type"] for node in api.values()], "or the size asked for would be snapped away")
-        encoders = [node for node in api.values() if node["class_type"] == "TextEncodeEdit"]
+        encoders = [node for node in api.values() if node["class_type"] == "TextEncodeQwenImageEditPlus"]
         self.assertTrue(all(node["inputs"]["image1"] == [fields["image"][0], 0] for node in encoders))
         self.assertTrue(all("image2" not in node["inputs"] for node in encoders), "the input nothing is plugged into is left out")
         self.assertIsInstance(next(node for node in api.values() if node["class_type"] == "KSampler")["inputs"]["seed"], int)

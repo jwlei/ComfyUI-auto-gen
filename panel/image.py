@@ -71,7 +71,7 @@ def image_files(state):
 def describe_run(state):
     """A saved run, as the panel lists it."""
     done, total = len(state.done), len(state.shots)
-    parts = [f"{done} of {total} images" if done else f"Prompts ready, {total} {'image' if total == 1 else 'images'}"]
+    parts = [f"{done} of {total} images" if done else f"Prompts ready, {total} {'image' if total == 1 else 'images'}", f"{state.width}x{state.height}"]
     try:
         created = datetime.fromtimestamp(os.path.getmtime(state.path)).strftime("%d %b %H:%M")
         parts.append(created)

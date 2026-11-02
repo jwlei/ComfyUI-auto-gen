@@ -278,6 +278,15 @@ run("setPipeline('shorts', false)");
 assert.strictEqual(els.jumpResults.textContent, 'Videos');
 assert(/body\.on-image \{ --accent/.test(html));
 
+// A stopped run reads top to bottom in its own box: title, details, then the buttons.
+run(`renderStopped([{ id: 'image_1', pipeline: 'image', label: 'Wardrobe', detail: '1 of 2 images · 1376x768', clips: 1, estimate: 190 }])`);
+const stoppedBox = els.stoppedRuns.innerHTML;
+assert(stoppedBox.includes('class="stopped-run"'), 'in a box of its own');
+assert(stoppedBox.indexOf('Wardrobe') < stoppedBox.indexOf('Image · 1 of 2 images') && stoppedBox.indexOf('Image · 1 of 2 images') < stoppedBox.indexOf('class="stopped-actions"'), 'in that order');
+assert(stoppedBox.indexOf('class="stopped-actions"') < stoppedBox.indexOf('data-shots') && stoppedBox.indexOf('data-shots') < stoppedBox.indexOf('data-continue') && stoppedBox.indexOf('data-continue') < stoppedBox.indexOf('data-discard'), 'the buttons last');
+assert(/\.stopped-run \{[^}]*border: 1px solid/.test(html));
+run('renderStopped([])');
+
 // Films.
 run("folder = 'video'");
 const film = { name: 'A_run_20261101_120000.mp4', run: 'run_20261101_120000', title: 'A <i>film</i>', created: '01/11 12:00', size_mb: 40, mtime: 1 };

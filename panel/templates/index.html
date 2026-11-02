@@ -36,6 +36,13 @@
   .queue-item .when { color: var(--muted); font-size: .78rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .queue button { width: auto; margin: 0; padding: 4px 10px; font-size: .78rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
   .queue .results { margin-top: 6px; }
+  /* A stopped run in a box of its own: what it is, how far it got, then what you can do with it. */
+  .stopped-run { margin-top: 6px; padding: 9px 11px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; }
+  .stopped-run .what { overflow-wrap: anywhere; font-weight: 600; }
+  .stopped-run .hint { margin-top: 2px; }
+  .stopped-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+  .stopped-actions .when { margin-right: auto; color: var(--muted); font-size: .78rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .queue .stopped-run button { background: var(--panel); }
   .queue .failed { color: var(--err); }
   /* One row per line: a muted timestamp gutter, then the text colour-coded by kind. */
   .ln { display: grid; grid-template-columns: 5.2em minmax(0, 1fr); gap: 10px; padding: 1px 0; }
@@ -1804,12 +1811,15 @@ function renderStopped(runs) {
   const el = $('stoppedRuns');
   el.hidden = !runs.length;
   const html = !runs.length ? '' : `<div class="queue-head"><b>Stopped runs (${runs.length})</b></div>` + runs.map(run => `
-    <div class="queue-item">
-      <div class="what">${esc(run.label)}<div class="hint">${SIDE_NAMES[run.pipeline] || 'Shorts'} · ${esc(run.detail)}</div></div>
-      <span class="when">${fmtEta(run.estimate)}</span>
-      ${run.pipeline !== 'shorts' ? `<button type="button" data-shots="${esc(run.id)}">Prompts</button>` : ''}
-      <button type="button" data-continue="${esc(run.id)}">${run.pipeline !== 'shorts' && !run.clips ? 'Render' : 'Continue'}</button>
-      <button type="button" data-discard="${esc(run.id)}" data-pipeline="${esc(run.pipeline)}" data-clips="${run.clips}" aria-label="Discard this run" title="Discard this run">✕</button>
+    <div class="stopped-run">
+      <div class="what">${esc(run.label)}</div>
+      <div class="hint">${SIDE_NAMES[run.pipeline] || 'Shorts'} · ${esc(run.detail)}</div>
+      <div class="stopped-actions">
+        <span class="when">${fmtEta(run.estimate)}</span>
+        ${run.pipeline !== 'shorts' ? `<button type="button" data-shots="${esc(run.id)}">Prompts</button>` : ''}
+        <button type="button" data-continue="${esc(run.id)}">${run.pipeline !== 'shorts' && !run.clips ? 'Render' : 'Continue'}</button>
+        <button type="button" data-discard="${esc(run.id)}" data-pipeline="${esc(run.pipeline)}" data-clips="${run.clips}" aria-label="Discard this run" title="Discard this run">✕</button>
+      </div>
     </div>`).join('');
   // Only when it changed, so a poll can't swallow a click on a button it just replaced.
   if (el.dataset.html !== html) {

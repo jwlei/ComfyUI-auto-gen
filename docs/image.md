@@ -71,7 +71,7 @@ What the pipeline does to a saved workflow, in the copy it runs. Your saved one 
 | Save Image, Save Image (Advanced) | Becomes Preview Image, so nothing lands in ComfyUI's output folder. Images are downloaded from its temp folder. |
 | A switch set on its face, such as Enable LoRA | Goes the way it's set, for good. A style LoRA that's off needs no file. |
 | A refine or enhance prompt switch, such as Krea-2's | Turned off. The LLM has already written the prompt, or you have, so it should reach the model as it is. |
-| FluxKontext Image Scale, in Qwen-Image-Edit | Skipped, or it would snap the size you chose to one of its own. |
+| FluxKontext Image Scale, in Qwen-Image-Edit | Skipped, or it would snap the size you chose to one of its own. Its encoder wraps the image around if it comes out an odd number of latent pixels across, which leaves a band of the far side along one edge, so these render at the nearest size where it doesn't and are cropped to yours. |
 
 Other settings stay as saved. So Qwen-Image-Edit's `enable_turbo_mode` decides between its 40-step and 4-step LoRA
 routes: change it in ComfyUI, and the next list picks that up. The ETA learns each workflow's time separately.

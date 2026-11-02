@@ -43,6 +43,26 @@ def render_size(width, height):
     return tuple(math.ceil(side / SIZE_STEP) * SIZE_STEP for side in (width, height))
 
 
+def _reference_latent(width, height):
+    """The size Qwen-Image's edit encoder scales its image to, whatever it's given: about a megapixel, in latent pixels."""
+    scale = math.sqrt(PIXELS_PER_MEGAPIXEL / (width * height))
+    return round(width * scale / 8), round(height * scale / 8)
+
+
+def edit_render_size(width, height):
+    """
+    As render_size, for Qwen-Image's edit encoder. If its image comes out an odd number of latent pixels across, ComfyUI
+    evens it up by wrapping the image around, and the result has a band of the far side along its edge. So this takes the
+    nearest size on the grid, no smaller, where it comes out even. What's over gets cropped off like any other.
+    """
+    start_width, start_height = render_size(width, height)
+    sizes = [(start_width + SIZE_STEP * more_wide, start_height + SIZE_STEP * more_high) for more_wide in range(8) for more_high in range(8)]
+    for size in sorted(sizes, key=lambda size: size[0] * size[1]):
+        if not any(side % 2 for side in _reference_latent(*size)):
+            return size
+    return start_width, start_height
+
+
 def parse_aspect(text):
     """'16:9' as a width/height ratio, or None if it isn't one."""
     match = re.fullmatch(r"(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)", (text or "").strip())

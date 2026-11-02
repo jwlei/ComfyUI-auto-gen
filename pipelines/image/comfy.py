@@ -2,9 +2,11 @@ import copy
 import os
 
 from core.saved_workflows import image_takes
+from pipelines.image import media
 from pipelines.video.comfy import ComfyClient
 
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
+EDIT_ENCODER = "TextEncodeQwenImageEditPlus"
 
 
 class ImageClient(ComfyClient):
@@ -20,6 +22,12 @@ class ImageClient(ComfyClient):
 
     def takes(self):
         return image_takes(self.fields)
+
+    def render_size(self, width, height):
+        """What to have the model make for this size, which gets cropped to it afterwards."""
+        if any(node.get("class_type") == EDIT_ENCODER for node in self.workflow.values()):
+            return media.edit_render_size(width, height)
+        return media.render_size(width, height)
 
     def render_image(self, prompt, images, width, height, save_as):
         """Makes one image from these uploaded images and saves it as save_as plus its extension. Returns the path, or raises."""

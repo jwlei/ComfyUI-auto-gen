@@ -145,7 +145,7 @@ def upload_images(state, comfy):
     """The source images in ComfyUI, the first at the size asked for, as a workflow that follows it comes out that size."""
     if not state.input_paths:
         return []
-    first = media.fit(state.input_paths[0], *media.render_size(state.width, state.height), state.fitted_path)
+    first = media.fit(state.input_paths[0], *comfy.render_size(state.width, state.height), state.fitted_path)
     return [comfy.upload(path, f"autocomfyui_{state.id}{'' if number == 1 else f'_{number}'}.png")
             for number, path in enumerate([first, *state.input_paths[1:]], 1)]
 
@@ -153,7 +153,7 @@ def upload_images(state, comfy):
 def render_image(state, comfy, shot, images):
     """Renders until the file holds up, on a new seed each time. Returns its path, or None."""
     save_as = os.path.join(state.output_dir, f"image_{shot['number']:03d}")
-    rendered = media.render_size(state.width, state.height)
+    rendered = comfy.render_size(state.width, state.height)
     for attempt in range(1, IMAGE_ATTEMPTS + 1):
         try:
             path = comfy.render_image(shot["prompt"], images, *rendered, save_as)
