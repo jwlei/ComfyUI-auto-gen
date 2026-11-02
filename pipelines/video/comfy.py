@@ -114,6 +114,8 @@ class ComfyClient:
             elif f"{slot}_link" in self.fields:
                 node_id, input_name = self.fields[f"{slot}_link"]
                 del workflow[node_id]["inputs"][input_name]
+                # Nothing uses it now, and an image it can't find would still stop ComfyUI.
+                workflow.pop(self.fields[slot][0], None)
             else:
                 self._set(workflow, slot, self._stand_in_image())
 

@@ -9,6 +9,7 @@ const html = fs.readFileSync(process.argv[2], 'utf8');
 const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).find(s => s.includes('async function poll'));
 assert(script, 'the page has its script');
 
+const status0 = () => html.slice(html.indexOf('id="runCard"'), html.indexOf('id="optionsCard"'));
 // Every id the script reaches for has to be on the page.
 const ids = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map(m => m[1]));
 for (const [, id] of script.matchAll(/\$\('([A-Za-z]+)'\)/g)) assert(ids.has(id), `#${id} is on the page`);
@@ -23,7 +24,7 @@ function element(id) {
 }
 const els = {};
 const context = {
-  document: { getElementById: id => (els[id] = els[id] || element(id)), documentElement: { style: { setProperty() {} } }, body: element('body'), addEventListener() {}, hidden: false },
+  document: { getElementById: id => (els[id] = els[id] || element(id)), querySelectorAll: () => [], documentElement: { style: { setProperty() {} } }, body: element('body'), addEventListener() {}, hidden: false },
   history: { replaceState() {} },
   window: { addEventListener() {}, innerHeight: 800 },
   localStorage: { getItem: () => null, setItem() {} },
@@ -41,42 +42,51 @@ const run = code => vm.runInContext(code, context);
 for (const name of ['image', 'image_2', 'image_3']) assert(!run(`remembered({ name: '${name}', type: 'file' })`), name);
 assert(run(`remembered({ name: 'llm', type: 'select-one' })`));
 assert(!run(`remembered({ name: 'image_2_role', type: 'select-one' })`), 'each film starts from the default role');
+assert(!run(`remembered({ name: 'image_5_role', type: 'select-one' })`));
 
 // One box per image, built as a workflow needs them. The page's boxes, without a browser to parse them.
 function imageBox(number) {
   const hiddenClass = () => ({ toggle(name, on) { this.on = on; } });
   const input = { name: number === 1 ? 'image' : `image_${number}`, value: '', files: [], disabled: false };
-  const parts = { input, img: { src: '', classList: hiddenClass() }, button: { classList: hiddenClass() }, label: { textContent: '' } };
-  return { hidden: false, parts, querySelector: tag => parts[tag] };
+  const parts = { input, img: { src: '', classList: hiddenClass() }, button: { classList: hiddenClass() }, label: { textContent: '' },
+    select: { disabled: true, value: 'view', classList: hiddenClass() } };
+  return { hidden: false, parts, querySelector: tag => parts[tag], classList: hiddenClass() };
 }
 const boxes = [];
 const holder = context.document.getElementById('imageBoxes');
 holder.querySelectorAll = () => boxes;
 holder.insertAdjacentHTML = (_, html) => {
   assert(/type="file"/.test(html) && /<img class="preview hidden"/.test(html) && /data-clear/.test(html));
+  assert(/<div class="image-line">[\s\S]*type="file"[\s\S]*data-clear[\s\S]*<\/div>/.test(html), 'the image and what it is share one line');
+  const number = boxes.length + 1;
+  assert.strictEqual(html.includes(`name="image_${number}_role"`), number > 1, 'every image after the first has a role');
+  if (number > 1) assert(/value="view">Same character, new view<[\s\S]*value="character">Another character<[\s\S]*value="place">Environment/.test(html));
   boxes.push(imageBox(boxes.length + 1));
 };
 const labels = () => boxes.filter(box => !box.hidden).map(box => box.parts.label.textContent);
 
 run('syncImageInput()');
-assert.deepStrictEqual(labels(), ['Image 1: first frame', 'Image 2: extra context (optional)'], 'the built-in workflow');
-assert(els.secondImage.hidden, 'nothing to say about an image 2 nobody chose');
+assert.deepStrictEqual(labels(), ['Image 1: first frame', 'Image 2 (optional)'], 'the built-in workflow');
+assert(els.imagesHint.hidden, 'nothing to say about an image 2 nobody chose');
 boxes[1].parts.input.files = [{}];
 boxes[1].parts.input.value = 'two.png';
+context.URL = { createObjectURL: () => 'blob:x', revokeObjectURL() {} };
+run('showImage(imageBoxes()[1])');
+assert(boxes[1].parts.select.classList.on === false && boxes[1].parts.select.disabled === false, 'image 2 chosen: its role shows and is sent');
 run('syncImageInput()');
-assert(!els.secondImage.hidden, 'image 2 chosen: say what it is');
-assert(els.secondImageHint.textContent.includes('never sees'), 'one input to fill: the LLM alone sees image 2');
+assert(!els.imagesHint.hidden);
+assert(els.imagesHint.textContent.includes('never sees'), 'one input to fill: the LLM alone sees image 2');
 
 run(`workflowTakes = { r2v: { min_images: 0, max_images: 3 }, t2v: { min_images: 0, max_images: 0 }, ti2v: { min_images: 0, max_images: 1 } }`);
 els.videoWorkflow.value = 'r2v';
 run('syncImageInput()');
-assert.deepStrictEqual(labels(), ['Image 1: main subject (optional)', 'Image 2: extra context (optional)', 'Image 3: another reference (optional)']);
-assert(els.secondImageHint.textContent.includes('Every clip'));
+assert.deepStrictEqual(labels(), ['Image 1: main character (optional)', 'Image 2 (optional)', 'Image 3 (optional)']);
+assert(els.imagesHint.textContent.includes('Every clip'));
 assert.strictEqual(boxes[1].parts.input.value, 'two.png', 'a workflow with room for it keeps the image');
 
 els.videoWorkflow.value = 'ti2v';
 run('syncImageInput()');
-assert.deepStrictEqual(labels(), ['Image 1: first frame (optional: without one it starts from text)', 'Image 2: extra context (optional)']);
+assert.deepStrictEqual(labels(), ['Image 1: first frame (optional: without one it starts from text)', 'Image 2 (optional)']);
 assert(boxes[2].parts.input.disabled, 'a hidden box sends nothing');
 
 els.videoWorkflow.value = 't2v';
@@ -84,7 +94,7 @@ boxes[1].parts.input.files = [];
 run('syncImageInput()');
 assert.deepStrictEqual(labels(), [], 'text alone has no image to ask for');
 assert.strictEqual(boxes[1].parts.input.value, '', 'and no image waiting in a hidden box');
-assert(els.secondImage.hidden);
+assert(els.imagesHint.hidden);
 els.videoWorkflow.value = '';
 run('workflowTakes = {}; syncImageInput()');
 
@@ -111,6 +121,19 @@ assert.strictEqual(els.size.value, '', 'the default sends no size, so it follows
 assert(/id="duration"[^>]*min="5"[^>]*max="600"[^>]*step="5"/.test(html));
 assert.strictEqual(run('clipCount(1)'), '1 clip');
 assert.strictEqual(run('clipCount(75)'), '75 clips');
+
+// One ETA for the run, on its bar: the status line and the step line don't repeat it.
+assert(!script.includes('totalEta(') && !script.includes('Original ETA') && !script.includes('Adjusted ETA'));
+assert(!/stageTime'\)\.textContent = [^;]*stepEta/.test(script));
+run(`renderEtaDetail({ changes: [], original_total: 600, adjusted_total: 600 })`);
+assert.strictEqual(els.etaDetail.hidden, true, 'on track: nothing to explain');
+run(`renderEtaDetail({ changes: [{ text: 'Clip <b>3</b> was slow', seconds: 120 }], original_total: 600, adjusted_total: 720 })`);
+assert(!els.etaDetail.hidden && els.etaDetail.innerHTML.includes('<details') && els.etaDetail.innerHTML.includes('+2 min') && !els.etaDetail.innerHTML.includes('<b>3'));
+
+// Shorts in YouTube red; the phone address is folded under More, at the bottom of Status; no voice hint.
+assert(/body\.on-shorts \{ --accent: #ff0033; \}/.test(html));
+assert(/<details class="misc" id="misc">\s*<summary>More<\/summary>\s*<div class="phone">/.test(status0()));
+assert(!html.includes('If both Gemini voice models fail'));
 
 // Times.
 assert.strictEqual(run('stepEta({state:"kept",seconds:0})'), 'kept');
@@ -177,19 +200,25 @@ assert(box.innerHTML.includes('>Continue<'));
 run('renderStopped([])');
 assert.strictEqual(box.hidden, true);
 
-// A stopped run must not read as failed, and an upload's status says what happened.
-assert(script.indexOf('data.stopped)') < script.indexOf('Failed (exit'));
-run(`renderUpload({ lines: [], running: false, started_at: '17:00', elapsed: 1, returncode: 1, stopped: true, queue: { items: [], held: false, results: [] } })`);
-assert.strictEqual(els.uploadStatus.textContent, 'Upload stopped');
-assert.strictEqual(els.uploadDot.className, 'dot');
+// How a run or upload ended is said once, under Finished, newest first; the status itself goes back to Idle.
+run(`renderUpload({ lines: [{ n: 1, t: '17:00', text: 'x' }], running: false, started_at: '17:00', elapsed: 1, returncode: 1, stopped: true, queue: { items: [], held: false, results: [] } })`);
+assert.strictEqual(els.uploadBox.hidden, true, 'an upload that ended has nothing to show here');
+run(`renderFinished([{ label: 'A <b>run', outcome: 'done', at: '17:05' }, { label: 'B', outcome: 'failed', note: 'exit 1', at: '17:10' }],
+  [{ label: 'C', outcome: 'stopped', at: '17:20' }])`);
+assert.strictEqual(els.finished.hidden, false);
+assert(els.finishedTitle.innerHTML.startsWith('Finished (3)') && els.finishedTitle.innerHTML.includes('1 failed'));
+const order = ['Upload: C', 'B', 'A &lt;b&gt;run'].map(text => els.finishedList.innerHTML.indexOf(text));
+assert(order.every(i => i >= 0) && order[0] < order[1] && order[1] < order[2], 'newest first, escaped');
+run('renderFinished([], [])');
+assert.strictEqual(els.finished.hidden, true);
+assert(!script.includes("'Finished ✔'") && !script.includes('Upload finished') && !script.includes('Failed (exit'));
 
 // The header: a short status on Run, and a bar under it per job.
 const idle = { running: false, stopped: false, returncode: null, elapsed: 0, progress: {}, upload: { running: false, elapsed: 0 } };
 context.idle = idle;
 assert.strictEqual(run('runShort(idle, false)'), 'Idle');
-assert.strictEqual(run('runShort({ ...idle, returncode: 0 }, false)'), 'Done');
-assert.strictEqual(run('runShort({ ...idle, returncode: 1 }, false)'), 'Failed');
-assert.strictEqual(run('runShort({ ...idle, returncode: 1, stopped: true }, false)'), 'Stopped');
+assert.strictEqual(run('runShort({ ...idle, returncode: 0 }, false)'), 'Idle', 'finished is idle');
+assert.strictEqual(run('runShort({ ...idle, returncode: 1 }, false)'), 'Idle');
 assert.strictEqual(run('runShort(idle, true)'), 'Next job');
 const rendering = { ...idle, running: true, elapsed: 400, progress: { stage: [2, 4, 'Clips'], detail: 'Clip 2 of 75: The harbour, 8s',
   eta: { total_left: 600, adjusted_total: 1000 } } };
@@ -198,12 +227,17 @@ assert.strictEqual(run('runShort(rendering, false)'), 'Clip 2/75');
 assert.strictEqual(run('runShort({ ...idle, running: true }, false)'), 'Starting');
 run('renderStrips(idle)');
 assert(els.runStrip.hidden && els.uploadStrip.hidden, 'nothing going, no bars');
-const barOf = job => { const bar = context.document.getElementById(`${job}StripBar`); bar.parentElement = element('bar'); return bar; };
-barOf('run'); barOf('upload');
+const barOf = id => { const bar = context.document.getElementById(id); bar.parentElement = element('bar'); return bar; };
+for (const id of ['runStripBar', 'uploadStripBar', 'runProgressBar', 'uploadProgressBar']) barOf(id);
+context.document.getElementById('runCard').getBoundingClientRect = () => ({ top: 5000, bottom: 5100 });
 run('renderStrips(rendering)');
-assert.strictEqual(els.runStrip.hidden, false);
+assert.strictEqual(els.runStrip.hidden, false, 'away from Status, the footer has the bar');
+assert.strictEqual(els.runProgress.hidden, false, 'and Status has it in full');
+assert.strictEqual(els.runProgressBar.style.width, '40%');
+assert(/^40% · ~10 min left, done around /.test(els.runProgressRight.textContent), 'Status has the one ETA, and when it ends');
+assert.strictEqual(els.runProgressText.textContent, 'This run', 'the step line under it names the stage');
 assert.strictEqual(els.runStripText.textContent, 'Clips');
-assert.strictEqual(els.runStripRight.textContent, '~10 min left');
+assert.strictEqual(els.runStripRight.textContent, '40% · ~10 min left');
 assert.strictEqual(els.runStripBar.style.width, '40%');
 assert(els.runStripHint.textContent.startsWith('Clip 2 of 75'));
 context.uploading = { ...idle, upload: { running: true, elapsed: 75, progress: { upload: [2, 3, 'A.mp4'] } } };
@@ -211,6 +245,13 @@ run('renderStrips(uploading)');
 assert.strictEqual(els.uploadStripText.textContent, 'Uploading 2/3');
 assert.strictEqual(els.uploadStripHint.textContent, 'A.mp4');
 assert.strictEqual(els.uploadStripBar.style.width, '33%');
+assert.strictEqual(els.uploadProgressBar.style.width, '33%');
+assert.strictEqual(els.uploadProgressHint.textContent, 'A.mp4');
+assert.strictEqual(els.uploadProgressRight.textContent, '33%', 'the status line above it has the time so far');
+assert.strictEqual(els.uploadProgress.hidden, false);
+context.document.getElementById('runCard').getBoundingClientRect = () => ({ top: 0, bottom: 100 });
+run('syncStrips()');
+assert(els.runStrip.hidden && els.uploadStrip.hidden, 'on Status the footer bars would only repeat it');
 assert.deepStrictEqual([...html.matchAll(/<a href="#(\w+)"/g)].map(m => m[1]), ['runCard', 'optionsCard', 'quotaCard', 'videosCard']);
 
 // Nothing a video does can hold up the status: no video loads until you press play.
@@ -234,7 +275,15 @@ for (const id of links) assert(ids.has(id), `#${id} is on the page`);
 assert.deepStrictEqual(links.map(id => html.indexOf(`id="${id}"`)), links.map(id => html.indexOf(`id="${id}"`)).sort((a, b) => a - b));
 // Status comes first, Generate is called just that, and it sits with the options.
 assert(html.indexOf('id="runCard"') < html.indexOf('id="optionsCard"'));
-assert(/id="go">Generate</.test(html) && !script.includes("'Add to queue'"));
+assert(/id="go">Generate</.test(html) && script.includes("'Add to queue'"), 'Generate, or Add to queue while something runs');
+assert(/<a href="#videosCard">Videos<\/a>/.test(html) && !html.includes('jumpCount'), 'the footer has no count on Videos');
+// Each heading holds its section, and the first is called Generation.
+assert(!html.includes('What to make'));
+assert(/<details class="section" id="formTopic" open>\s*<summary class="section-title">Generation</.test(html));
+assert(/<details class="section" id="videoGeneration" open>\s*<summary class="section-title">Generation</.test(html));
+assert(!/<div class="section-title">(Voice|Publish|How)/.test(html));
+// On Generate the footer keeps the button and the estimate.
+assert(html.indexOf('id="goStick"') > html.indexOf('id="stick"') && html.indexOf('id="goStick"') < html.indexOf('class="dashboard"'));
 assert(html.indexOf('id="stop"') < html.indexOf('id="optionsCard"'), 'Stop stays with what is running');
 
 // Whichever mode is on is marked, for the eye and for screen readers, and the other isn't.
@@ -265,13 +314,12 @@ assert(status.indexOf('id="runQueue"') > 0 && status.indexOf('id="runQueue"') < 
 assert(/<details class="log-box" id="logBox">\s*<summary>Expand to see/.test(status) && !/id="logBox" open/.test(html));
 assert(/<a href="#optionsCard">Generate<\/a>/.test(html) && !html.includes('href="#queueCard"') && !html.includes('href="#logCard"'));
 
-// The bars only show beside what they are about.
+// The footer bars show away from Status, which has its own.
 run('stripActive.run = true; stripActive.upload = false; syncStrips()');
-assert.strictEqual(els.runStrip.hidden, false);
-const realRect = els.runCard ? els.runCard.getBoundingClientRect : null;
+assert.strictEqual(els.runStrip.hidden, true, 'on Status');
 context.document.getElementById('runCard').getBoundingClientRect = () => ({ top: 5000, bottom: 5100 });
 run('syncStrips()');
-assert.strictEqual(els.runStrip.hidden, true, 'scrolled away from status');
+assert.strictEqual(els.runStrip.hidden, false, 'scrolled away from Status');
 context.document.getElementById('runCard').getBoundingClientRect = () => ({ top: 0, bottom: 100 });
 run('stripActive.run = false; syncStrips()');
 
@@ -286,6 +334,8 @@ queue.dataset.title = 'Runs';
 context.queue = queue;
 run(`renderQueue(queue, { items: [{ id: 3, label: 'a <film>', detail: 'd', estimate: 600 }], results: [], held: true, current: null }, 0)`);
 assert(queue.innerHTML.includes('<b>Runs (1)</b>'));
+run(`renderQueue(queue, { items: [], results: [{ label: 'x', outcome: 'done', at: '17:00' }, { label: 'y', outcome: 'done', at: '17:01' }], held: false, current: null }, 0)`);
+assert.strictEqual(queue.hidden, true, 'what finished is under Finished, not in the queue');
 assert(queue.innerHTML.includes('data-resume') && queue.innerHTML.includes('data-remove="3"') && queue.innerHTML.includes('a &lt;film&gt;'));
 
 // The status recovers by itself.
@@ -301,7 +351,13 @@ assert(queue.innerHTML.includes('data-resume') && queue.innerHTML.includes('data
   context.setTimeout = () => 0;
   context.fetch = answer({ ...quiet, server_started: 1, returncode: 0 });
   await run('poll()');
-  assert.strictEqual(els.jumpRun.textContent, 'Done', 'it works again straight after a stuck one');
+  assert.strictEqual(els.jumpRun.textContent, 'Idle', 'it works again straight after a stuck one');
+  assert.strictEqual(els.statusText.textContent, 'Idle', 'a finished run leaves the status idle');
+  assert.strictEqual(els.go.textContent, 'Generate');
+  context.fetch = answer({ ...quiet, server_started: 1, queue: { ...quiet.queue, items: [{ id: 1, label: 'x', estimate: 60 }] } });
+  await run('poll()');
+  assert.strictEqual(els.go.textContent, 'Add to queue');
+  assert.strictEqual(els.goStick.textContent, 'Add to queue');
 
   // Signed out: the page goes to the login rather than sit there stale.
   context.fetch = answer({}, { redirected: true });

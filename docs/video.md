@@ -53,13 +53,20 @@ python webapp.py
 the prompts are written and opens them for you. Change any of them, then press **Render the film**. Untick
 "Let me read the prompts" to go straight through.
 
-**Image 1 and image 2** have a box each. Image 1 is the first frame, or the main subject in a reference workflow.
-Image 2 is optional, and you say what it is:
+**Every image has a box.** Image 1 is the first frame, or the main character in a reference workflow such as
+MiniMax H3, which starts no clip on it. Each image after it is optional, and you say what it is:
 
-| Image 2 is | What the LLM does with it |
+| The image is | What the LLM does with it |
 |---|---|
-| **Extra context** (default) | It looks at it. More of the same subject gives it more details to get right. A place is where it puts the subject from image 1. If your prompt says how to use it, that wins. |
+| **Same character, new view** (default) | More details of the subject to get right: another angle, the rest of an outfit. |
 | **Another character** | It gives them a real part in the film, alongside the subject. |
+| **Environment** | It's where the film happens: the subject goes there. Several places and the film moves between them. |
+
+If your prompt says how to use an image, that wins. On H3 each character and place becomes a `<Subject>` of its own.
+
+There are as many boxes as the workflow has Load Image nodes, except on a reference node whose inputs grow, such as
+MiniMax's: wire one or two references in ComfyUI and the pipeline adds Load Image nodes up to five, or the node's own
+limit if that's lower. The boxes you leave empty come out of the workflow again.
 
 A workflow with one image input, like Built-in LTX, renders from image 1 alone. Only the LLM sees image 2 there, so
 it reaches the clips as words in the prompts: expect a description of that place or person, not a copy of it.
@@ -118,7 +125,7 @@ python -m pipelines.video.main harbour.jpg "a storm rolls in over the harbour" -
 | `--llm` | `gemini` or `claude`. Default: `LLM_PROVIDER`, else `gemini`. |
 | `--start` | `chain` for one continuous take (default), `image` for separate moments. |
 | `--reference IMAGE` | Another image, repeatable. The first one is image 2. |
-| `--image-2-role` | What image 2 is: `context` for more of the subject or the place to put them in (default), `character` for another character. |
+| `--image-role` | What an image after the first is, once per image in order from image 2: `view` (more of the subject), `character`, `place`, or `context` to let the LLM tell by looking (the default). `--image-2-role` still works. |
 | `--size 1280x736` | Render size, rounded to multiples of 32. By default it takes the image's shape at the workflow's pixel count. |
 | `--plan-only` | Writes the prompts and stops, so you can read them before spending the GPU time. |
 | `--upload`, `--privacy` | Uploads when the film is done. Private by default. |

@@ -21,7 +21,9 @@
   .log .empty-log { color: var(--muted); }
   .estimate { margin-top: 12px; font-size: .9rem; }
   .estimate .err { margin: 0; }
-  .eta-detail .changes { max-height: 7.5em; overflow-y: auto; margin-top: 2px; }
+  .eta-detail { margin: -6px 0 10px; }
+  .eta-detail summary { font-size: .78rem; font-weight: 400; color: var(--muted); }
+  .eta-detail .changes { max-height: 7.5em; overflow-y: auto; margin-top: 4px; }
   #uploadBox .status { margin-bottom: 8px; }
   #stopUpload { width: auto; margin: 0 0 0 auto; padding: 4px 10px; font-size: .8rem; }
   .queue { margin-top: 12px; font-size: .84rem; }
@@ -86,7 +88,11 @@
   .run-sep { border-top: 1px solid var(--line); margin: 14px 0 12px; }
   .sys { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: .85rem; }
   .sys .item { display: flex; align-items: center; gap: 8px; }
-  .phone { font-size: .82rem; color: var(--muted); margin-top: 10px; }
+  .phone { font-size: .82rem; color: var(--muted); margin-top: 6px; }
+  .finished, .misc { margin-top: 10px; font-size: .85rem; }
+  .finished summary, .misc summary { font-size: .8rem; font-weight: 500; color: var(--muted); }
+  .finished .results div { padding: 2px 0; }
+  .finished .failed, .finished summary .failed { color: var(--err); }
   .phone code { color: var(--text); background: var(--panel-2); padding: 2px 6px; border-radius: 6px; user-select: all; }
   .vhead { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
   .tabs { display: flex; gap: 6px; flex: 1 1 auto; }
@@ -159,14 +165,21 @@
   }
   .switch button.active { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 800; box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
   /* Each mode has its own colour across the page, so you can tell which you're in at a glance. */
+  body.on-shorts { --accent: #ff0033; }
   body.on-video { --accent: #4c8dff; }
   .pipeline-form textarea { min-height: 84px; resize: vertical; }
   .pipeline-form input[type=file] { padding: 9px; font-size: .9rem; }
   #duration { padding: 0; margin-top: 8px; height: 22px; background: none; border: 0; outline: 0; accent-color: var(--accent); }
-  .image-boxes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 12px; }
+  /* One row per image: its thumbnail, the file, what it is, and Remove. */
   .image-box { min-width: 0; }
-  .image-box button { width: auto; margin: 6px 0 0; padding: 4px 10px; font-size: .78rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
-  .preview { display: block; width: 100%; max-height: 220px; object-fit: contain; margin-top: 8px; border-radius: 10px; background: #000; }
+  .image-line { display: flex; align-items: center; gap: 8px; }
+  .image-line input[type=file] { flex: 1 1 0; min-width: 0; }
+  .pipeline-form .image-line select { flex: 1 1 0; min-width: 0; width: auto; padding-left: 8px; padding-right: 4px; }
+  .image-line .thumb { display: contents; }
+  .image-line .preview { flex: none; width: 44px; height: 44px; object-fit: cover; border-radius: 8px; background: #000; cursor: pointer; }
+  /* Chosen, with a role to pick: the thumbnail changes it, so the role gets the room. */
+  .image-box.compact input[type=file] { display: none; }
+  .image-line button { flex: none; width: auto; margin: 0; padding: 6px 8px; font-size: .85rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
   /* Films are as wide as the card; Shorts stand upright. */
   body.on-video .vid { flex-basis: 100%; }
   body.on-video .vid video { aspect-ratio: 16 / 9; max-height: none; }
@@ -223,6 +236,25 @@
   .run-card .btns:empty { display: none; }
   #stop { margin: 0 0 12px; }
   .card > .section-title:first-child { margin-top: 0; }
+  /* Each heading folds what's under it away. */
+  summary.section-title { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; user-select: none; }
+  summary.section-title::-webkit-details-marker { display: none; }
+  summary.section-title::after { content: "\203A"; font-size: 1.2rem; line-height: 1; color: var(--muted); transform: rotate(90deg); transition: transform .15s; }
+  details.section:not([open]) > summary.section-title::after { transform: none; }
+  details.section:not([open]) { padding-bottom: 4px; }
+  /* The run and the upload in Status: how far along, in full. */
+  .progress { margin: 4px 0 12px; font-size: .85rem; }
+  .progress .bar { height: 8px; margin-top: 6px; }
+  .progress .strip-head { flex-wrap: wrap; gap: 2px 10px; }
+  .progress .strip-head span { white-space: normal; }
+  .progress .hint { margin-top: 4px; }
+  #uploadBox .progress { margin-bottom: 8px; }
+  /* On Generate, the button and its estimate stay at the bottom. */
+  .go-bar { order: -1; display: flex; align-items: center; gap: 10px; padding: 8px 16px 2px; }
+  .go-bar[hidden] { display: none; }
+  .go-eta { flex: 1; min-width: 0; font-size: .8rem; color: var(--muted); }
+  .go-eta b { color: var(--text); }
+  .go-bar button { width: auto; flex: none; margin: 0; padding: 11px 18px; font-size: .95rem; }
   /* Desktop: options (two columns), the run, queue, log and
      quota cards and, from 1280px, the portrait videos on the far right, all on one
      screen. Narrower desktops put the videos underneath. Phones keep one column. */
@@ -235,8 +267,8 @@
       display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 340px); grid-auto-flow: row dense; gap: 0 24px;
     }
     .run-card > * { grid-column: 1; }
-    .run-card > .sys, .run-card > .gpu, .run-card > #uploadBox, .run-card > .phone { grid-column: 2; }
-    .run-card > .log-box, .run-card > .status-queue { grid-column: 1 / -1; }
+    .run-card > .sys, .run-card > .gpu, .run-card > #uploadBox { grid-column: 2; }
+    .run-card > .log-box, .run-card > .status-queue, .run-card > .finished, .run-card > .misc { grid-column: 1 / -1; }
     .run-card > .sys { margin-top: 18px; }
     .run-card > .gpu { margin: 6px 0; }
     .options-col > .card { margin-bottom: 0; }
@@ -305,7 +337,7 @@
     <a href="#runCard" class="run"><span class="dot" id="jumpDot"></span>Status<small id="jumpRun">Idle</small></a>
     <a href="#optionsCard">Generate</a>
     <a href="#quotaCard">Quota</a>
-    <a href="#videosCard">Videos (<span id="jumpCount">0</span>)</a>
+    <a href="#videosCard">Videos</a>
   </nav>
   <div class="strip" id="runStrip" hidden>
     <div class="strip-head"><b id="runStripText"></b><span id="runStripRight"></span></div>
@@ -317,6 +349,10 @@
     <div class="bar"><div id="uploadStripBar"></div></div>
     <div class="hint" id="uploadStripHint"></div>
   </div>
+  <div class="go-bar" id="goBar" hidden>
+    <div class="go-eta" id="goBarEta"></div>
+    <button type="button" id="goStick">Generate</button>
+  </div>
 </div>
 
 <div class="dashboard">
@@ -327,6 +363,10 @@
   <div class="status">
     <span class="dot" id="dot"></span>
     <span id="statusText">Idle</span>
+  </div>
+  <div class="progress" id="runProgress" hidden>
+    <div class="strip-head"><b id="runProgressText"></b><span id="runProgressRight"></span></div>
+    <div class="bar"><div id="runProgressBar"></div></div>
   </div>
   <div class="hint eta-detail" id="etaDetail" hidden></div>
   <div id="now" class="hidden">
@@ -350,6 +390,11 @@
       <span id="uploadStatus"></span>
       <button type="button" class="danger" id="stopUpload" hidden>Stop</button>
     </div>
+    <div class="progress" id="uploadProgress" hidden>
+      <div class="strip-head"><b id="uploadProgressText"></b><span id="uploadProgressRight"></span></div>
+      <div class="bar"><div id="uploadProgressBar"></div></div>
+      <div class="hint" id="uploadProgressHint"></div>
+    </div>
   </div>
   <div class="status-queue" id="queueBox">
     <div class="queue" id="runQueue" data-lane="run" data-title="Runs" hidden></div>
@@ -363,14 +408,21 @@
     <div class="q-group only-shorts">Upload</div>
     <div class="log only-shorts" id="uploadLog"><span class="empty-log">No upload yet.</span></div>
   </details>
-  <div class="phone">📱 Phone (same Wi-Fi): <code>{{ phone_url }}</code></div>
+  <details class="finished" id="finished" hidden>
+    <summary id="finishedTitle"></summary>
+    <div class="hint results" id="finishedList"></div>
+  </details>
+  <details class="misc" id="misc">
+    <summary>More</summary>
+    <div class="phone">📱 Phone (same Wi-Fi): <code>{{ phone_url }}</code></div>
+  </details>
 </div>
 
 <div class="options-col" id="optionsCard">
 <form class="card pipeline-form only-shorts" id="formShorts">
   <div class="form-col">
-    <div class="section" id="formTopic">
-      <div class="section-title">What to make</div>
+    <details class="section" id="formTopic" open>
+      <summary class="section-title">Generation</summary>
 
       <label for="topic">Topic</label>
       <input id="topic" name="topic" placeholder="e.g. Why the Sahara was once green" autocomplete="off">
@@ -389,21 +441,20 @@
           </select>
         </div>
       </div>
-    </div>
+    </details>
 
-    <div class="section" id="formVoice">
-      <div class="section-title">Voice</div>
+    <details class="section" id="formVoice">
+      <summary class="section-title">Voice</summary>
       <label for="voice">Narrator</label>
       <select id="voice" name="voice">
         {% for value, label in voices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
       </select>
-      <div class="hint">If both Gemini voice models fail, the run stops.</div>
-    </div>
+    </details>
   </div>
 
   <div class="form-col">
-    <div class="section" id="formAvatar">
-      <div class="section-title">Avatar (presenter)</div>
+    <details class="section" id="formAvatar">
+      <summary class="section-title">Avatar (presenter)</summary>
       <label for="avatar_clips">When she appears</label>
       <select id="avatar_clips" name="avatar_clips">
         <option value="auto">Auto — opens the video, then the scenes with the weakest stock footage</option>
@@ -454,10 +505,10 @@
         <button type="button" class="ghost" id="comfyStart" title="Only ComfyUI can list what's saved in it." hidden>Start ComfyUI</button>
         <div class="hint" id="workflowHint">Replaces Style. Each needs a Load Audio node feeding the video.</div>
       </div>
-    </div>
+    </details>
 
-    <div class="section" id="formPublish">
-      <div class="section-title">Publish</div>
+    <details class="section" id="formPublish">
+      <summary class="section-title">Publish</summary>
       <label class="check">
         <input type="checkbox" name="upload" id="upload">
         <span>Upload to YouTube when done
@@ -470,11 +521,10 @@
         <option value="private">Private — only you</option>
       </select>
       <div class="hint">YouTube forces uploads from an unverified Google app to private.</div>
-    </div>
+    </details>
 
-    <div class="section" id="formAdvanced">
-      <details>
-        <summary>Advanced</summary>
+    <details class="section" id="formAdvanced">
+      <summary class="section-title">Advanced</summary>
         <label for="output">File name (single video only)</label>
         <input id="output" name="output" placeholder="short_YYYYMMDD_HHMMSS_model.mp4" autocomplete="off">
 
@@ -489,24 +539,16 @@
             <div class="hint">Normally deleted after each video.</div>
           </span>
         </label>
-      </details>
-    </div>
+    </details>
   </div>
 
 </form>
 
 <form class="card pipeline-form only-video" id="formVideo">
-  <div class="section">
-    <div class="section-title">What to make</div>
+  <details class="section" id="videoGeneration" open>
+    <summary class="section-title">Generation</summary>
     <div class="image-boxes" id="imageBoxes"></div>
-    <div id="secondImage" hidden>
-      <label for="secondImageRole">What image 2 is</label>
-      <select id="secondImageRole" name="image_2_role">
-        <option value="context">Extra context: more of the character in image 1, or the place to put them in</option>
-        <option value="character">Another character</option>
-      </select>
-      <div class="hint" id="secondImageHint"></div>
-    </div>
+    <div class="hint" id="imagesHint" hidden></div>
 
     <label for="audioMode">Audio</label>
     <select id="audioMode" name="audio_mode">
@@ -550,10 +592,10 @@
     </select>
     <input id="size" name="size" placeholder="Such as 1280x736, rounded to multiples of 32" autocomplete="off" style="margin-top:8px" hidden>
     <div class="hint">Lower renders faster. An image of another shape gets cropped.</div>
-  </div>
+  </details>
 
-  <div class="section">
-    <div class="section-title">How</div>
+  <details class="section" id="videoHow">
+    <summary class="section-title">How</summary>
     <label for="llm">Who writes the prompts</label>
     <select id="llm" name="llm">
       {% for llm in llms %}<option value="{{ llm.name }}" {% if not llm.ready %}disabled{% endif %}>{{ llm.label }}{% if not llm.ready %} (no key in .env){% endif %}</option>{% endfor %}
@@ -578,7 +620,7 @@
         <div class="hint">Stops after the prompts are written, so you can change them.</div>
       </span>
     </label>
-  </div>
+  </details>
 </form>
 
 </div>
@@ -781,7 +823,6 @@ function unclaimedVideos() {
 function renderVideos() {
   const videos = lastVideos[folder] || [];
   $('countOutput').textContent = lastVideos.output.length;
-  $('jumpCount').textContent = (pipeline === 'video' ? lastVideos.video : lastVideos.output).length;
   $('countUploaded').textContent = lastVideos.uploaded.length;
   $('uploadAll').hidden = folder !== 'output';
   $('uploadAll').disabled = !CAN_UPLOAD || !unclaimedVideos().length;
@@ -887,9 +928,9 @@ $('tabUploaded').onclick = () => setTab('uploaded');
 const VIDEO_STORE_KEY = 'comfyui-auto-gen.video.v1';
 const VIDEO_DEFAULTS = { llm: {{ default_llm | tojson }}, review: true, duration: {{ film_limits[2] | tojson }}, privacy: 'private', start: 'chain' };
 // What belongs to one film rather than being the way you like to work.
-const NOT_REMEMBERED = ['prompt', 'size', 'image_2_role', 'narration'];
-// A file input also throws if you set its value.
-function remembered(el) { return el.name && el.type !== 'file' && !NOT_REMEMBERED.includes(el.name); }
+const NOT_REMEMBERED = ['prompt', 'size', 'narration'];
+// A file input also throws if you set its value. An image's role goes with that image.
+function remembered(el) { return el.name && el.type !== 'file' && !NOT_REMEMBERED.includes(el.name) && !/^image_\d+_role$/.test(el.name); }
 
 // --- Remember the last options (per browser) ---
 function saveVideoForm() {
@@ -939,18 +980,25 @@ function imageBoxes() { return [...$('imageBoxes').querySelectorAll('.image-box'
 function imageBoxCount(high) { return high === 1 ? 2 : high; }
 function imageLabel(number, low, high) {
   const optional = number > low ? ' (optional)' : '';
+  // Clips start on image 1 only when it's all they take; a reference workflow such as H3 starts none on it.
   if (number === 1 && high === 1) return low ? 'Image 1: first frame' : 'Image 1: first frame (optional: without one it starts from text)';
-  if (number === 1) return `Image 1: main subject${optional}`;
-  return number === 2 ? `Image 2: extra context${optional}` : `Image ${number}: another reference${optional}`;
+  if (number === 1) return `Image 1: main character${optional}`;
+  return `Image ${number}${optional}`;
 }
+// What each image after the first is. The pipeline also knows "context", where the LLM tells by looking.
+const IMAGE_ROLES = [['view', 'Same character, new view'], ['character', 'Another character'], ['place', 'Environment']];
 function imageBoxHtml(number) {
   const name = number === 1 ? 'image' : `image_${number}`;
+  const role = number === 1 ? '' : `
+      <select class="hidden" id="${name}_role" name="${name}_role" aria-label="What image ${number} is" title="What image ${number} is" disabled>${IMAGE_ROLES.map(([value, text]) => `<option value="${value}">${text}</option>`).join('')}</select>`;
   return `
   <div class="image-box">
     <label for="${name}"></label>
-    <input id="${name}" name="${name}" type="file" accept="image/*">
-    <img class="preview hidden" alt="Image ${number}">
-    <button type="button" class="hidden" data-clear="1">Remove</button>
+    <div class="image-line">
+      <label class="thumb" for="${name}" title="Choose another image"><img class="preview hidden" alt="Image ${number}"></label>
+      <input id="${name}" name="${name}" type="file" accept="image/*">${role}
+      <button type="button" class="hidden" data-clear="1" aria-label="Remove image ${number}" title="Remove">✕</button>
+    </div>
   </div>`;
 }
 function showImage(box) {
@@ -959,6 +1007,13 @@ function showImage(box) {
   preview.classList.toggle('hidden', !file);
   box.querySelector('button').classList.toggle('hidden', !file);
   if (file) preview.src = URL.createObjectURL(file);
+  // A role only goes with an image, so an empty box sends none.
+  const role = box.querySelector('select');
+  if (role) {
+    role.classList.toggle('hidden', !file);
+    role.disabled = !file;
+    box.classList.toggle('compact', !!file);
+  }
 }
 function clearImage(box) {
   box.querySelector('input').value = '';
@@ -977,10 +1032,10 @@ function syncImageInput() {
     box.querySelector('label').textContent = imageLabel(i + 1, low, high);
   });
   const second = imageBoxes()[1];
-  $('secondImage').hidden = !(second && !second.hidden && second.querySelector('input').files.length);
-  $('secondImageHint').textContent = high === 1
-    ? 'This workflow gives its clips one image, so the video model never sees this one. The LLM looks at it and puts what matters into the prompts in words.'
-    : 'Every clip gets this image too, and the LLM is told what it is for.';
+  $('imagesHint').hidden = !(second && !second.hidden && second.querySelector('input').files.length);
+  $('imagesHint').textContent = high === 1
+    ? 'This workflow gives its clips one image, so the video model never sees image 2. The LLM looks at it and puts what matters into the prompts in words.'
+    : 'Every clip gets all of these images, and the LLM is told what each one is for.';
   // Starting on the last frame only works when one image is all a clip takes.
   $('start').disabled = high !== 1;
 }
@@ -1151,28 +1206,22 @@ function stepEta(step) {
 function clockIn(sec) {
   return new Date(Date.now() + sec * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
 }
-function totalEta(eta, waitingWork) {
-  const left = eta.total_left + waitingWork;
-  return `${fmtEta(left)} left${waitingWork ? ' with the queue' : ''}, done around ${clockIn(left)}`;
-}
 // What moved the ETA, with its effect: '+6 min', or nothing for a change that costs no time.
 function etaChange(change) {
   const sign = change.seconds > 0 ? '+' : '-';
   const effect = change.seconds ? `${sign}${fmtEta(Math.abs(change.seconds)).slice(1)} · ` : '';
   return `<div>${effect}${esc(change.text)}</div>`;
 }
-function renderEtaDetail(eta, queued) {
+function renderEtaDetail(eta) {
+  // The time left is on the bar, and the queue's on the queue: this only says why it moved.
   const box = $('etaDetail');
-  box.hidden = !eta;
-  if (!eta) return;
-  const added = queued.map(item => ({ text: `Queued: ${item.label}`, seconds: item.estimate || 0 }));
-  const changes = eta.changes.concat(added);
-  const waitingWork = added.reduce((sum, change) => sum + change.seconds, 0);
-  const original = `Original ETA: <b>${fmtEta(eta.original_total)}</b>, done around ${clockIn(eta.original_left)}`;
-  box.innerHTML = changes.length
-    ? `${original}<br>Adjusted ETA: <b>${fmtEta(eta.adjusted_total + waitingWork)}</b>, done around ${clockIn(eta.total_left + waitingWork)}`
-      + `<div class="changes">${changes.map(etaChange).join('')}</div>`
-    : `${original} · on track`;
+  box.hidden = !eta || !eta.changes.length;
+  if (box.hidden) return;
+  const moved = eta.adjusted_total - eta.original_total;
+  const by = Math.abs(moved) >= 30 ? ` (${moved > 0 ? '+' : '-'}${fmtEta(Math.abs(moved)).slice(1)})` : '';
+  const html = `<details${box.querySelector('details[open]') ? ' open' : ''}><summary>First estimate was ${fmtEta(eta.original_total)}${by}: why</summary>`
+    + `<div class="changes">${eta.changes.map(etaChange).join('')}</div></details>`;
+  if (box.dataset.html !== html) { box.innerHTML = html; box.dataset.html = html; }
 }
 
 // --- Estimate before a run, from the form's current options ---
@@ -1180,6 +1229,10 @@ let plan = null, planRequest = 0, planTimer = 0;
 // Seconds of work ahead of a new run; null while the queue is on hold, when nobody can say.
 let queueAhead = 0;
 function renderPlan() {
+  showPlan();
+  $('goBarEta').innerHTML = $('estimateTotal').innerHTML;
+}
+function showPlan() {
   if (!plan) return;
   if (!plan.ok) {
     $('estimateTotal').innerHTML = `<span class="err">${esc(plan.error)}</span>`;
@@ -1251,7 +1304,7 @@ function renderNow(data) {
     $('stepper').innerHTML = names.map((s, i) =>
       `<div class="step ${i + 1 < n ? 'done' : i + 1 === n ? 'now' : ''}">${esc(s)}<span class="eta">${stepEta(steps[i])}</span></div>`).join('');
     $('stageName').textContent = `Step ${n} of ${total}: ${name}`;
-    $('stageTime').textContent = fmt(p.stage_elapsed) + (steps[n - 1] ? ` · ${stepEta(steps[n - 1])}` : '');
+    $('stageTime').textContent = fmt(p.stage_elapsed);
     $('stageDetail').textContent = p.detail || STAGE_HINTS[name] || '';
   }
 
@@ -1326,14 +1379,12 @@ const renderLog = logWriter($('log'), () => autoScroll);
 const renderUploadLog = logWriter($('uploadLog'), () => true);
 
 function renderUpload(up) {
-  $('uploadBox').hidden = !up.lines.length && !up.queue.items.length;
-  $('uploadDot').className = 'dot' + (up.running ? ' on' : up.stopped ? '' : (up.returncode ? ' fail' : up.started_at ? ' ok' : ''));
+  // How each one ended is under Finished, so this only shows while one is going or waiting.
+  $('uploadBox').hidden = !up.running && !up.queue.items.length;
+  $('uploadDot').className = 'dot' + (up.running ? ' on' : '');
   $('stopUpload').hidden = !up.running;
   $('uploadStatus').textContent = up.running ? `Uploading · ${fmt(up.elapsed)} so far`
-    : up.queue.items.length && !up.queue.held ? 'Waiting to upload'
-    : !up.started_at ? ''
-    : up.stopped ? 'Upload stopped'
-    : up.returncode === 0 ? 'Upload finished ✔' : `Upload failed (exit ${up.returncode})`;
+    : up.queue.held ? 'Uploads on hold' : 'Waiting to upload';
   renderQueue($('uploadQueue'), up.queue, 0);
   if (up.lines.length) renderUploadLog(up.lines);
 }
@@ -1341,10 +1392,10 @@ function renderUpload(up) {
 // --- Queues ---
 const RESULT_MARKS = { done: '✔', failed: '✖ failed', stopped: '■ stopped', skipped: '– skipped' };
 function renderQueue(el, q, doneIn) {
-  // One finished job and nothing waiting says nothing the status line doesn't.
-  el.hidden = !q.items.length && q.results.length < 2;
+  // What has finished is under Finished: this is what's waiting.
+  el.hidden = !q.items.length;
   if (el.hidden) return;
-  const head = !q.items.length ? `<b>${el.dataset.title} finished</b>` : `<b>${el.dataset.title} (${q.items.length})</b>` + (q.held
+  const head = `<b>${el.dataset.title} (${q.items.length})</b>` + (q.held
     ? `<span class="when">On hold until you press Resume</span><button type="button" data-resume="1">Resume</button>`
     : doneIn ? `<span class="when">All done around ${clockIn(doneIn)}</span>` : '');
   const now = q.current && q.items.length ? `<div class="queue-item"><div class="what">Now: ${esc(q.current.label)}</div></div>` : '';
@@ -1354,14 +1405,24 @@ function renderQueue(el, q, doneIn) {
       ${item.estimate ? `<span class="when">${fmtEta(item.estimate)}</span>` : ''}
       <button type="button" data-remove="${item.id}" aria-label="Remove from the queue" title="Remove from the queue">✕</button>
     </div>`).join('');
-  const results = q.results.length ? `<div class="hint results">${q.results.map(r =>
-    `<div class="${r.outcome === 'failed' ? 'failed' : ''}">${r.at} ${RESULT_MARKS[r.outcome]}: ${esc(r.label)}${r.note ? ` (${esc(r.note)})` : ''}</div>`).join('')}</div>` : '';
-  const html = `<div class="queue-head">${head}</div>${now}${items}${results}`;
+  const html = `<div class="queue-head">${head}</div>${now}${items}`;
   // Only when it changed, so a poll can't swallow a click on a button it just replaced.
   if (el.dataset.html !== html) {
     el.innerHTML = html;
     el.dataset.html = html;
   }
+}
+// Every run and upload that has ended, in one list, newest first.
+function renderFinished(runs, uploads) {
+  const all = [...runs.map(r => ({ ...r, kind: '' })), ...uploads.map(r => ({ ...r, kind: 'Upload: ' }))]
+    .sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+  $('finished').hidden = !all.length;
+  if (!all.length) return;
+  const failed = all.filter(r => r.outcome === 'failed').length;
+  const title = `Finished (${all.length})${failed ? ` · <span class="failed">${failed} failed</span>` : ''}`;
+  const list = all.map(r => `<div class="${r.outcome === 'failed' ? 'failed' : ''}">${r.at} ${RESULT_MARKS[r.outcome]}: ${r.kind}${esc(r.label)}${r.note ? ` (${esc(r.note)})` : ''}</div>`).join('');
+  if ($('finishedTitle').innerHTML !== title) $('finishedTitle').innerHTML = title;
+  if ($('finishedList').dataset.html !== list) { $('finishedList').innerHTML = list; $('finishedList').dataset.html = list; }
 }
 function renderStopped(runs) {
   const el = $('stoppedRuns');
@@ -1416,44 +1477,51 @@ function runShort(data, nextUp) {
     const clip = /^Clip (\d+) of (\d+)/.exec(p.detail || '');
     return clip ? `Clip ${clip[1]}/${clip[2]}` : SHORT_STAGES[p.stage[2]] || p.stage[2];
   }
-  if (nextUp) return 'Next job';
-  if (data.stopped) return 'Stopped';
-  if (data.returncode === 0) return 'Done';
-  return data.returncode === null ? 'Idle' : 'Failed';
+  return nextUp ? 'Next job' : 'Idle';
 }
 // share is how much is done, 0 to 1, or null when that can't be told.
 function inView(id) {
   const box = $(id).getBoundingClientRect();
   return box.top < window.innerHeight - $('stick').offsetHeight && box.bottom > 0;
 }
-const STRIP_SECTIONS = { run: ['runCard'], upload: ['runCard', 'videosCard'] };
+// Status shows them in full, so the bars in the footer are for everywhere else.
 const stripActive = { run: false, upload: false };
 function syncStrips() {
-  for (const job of Object.keys(STRIP_SECTIONS)) {
-    $(`${job}Strip`).hidden = !(stripActive[job] && STRIP_SECTIONS[job].some(inView));
-  }
+  const onStatus = inView('runCard');
+  for (const job of Object.keys(stripActive)) $(`${job}Strip`).hidden = !stripActive[job] || onStatus;
   document.documentElement.style.setProperty('--head', `${$('stick').offsetHeight}px`);
 }
-function setStrip(job, show, text, right, share, hint) {
+// The footer bar says it all in one line; Status already has the stage and the time so
+// far, so its bar only adds how far along and when it ends.
+function setStrip(job, show, strip, status, share) {
   stripActive[job] = show;
+  $(`${job}Progress`).hidden = !show;
   if (!show) return;
-  $(`${job}StripText`).textContent = text;
-  $(`${job}StripRight`).textContent = right;
-  $(`${job}StripHint`).textContent = hint;
-  const bar = $(`${job}StripBar`);
-  bar.parentElement.classList.toggle('busy', share === null);
-  bar.style.width = `${share === null ? 30 : Math.round(share * 100)}%`;
+  const pct = share === null ? '' : `${Math.round(share * 100)}%`;
+  for (const [where, say] of [['Strip', strip], ['Progress', status]]) {
+    $(`${job}${where}Text`).textContent = say.text;
+    $(`${job}${where}Right`).textContent = [pct, say.right].filter(Boolean).join(' · ');
+    const bar = $(`${job}${where}Bar`);
+    bar.parentElement.classList.toggle('busy', share === null);
+    bar.style.width = `${share === null ? 30 : Math.round(share * 100)}%`;
+  }
+  $(`${job}StripHint`).textContent = strip.hint;
+  if (job === 'upload') $('uploadProgressHint').textContent = status.hint;
 }
 function renderStrips(data) {
   const p = data.progress || {}, stage = p.stage || [], eta = p.eta;
   const video = p.run && p.run[1] > 1 ? `Video ${p.run[0]}/${p.run[1]} · ` : '';
-  setStrip('run', data.running, video + (stage[2] || 'Starting'),
-    eta ? `${fmtEta(eta.total_left)} left` : fmt(data.elapsed),
-    eta && eta.adjusted_total ? 1 - eta.total_left / eta.adjusted_total : null,
-    p.detail || STAGE_HINTS[stage[2]] || '');
+  const left = eta ? `${fmtEta(eta.total_left)} left` : fmt(data.elapsed);
+  setStrip('run', data.running,
+    { text: video + (stage[2] || 'Starting'), right: left, hint: p.detail || STAGE_HINTS[stage[2]] || '' },
+    { text: p.run && p.run[1] > 1 ? `Video ${p.run[0]} of ${p.run[1]}` : 'This run', right: eta ? `${left}, done around ${clockIn(eta.total_left)}` : '' },
+    eta && eta.adjusted_total ? 1 - eta.total_left / eta.adjusted_total : null);
   const up = data.upload, at = (up.progress || {}).upload;
-  setStrip('upload', up.running, at ? `Uploading ${at[0]}/${at[1]}` : 'Uploading', fmt(up.elapsed),
-    at && at[1] > 1 ? (at[0] - 1) / at[1] : null, at ? at[2] : 'Writing the title and description.');
+  const sending = at ? at[2] : 'Writing the title and description.';
+  setStrip('upload', up.running,
+    { text: at ? `Uploading ${at[0]}/${at[1]}` : 'Uploading', right: fmt(up.elapsed), hint: sending },
+    { text: at ? `Video ${at[0]} of ${at[1]}` : 'Getting ready', right: '', hint: sending },
+    at && at[1] > 1 ? (at[0] - 1) / at[1] : null);
   syncStrips();
 }
 
@@ -1492,6 +1560,8 @@ async function poll() {
     // The prompts you asked to read before rendering are ready.
     const planned = data.pipeline === 'video' && data.returncode === 0 && (data.command || '').includes('--plan-only') && data.progress.run_id;
     if (planned && !$('shotsDialog').open) openShots(data.progress.run_id);
+    // A setup check's answer is in the log.
+    if ((data.command || '').includes('--check')) $('logBox').open = true;
   }
   wasRunning = running;
   const queue = data.queue, upq = data.upload.queue;
@@ -1513,11 +1583,13 @@ async function poll() {
   renderUpload(data.upload);
   renderQueue($('runQueue'), queue, queue.held ? 0 : queueAhead);
   renderStopped(data.stopped_runs);
-  $('dot').className = 'dot' + (running || nextUp ? ' on' : (data.returncode && !data.stopped ? ' fail' : ''));
+  renderFinished(queue.results, upq.results);
+  $('dot').className = 'dot' + (running || nextUp ? ' on' : '');
   $('jumpDot').className = $('dot').className;
   $('jumpRun').textContent = runShort(data, nextUp);
   renderStrips(data);
-  $('go').disabled = submitting;
+  $('go').disabled = $('goStick').disabled = submitting;
+  $('go').textContent = $('goStick').textContent = running || runsQueued ? 'Add to queue' : 'Generate';
   $('check').hidden = running;
   $('check').disabled = submitting;
   $('currentWork').hidden = !running;
@@ -1530,22 +1602,15 @@ async function poll() {
   $('stop').hidden = !running;
 
   renderNow(data);
-  renderEtaDetail(running ? (data.progress || {}).eta : null, queuedNext);
+  renderEtaDetail(running ? (data.progress || {}).eta : null);
 
   if (running) {
     const p = data.progress || {};
-    const run = p.run ? ` · video ${p.run[0]} of ${p.run[1]}` : '';
-    const eta = p.eta ? ` · ${totalEta(p.eta, waitingWork)}` : '';
-    $('statusText').textContent = `Running${run} · ${fmt(data.elapsed)} so far (started ${data.started_at})${eta}`;
+    $('statusText').textContent = `Running · started ${data.started_at}, ${fmt(data.elapsed)} so far`;
   } else if (nextUp) {
     $('statusText').textContent = 'Starting the next job in the queue…';
-  } else if (data.stopped) {
-    $('statusText').textContent = 'Stopped';
-  } else if (data.returncode === 0) {
-    $('statusText').textContent = 'Finished ✔';
-  } else if (data.returncode !== null) {
-    $('statusText').textContent = `Failed (exit ${data.returncode}), see the log`;
   } else {
+    // How it ended is under Finished.
     $('statusText').textContent = 'Idle';
   }
 
@@ -1578,7 +1643,7 @@ $('log').addEventListener('scroll', () => {
 async function startJob(url) {
   $('formError').hidden = true;
   submitting = true;
-  $('go').disabled = true;
+  $('go').disabled = $('goStick').disabled = true;
   $('check').disabled = true;
   let body;
   try {
@@ -1602,7 +1667,7 @@ async function startJob(url) {
     $('narration').value = '';
     $('audioFile').value = '';
     imageBoxes().forEach(clearImage);
-    $('secondImageRole').value = 'context';
+    for (const select of $('imageBoxes').querySelectorAll('select')) select.value = 'view';
     syncImageInput();
     queuePlan();
     if (body.shots) openShots(body.shots);
@@ -1621,6 +1686,7 @@ $('go').addEventListener('click', () => {
   startJob(`/generate/${pipeline}`);
 });
 $('check').addEventListener('click', () => startJob(`/check/${pipeline}`));
+$('goStick').addEventListener('click', () => $('go').click());
 
 function setPipeline(side, remember = true) {
   pipeline = side;
@@ -1679,9 +1745,26 @@ function markJump() {
   const line = 16;
   const here = JUMPS.filter(a => $(a.hash.slice(1)).getBoundingClientRect().top <= line).pop() || JUMPS[0];
   JUMPS.forEach(a => a.classList.toggle('active', a === here));
+  // The form's own button is in sight at its end, so this one would only repeat it.
+  $('goBar').hidden = !here || here.hash !== '#optionsCard' || inView('formActions');
   syncStrips();
 }
 window.addEventListener('scroll', markJump, { passive: true });
+
+const SECTIONS_KEY = 'comfyui-auto-gen.sections.v1';
+function openSections() {
+  try { return JSON.parse(localStorage.getItem(SECTIONS_KEY)) || {}; } catch (e) { return {}; }
+}
+for (const section of document.querySelectorAll('details.section')) {
+  const open = openSections()[section.id];
+  if (open !== undefined) section.open = open;
+  section.addEventListener('toggle', () => {
+    const all = openSections();
+    all[section.id] = section.open;
+    try { localStorage.setItem(SECTIONS_KEY, JSON.stringify(all)); } catch (e) {}
+    markJump();
+  });
+}
 
 loadForm();
 syncForm();
