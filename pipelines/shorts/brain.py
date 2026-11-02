@@ -420,6 +420,28 @@ class ContentBrain:
             print(f"   ⚠️ Stock clip picking failed ({e}). Using the top search results.")
         return picks
 
+    def shows_only_text(self, sheet_jpeg):
+        """
+        Asks a fast model whether a stock clip is just words or a flat drawing on a plain
+        colour, from a sheet of its frames. Only clips with very flat frames get here, so
+        without an answer it counts as one: the search has other clips to use instead.
+        """
+        prompt = """
+    These are frames from one stock video clip. Say what the clip is, with one letter:
+    A) A filmed or photographed scene, including dark, night, sky, water, smoke or close-up shots with little detail.
+    B) Written words or letters on a plain background of one colour or on black, with no scene behind them.
+    C) A flat drawn or cartoon illustration on a plain background of one colour.
+    D) Something else.
+    First write what you see in at most ten words, including any words you can read, then a line with only the letter.
+    """
+        try:
+            image = types.Part.from_bytes(data=sheet_jpeg, mime_type="image/jpeg")
+            reply = _generate([image, prompt], retries=2, models=get_fast_models()).text
+            return reply.strip().splitlines()[-1].strip(" *.)").upper()[:1] in ("B", "C")
+        except Exception as e:
+            print(f"      ⚠️ Could not check a flat stock clip ({e}). Not using it.")
+            return True
+
     def rate_footage_fit(self, script_data):
         """
         Asks the LLM how well the stock footage found for each scene matches what

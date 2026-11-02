@@ -8,12 +8,15 @@ import os
 import shutil
 import struct
 import sys
+import tempfile
 import time
 import unittest
 import wave
 from datetime import datetime
 from unittest import mock
 from zoneinfo import ZoneInfo
+
+import ffmpeg
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -27,7 +30,10 @@ from panel import server as webapp
 from panel import shorts as shorts_panel
 from pipelines.shorts import main as pipeline
 from pipelines.shorts import run_state
+from pipelines.shorts.asset_manager import AssetManager
+from pipelines.shorts.brain import ContentBrain
 from pipelines.shorts.run_state import RunState, list_runs
+from pipelines.shorts.stock_check import is_text_card
 
 BASE = {"runs": "1", "lang": "en-GB", "avatar_clips": "auto", "avatar_source": "comfyui", "avatar_style": "lipsync",
         "avatar_clips_min": "3", "avatar_clips_max": "5", "avatar_seconds_min": "3", "avatar_seconds_max": "6"}
@@ -430,6 +436,110 @@ class VoiceKeptTest(unittest.TestCase):
         with self.requests(lambda text: one):
             self.engine()._narrate_gemini(self.scenes())
         self.assertEqual(self.asked, ["y"])
+
+
+class TextCardTest(unittest.TestCase):
+    """Stock clips that are just text on a colour. Their tags don't say so, so the frames decide."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.folder = tempfile.mkdtemp(dir=DATA)
+        cls.flat = os.path.join(cls.folder, "flat.mp4")
+        cls.busy = os.path.join(cls.folder, "busy.mp4")
+        for path, source in ((cls.flat, "color=c=orange:s=360x640:r=24:d=2"),
+                             (cls.busy, "color=c=gray:s=360x640:r=24:d=2,noise=alls=80:allf=t")):
+            ffmpeg.input(source, f="lavfi").output(path, vcodec="libx264", pix_fmt="yuv420p", preset="ultrafast") \
+                .run(overwrite_output=True, quiet=True)
+
+    def manager(self):
+        with mock.patch.dict(os.environ, {"VIDEO_PROVIDER": "pixabay", "PIXABAY_API_KEY": "x"}):
+            manager = AssetManager(clips_dir=tempfile.mkdtemp(dir=self.folder))
+        manager.downloaded = []
+
+        def download(url, filename):
+            manager.downloaded.append(url)
+            path = os.path.join(manager.assets_dir, f"{len(manager.downloaded)}_{filename}")
+            shutil.copy(self.flat if url.startswith("card") else self.busy, path)
+            return path
+        manager.download_video = download
+        return manager
+
+    @staticmethod
+    def clip(url):
+        return {"url": url, "tags": f"tags of {url}", "duration": 5, "width": 360, "height": 640}
+
+    def test_a_flat_clip_is_asked_about_and_the_answer_decides(self):
+        sheets = []
+        self.assertTrue(is_text_card(self.flat, lambda sheet: sheets.append(sheet) or True))
+        self.assertTrue(sheets[0].startswith(b"\xff\xd8"), "the model gets one JPEG")
+        self.assertFalse(is_text_card(self.flat, lambda sheet: False), "a flat night sky stays")
+
+    def test_a_detailed_clip_costs_no_question(self):
+        self.assertFalse(is_text_card(self.busy, lambda sheet: self.fail("asked about a detailed clip")))
+
+    def test_an_unreadable_clip_is_not_called_one(self):
+        broken = os.path.join(self.folder, "broken.mp4")
+        with open(broken, "wb") as f:
+            f.write(b"not a video")
+        self.assertFalse(is_text_card(broken, lambda sheet: self.fail("nothing to ask about")))
+
+    def test_the_answer_is_read_from_the_last_line(self):
+        for reply, card in (("Orange with the word skeleton\nB", True), ("A drawn stomach on orange\n**C**", True),
+                            ("Dashcam on a night road\nA", False), ("Something odd\nD.", False)):
+            with mock.patch("pipelines.shorts.brain._generate", return_value=mock.Mock(text=reply)):
+                self.assertEqual(ContentBrain().shows_only_text(b"jpeg"), card, reply)
+
+    def test_no_answer_means_it_is_not_used(self):
+        with mock.patch("pipelines.shorts.brain._generate", side_effect=RuntimeError("quota")):
+            self.assertTrue(ContentBrain().shows_only_text(b"jpeg"))
+        with mock.patch("pipelines.shorts.brain._generate", return_value=mock.Mock(text="")):
+            self.assertTrue(ContentBrain().shows_only_text(b"jpeg"))
+
+    def test_a_picked_text_card_is_traded_for_the_next_clip(self):
+        manager = self.manager()
+        results = {"one": [self.clip("card_1"), self.clip("real_1")], "two": [self.clip("real_2")]}
+        manager.find_candidates = lambda query: results[query]
+        scene = {"id": 1, "text": "A line", "visual_1": "one", "visual_2": "two"}
+
+        pair, = manager.get_videos([scene], lambda searches: {0: 0, 1: 0}, lambda sheet: True)
+
+        self.assertEqual(manager.downloaded, ["card_1", "real_1", "real_2"])
+        self.assertEqual([part["found"] for part in scene["footage"]], ["tags of real_1", "tags of real_2"], "the fit is rated on what's shown")
+        self.assertFalse(os.path.exists(os.path.join(manager.assets_dir, "1_scene_1_a.mp4")), "the card is deleted")
+        self.assertTrue(all(os.path.exists(path) for path in pair))
+
+    def test_a_text_card_never_comes_back_for_a_later_scene(self):
+        manager = self.manager()
+        manager.find_candidates = lambda query: [self.clip("card_1"), self.clip(f"real_{query}")]
+        scenes = [{"id": n, "text": "A line", "visual_1": f"{n}a", "visual_2": f"{n}b"} for n in (1, 2)]
+
+        manager.get_videos(scenes, lambda searches: {i: 0 for i in range(len(searches))}, lambda sheet: True)
+
+        self.assertEqual(manager.downloaded.count("card_1"), 1)
+        self.assertEqual(manager.rejected, {"card_1"})
+
+    def test_one_clip_carries_the_scene_when_the_other_search_has_only_cards(self):
+        manager = self.manager()
+        results = {"one": [self.clip("card_1")], "two": [self.clip("real_2")]}
+        manager.find_candidates = lambda query: results[query]
+        scene = {"id": 1, "text": "A line", "visual_1": "one", "visual_2": "two"}
+
+        pair, = manager.get_videos([scene], lambda searches: {0: 0, 1: 0}, lambda sheet: True)
+
+        self.assertEqual(pair[0], pair[1], "a pair of the same clip plays as one shot")
+        self.assertEqual([part["found"] for part in scene["footage"]], [None, "tags of real_2"])
+
+    def test_a_scene_with_only_cards_has_no_footage_rather_than_a_card(self):
+        manager = self.manager()
+        manager.find_candidates = lambda query: [self.clip(f"card_{query}")]
+        scene = {"id": 1, "text": "A line", "visual_1": "one", "visual_2": "two"}
+
+        self.assertEqual(manager.get_videos([scene], None, lambda sheet: True), [None])
+        self.assertEqual([part["found"] for part in scene["footage"]], [None, None], "so the avatar goes here first")
+
+    def test_the_pipeline_passes_the_check_along(self):
+        with open(os.path.join(ROOT, "pipelines", "shorts", "main.py"), encoding="utf-8") as f:
+            self.assertIn("get_videos(script, brain.pick_stock_clips, brain.shows_only_text)", f.read())
 
 
 class SwitchTest(unittest.TestCase):

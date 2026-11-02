@@ -7,6 +7,7 @@ import random
 from dotenv import load_dotenv
 
 from core.api_log import log_api_call
+from pipelines.shorts.stock_check import is_text_card
 
 # Stock video source, chosen with VIDEO_PROVIDER in .env. Each provider needs its own key.
 PROVIDER_KEYS = {
@@ -52,6 +53,7 @@ class AssetManager:
         os.makedirs(self.assets_dir, exist_ok=True)
         self.cache_dir = os.path.join(os.getcwd(), "assets", "search_cache", self.provider)
         os.makedirs(self.cache_dir, exist_ok=True)
+        self.rejected = set()  # URLs of clips that turned out to be just text on a colour
 
     def _log_limits(self, response):
         """Both providers report their limit in the response headers, for the panel's quota list."""
@@ -220,7 +222,7 @@ class AssetManager:
         clips = search["clips"]
         if not clips or (index in picks and picks[index] is None):
             return None
-        fresh = [c for c in clips if c["url"] not in used]
+        fresh = [c for c in clips if c["url"] not in used and c["url"] not in self.rejected]
         if index in picks:
             clip = clips[picks[index]]
             if clip not in fresh:
@@ -261,11 +263,28 @@ class AssetManager:
             print(f"      ❌ Error downloading {filename}: {e}")
             return None
 
-    def get_videos(self, script_data, pick_clips=None):
+    def _fetch(self, clip, filename, search, index, used, shows_only_text):
+        """
+        Downloads the clip. One that's just text on a colour is deleted and traded for
+        the search's next, as its tags rarely give it away. Returns (clip, path), both
+        None if the search has nothing else; path alone is None if the download failed.
+        """
+        while clip:
+            path = self.download_video(clip["url"], filename)
+            if not path or not shows_only_text or not is_text_card(path, shows_only_text):
+                return clip, path
+            print(f"      🚫 Not using a clip that's just text on a colour: {clip.get('tags') or clip['url']}")
+            os.remove(path)
+            self.rejected.add(clip["url"])
+            clip = self._choose(search, {}, index, used)
+        return None, None
+
+    def get_videos(self, script_data, pick_clips=None, shows_only_text=None):
         """
         NEW LOGIC: Downloads TWO videos per scene (A and B).
         pick_clips (ContentBrain.pick_stock_clips) chooses among what each search
-        found, given the line being spoken.
+        found, given the line being spoken. shows_only_text (ContentBrain's) settles
+        whether a very flat clip is just text on a colour, which is never used.
         Returns a list of tuples: [(path_a, path_b), (path_a, path_b), ...]
         Also records what was searched and found on each scene as
         scene['footage'] = [{"query", "found"}, ...] ("found" is None when nothing was).
@@ -303,14 +322,10 @@ class AssetManager:
                 clip_a = self._choose(search_a, {}, number * 2, set()) or self._choose(search_b, {}, number * 2 + 1, set())
 
             # 2. Download Clip A
-            path_a = None
-            if clip_a:
-                path_a = self.download_video(clip_a["url"], f"scene_{scene_id}_a.mp4")
+            clip_a, path_a = self._fetch(clip_a, f"scene_{scene_id}_a.mp4", search_a, number * 2, used, shows_only_text)
 
             # 3. Download Clip B
-            path_b = None
-            if clip_b:
-                path_b = self.download_video(clip_b["url"], f"scene_{scene_id}_b.mp4")
+            clip_b, path_b = self._fetch(clip_b, f"scene_{scene_id}_b.mp4", search_b, number * 2 + 1, used, shows_only_text)
 
             scene['footage'] = [
                 {"query": query_a, "found": (clip_a.get("tags") or "untitled clip") if path_a else None},

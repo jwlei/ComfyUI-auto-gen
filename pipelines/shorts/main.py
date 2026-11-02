@@ -249,7 +249,7 @@ async def generate_one(args, state):
     if state.video_pairs is None:
         stage("Stock footage", upload)
         asset_manager = AssetManager(clips_dir=state.clips_dir)
-        state.update(video_pairs=asset_manager.get_videos(script, brain.pick_stock_clips))
+        state.update(video_pairs=asset_manager.get_videos(script, brain.pick_stock_clips, brain.shows_only_text))
     assets_map = [tuple(pair) if pair else None for pair in state.video_pairs]
 
     # 4. COMPOSER: Merge Video + Audio
