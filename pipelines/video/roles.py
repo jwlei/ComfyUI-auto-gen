@@ -6,7 +6,7 @@ subject or a place. The panel asks instead, so a run started before still means 
 """
 CONTEXT, VIEW, CHARACTER, PLACE = "context", "view", "character", "place"
 ROLES = (VIEW, CHARACTER, PLACE, CONTEXT)
-LABELS = {VIEW: "Same character, another view", CHARACTER: "Another character", PLACE: "Environment: where it happens"}
+LABELS = {VIEW: "Same character, new view", CHARACTER: "Another character", PLACE: "Environment"}
 
 
 def image_roles(roles, images):

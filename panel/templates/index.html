@@ -170,11 +170,16 @@
   .pipeline-form textarea { min-height: 84px; resize: vertical; }
   .pipeline-form input[type=file] { padding: 9px; font-size: .9rem; }
   #duration { padding: 0; margin-top: 8px; height: 22px; background: none; border: 0; outline: 0; accent-color: var(--accent); }
-  .image-boxes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 12px; }
+  /* One row per image: its thumbnail, the file, what it is, and Remove. */
   .image-box { min-width: 0; }
-  .image-role label { margin-top: 8px; }
-  .image-box button { width: auto; margin: 6px 0 0; padding: 4px 10px; font-size: .78rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
-  .preview { display: block; width: 100%; max-height: 220px; object-fit: contain; margin-top: 8px; border-radius: 10px; background: #000; }
+  .image-line { display: flex; align-items: center; gap: 8px; }
+  .image-line input[type=file] { flex: 1 1 0; min-width: 0; }
+  .pipeline-form .image-line select { flex: 1 1 0; min-width: 0; width: auto; padding-left: 8px; padding-right: 4px; }
+  .image-line .thumb { display: contents; }
+  .image-line .preview { flex: none; width: 44px; height: 44px; object-fit: cover; border-radius: 8px; background: #000; cursor: pointer; }
+  /* Chosen, with a role to pick: the thumbnail changes it, so the role gets the room. */
+  .image-box.compact input[type=file] { display: none; }
+  .image-line button { flex: none; width: auto; margin: 0; padding: 6px 8px; font-size: .85rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
   /* Films are as wide as the card; Shorts stand upright. */
   body.on-video .vid { flex-basis: 100%; }
   body.on-video .vid video { aspect-ratio: 16 / 9; max-height: none; }
@@ -981,20 +986,19 @@ function imageLabel(number, low, high) {
   return `Image ${number}${optional}`;
 }
 // What each image after the first is. The pipeline also knows "context", where the LLM tells by looking.
-const IMAGE_ROLES = [['view', 'Same character, another view'], ['character', 'Another character'], ['place', 'Environment: where it happens']];
+const IMAGE_ROLES = [['view', 'Same character, new view'], ['character', 'Another character'], ['place', 'Environment']];
 function imageBoxHtml(number) {
   const name = number === 1 ? 'image' : `image_${number}`;
   const role = number === 1 ? '' : `
-    <div class="image-role hidden">
-      <label for="${name}_role">What image ${number} is</label>
-      <select id="${name}_role" name="${name}_role" disabled>${IMAGE_ROLES.map(([value, text]) => `<option value="${value}">${text}</option>`).join('')}</select>
-    </div>`;
+      <select class="hidden" id="${name}_role" name="${name}_role" aria-label="What image ${number} is" title="What image ${number} is" disabled>${IMAGE_ROLES.map(([value, text]) => `<option value="${value}">${text}</option>`).join('')}</select>`;
   return `
   <div class="image-box">
     <label for="${name}"></label>
-    <input id="${name}" name="${name}" type="file" accept="image/*">
-    <img class="preview hidden" alt="Image ${number}">
-    <button type="button" class="hidden" data-clear="1">Remove</button>${role}
+    <div class="image-line">
+      <label class="thumb" for="${name}" title="Choose another image"><img class="preview hidden" alt="Image ${number}"></label>
+      <input id="${name}" name="${name}" type="file" accept="image/*">${role}
+      <button type="button" class="hidden" data-clear="1" aria-label="Remove image ${number}" title="Remove">✕</button>
+    </div>
   </div>`;
 }
 function showImage(box) {
@@ -1004,10 +1008,11 @@ function showImage(box) {
   box.querySelector('button').classList.toggle('hidden', !file);
   if (file) preview.src = URL.createObjectURL(file);
   // A role only goes with an image, so an empty box sends none.
-  const role = box.querySelector('.image-role');
+  const role = box.querySelector('select');
   if (role) {
     role.classList.toggle('hidden', !file);
-    box.querySelector('select').disabled = !file;
+    role.disabled = !file;
+    box.classList.toggle('compact', !!file);
   }
 }
 function clearImage(box) {

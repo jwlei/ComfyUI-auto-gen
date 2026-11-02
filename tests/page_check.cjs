@@ -49,17 +49,18 @@ function imageBox(number) {
   const hiddenClass = () => ({ toggle(name, on) { this.on = on; } });
   const input = { name: number === 1 ? 'image' : `image_${number}`, value: '', files: [], disabled: false };
   const parts = { input, img: { src: '', classList: hiddenClass() }, button: { classList: hiddenClass() }, label: { textContent: '' },
-    '.image-role': { classList: hiddenClass() }, select: { disabled: true, value: 'view' } };
-  return { hidden: false, parts, querySelector: tag => parts[tag] };
+    select: { disabled: true, value: 'view', classList: hiddenClass() } };
+  return { hidden: false, parts, querySelector: tag => parts[tag], classList: hiddenClass() };
 }
 const boxes = [];
 const holder = context.document.getElementById('imageBoxes');
 holder.querySelectorAll = () => boxes;
 holder.insertAdjacentHTML = (_, html) => {
   assert(/type="file"/.test(html) && /<img class="preview hidden"/.test(html) && /data-clear/.test(html));
+  assert(/<div class="image-line">[\s\S]*type="file"[\s\S]*data-clear[\s\S]*<\/div>/.test(html), 'the image and what it is share one line');
   const number = boxes.length + 1;
   assert.strictEqual(html.includes(`name="image_${number}_role"`), number > 1, 'every image after the first has a role');
-  if (number > 1) assert(/value="view">Same character, another view<[\s\S]*value="character">Another character<[\s\S]*value="place">Environment/.test(html));
+  if (number > 1) assert(/value="view">Same character, new view<[\s\S]*value="character">Another character<[\s\S]*value="place">Environment/.test(html));
   boxes.push(imageBox(boxes.length + 1));
 };
 const labels = () => boxes.filter(box => !box.hidden).map(box => box.parts.label.textContent);
@@ -71,7 +72,7 @@ boxes[1].parts.input.files = [{}];
 boxes[1].parts.input.value = 'two.png';
 context.URL = { createObjectURL: () => 'blob:x', revokeObjectURL() {} };
 run('showImage(imageBoxes()[1])');
-assert(boxes[1].parts['.image-role'].classList.on === false && boxes[1].parts.select.disabled === false, 'image 2 chosen: its role shows and is sent');
+assert(boxes[1].parts.select.classList.on === false && boxes[1].parts.select.disabled === false, 'image 2 chosen: its role shows and is sent');
 run('syncImageInput()');
 assert(!els.imagesHint.hidden);
 assert(els.imagesHint.textContent.includes('never sees'), 'one input to fill: the LLM alone sees image 2');

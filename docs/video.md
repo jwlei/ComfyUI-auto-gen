@@ -58,7 +58,7 @@ MiniMax H3, which starts no clip on it. Each image after it is optional, and you
 
 | The image is | What the LLM does with it |
 |---|---|
-| **Same character, another view** (default) | More details of the subject to get right: another angle, the rest of an outfit. |
+| **Same character, new view** (default) | More details of the subject to get right: another angle, the rest of an outfit. |
 | **Another character** | It gives them a real part in the film, alongside the subject. |
 | **Environment** | It's where the film happens: the subject goes there. Several places and the film moves between them. |
 
