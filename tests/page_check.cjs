@@ -112,6 +112,14 @@ assert(/id="duration"[^>]*min="5"[^>]*max="600"[^>]*step="5"/.test(html));
 assert.strictEqual(run('clipCount(1)'), '1 clip');
 assert.strictEqual(run('clipCount(75)'), '75 clips');
 
+// One ETA for the run, on its bar: the status line and the step line don't repeat it.
+assert(!script.includes('totalEta(') && !script.includes('Original ETA') && !script.includes('Adjusted ETA'));
+assert(!/stageTime'\)\.textContent = [^;]*stepEta/.test(script));
+run(`renderEtaDetail({ changes: [], original_total: 600, adjusted_total: 600 })`);
+assert.strictEqual(els.etaDetail.hidden, true, 'on track: nothing to explain');
+run(`renderEtaDetail({ changes: [{ text: 'Clip <b>3</b> was slow', seconds: 120 }], original_total: 600, adjusted_total: 720 })`);
+assert(!els.etaDetail.hidden && els.etaDetail.innerHTML.includes('<details') && els.etaDetail.innerHTML.includes('+2 min') && !els.etaDetail.innerHTML.includes('<b>3'));
+
 // Times.
 assert.strictEqual(run('stepEta({state:"kept",seconds:0})'), 'kept');
 assert.strictEqual(run('stepEta({state:"done",seconds:65})'), '1:05');
@@ -205,9 +213,10 @@ run('renderStrips(rendering)');
 assert.strictEqual(els.runStrip.hidden, false, 'away from Status, the footer has the bar');
 assert.strictEqual(els.runProgress.hidden, false, 'and Status has it in full');
 assert.strictEqual(els.runProgressBar.style.width, '40%');
-assert.strictEqual(els.runProgressRight.textContent, '~10 min left · 40%');
+assert(/^40% · ~10 min left, done around /.test(els.runProgressRight.textContent), 'Status has the one ETA, and when it ends');
+assert.strictEqual(els.runProgressText.textContent, 'This run', 'the step line under it names the stage');
 assert.strictEqual(els.runStripText.textContent, 'Clips');
-assert.strictEqual(els.runStripRight.textContent, '~10 min left · 40%');
+assert.strictEqual(els.runStripRight.textContent, '40% · ~10 min left');
 assert.strictEqual(els.runStripBar.style.width, '40%');
 assert(els.runStripHint.textContent.startsWith('Clip 2 of 75'));
 context.uploading = { ...idle, upload: { running: true, elapsed: 75, progress: { upload: [2, 3, 'A.mp4'] } } };
@@ -217,6 +226,7 @@ assert.strictEqual(els.uploadStripHint.textContent, 'A.mp4');
 assert.strictEqual(els.uploadStripBar.style.width, '33%');
 assert.strictEqual(els.uploadProgressBar.style.width, '33%');
 assert.strictEqual(els.uploadProgressHint.textContent, 'A.mp4');
+assert.strictEqual(els.uploadProgressRight.textContent, '33%', 'the status line above it has the time so far');
 assert.strictEqual(els.uploadProgress.hidden, false);
 context.document.getElementById('runCard').getBoundingClientRect = () => ({ top: 0, bottom: 100 });
 run('syncStrips()');

@@ -21,7 +21,9 @@
   .log .empty-log { color: var(--muted); }
   .estimate { margin-top: 12px; font-size: .9rem; }
   .estimate .err { margin: 0; }
-  .eta-detail .changes { max-height: 7.5em; overflow-y: auto; margin-top: 2px; }
+  .eta-detail { margin: -6px 0 10px; }
+  .eta-detail summary { font-size: .78rem; font-weight: 400; color: var(--muted); }
+  .eta-detail .changes { max-height: 7.5em; overflow-y: auto; margin-top: 4px; }
   #uploadBox .status { margin-bottom: 8px; }
   #stopUpload { width: auto; margin: 0 0 0 auto; padding: 4px 10px; font-size: .8rem; }
   .queue { margin-top: 12px; font-size: .84rem; }
@@ -232,6 +234,8 @@
   /* The run and the upload in Status: how far along, in full. */
   .progress { margin: 4px 0 12px; font-size: .85rem; }
   .progress .bar { height: 8px; margin-top: 6px; }
+  .progress .strip-head { flex-wrap: wrap; gap: 2px 10px; }
+  .progress .strip-head span { white-space: normal; }
   .progress .hint { margin-top: 4px; }
   #uploadBox .progress { margin-bottom: 8px; }
   /* On Generate, the button and its estimate stay at the bottom. */
@@ -1178,28 +1182,22 @@ function stepEta(step) {
 function clockIn(sec) {
   return new Date(Date.now() + sec * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
 }
-function totalEta(eta, waitingWork) {
-  const left = eta.total_left + waitingWork;
-  return `${fmtEta(left)} left${waitingWork ? ' with the queue' : ''}, done around ${clockIn(left)}`;
-}
 // What moved the ETA, with its effect: '+6 min', or nothing for a change that costs no time.
 function etaChange(change) {
   const sign = change.seconds > 0 ? '+' : '-';
   const effect = change.seconds ? `${sign}${fmtEta(Math.abs(change.seconds)).slice(1)} · ` : '';
   return `<div>${effect}${esc(change.text)}</div>`;
 }
-function renderEtaDetail(eta, queued) {
+function renderEtaDetail(eta) {
+  // The time left is on the bar, and the queue's on the queue: this only says why it moved.
   const box = $('etaDetail');
-  box.hidden = !eta;
-  if (!eta) return;
-  const added = queued.map(item => ({ text: `Queued: ${item.label}`, seconds: item.estimate || 0 }));
-  const changes = eta.changes.concat(added);
-  const waitingWork = added.reduce((sum, change) => sum + change.seconds, 0);
-  const original = `Original ETA: <b>${fmtEta(eta.original_total)}</b>, done around ${clockIn(eta.original_left)}`;
-  box.innerHTML = changes.length
-    ? `${original}<br>Adjusted ETA: <b>${fmtEta(eta.adjusted_total + waitingWork)}</b>, done around ${clockIn(eta.total_left + waitingWork)}`
-      + `<div class="changes">${changes.map(etaChange).join('')}</div>`
-    : `${original} · on track`;
+  box.hidden = !eta || !eta.changes.length;
+  if (box.hidden) return;
+  const moved = eta.adjusted_total - eta.original_total;
+  const by = Math.abs(moved) >= 30 ? ` (${moved > 0 ? '+' : '-'}${fmtEta(Math.abs(moved)).slice(1)})` : '';
+  const html = `<details${box.querySelector('details[open]') ? ' open' : ''}><summary>First estimate was ${fmtEta(eta.original_total)}${by}: why</summary>`
+    + `<div class="changes">${eta.changes.map(etaChange).join('')}</div></details>`;
+  if (box.dataset.html !== html) { box.innerHTML = html; box.dataset.html = html; }
 }
 
 // --- Estimate before a run, from the form's current options ---
@@ -1282,7 +1280,7 @@ function renderNow(data) {
     $('stepper').innerHTML = names.map((s, i) =>
       `<div class="step ${i + 1 < n ? 'done' : i + 1 === n ? 'now' : ''}">${esc(s)}<span class="eta">${stepEta(steps[i])}</span></div>`).join('');
     $('stageName').textContent = `Step ${n} of ${total}: ${name}`;
-    $('stageTime').textContent = fmt(p.stage_elapsed) + (steps[n - 1] ? ` · ${stepEta(steps[n - 1])}` : '');
+    $('stageTime').textContent = fmt(p.stage_elapsed);
     $('stageDetail').textContent = p.detail || STAGE_HINTS[name] || '';
   }
 
@@ -1464,30 +1462,37 @@ function syncStrips() {
   for (const job of Object.keys(stripActive)) $(`${job}Strip`).hidden = !stripActive[job] || onStatus;
   document.documentElement.style.setProperty('--head', `${$('stick').offsetHeight}px`);
 }
-function setStrip(job, show, text, right, share, hint) {
+// The footer bar says it all in one line; Status already has the stage and the time so
+// far, so its bar only adds how far along and when it ends.
+function setStrip(job, show, strip, status, share) {
   stripActive[job] = show;
   $(`${job}Progress`).hidden = !show;
   if (!show) return;
-  for (const where of ['Strip', 'Progress']) {
-    $(`${job}${where}Text`).textContent = text;
-    $(`${job}${where}Right`).textContent = right + (share === null ? '' : ` · ${Math.round(share * 100)}%`);
+  const pct = share === null ? '' : `${Math.round(share * 100)}%`;
+  for (const [where, say] of [['Strip', strip], ['Progress', status]]) {
+    $(`${job}${where}Text`).textContent = say.text;
+    $(`${job}${where}Right`).textContent = [pct, say.right].filter(Boolean).join(' · ');
     const bar = $(`${job}${where}Bar`);
     bar.parentElement.classList.toggle('busy', share === null);
     bar.style.width = `${share === null ? 30 : Math.round(share * 100)}%`;
   }
-  $(`${job}StripHint`).textContent = hint;
-  if (job === 'upload') $('uploadProgressHint').textContent = hint;
+  $(`${job}StripHint`).textContent = strip.hint;
+  if (job === 'upload') $('uploadProgressHint').textContent = status.hint;
 }
 function renderStrips(data) {
   const p = data.progress || {}, stage = p.stage || [], eta = p.eta;
   const video = p.run && p.run[1] > 1 ? `Video ${p.run[0]}/${p.run[1]} · ` : '';
-  setStrip('run', data.running, video + (stage[2] || 'Starting'),
-    eta ? `${fmtEta(eta.total_left)} left` : fmt(data.elapsed),
-    eta && eta.adjusted_total ? 1 - eta.total_left / eta.adjusted_total : null,
-    p.detail || STAGE_HINTS[stage[2]] || '');
+  const left = eta ? `${fmtEta(eta.total_left)} left` : fmt(data.elapsed);
+  setStrip('run', data.running,
+    { text: video + (stage[2] || 'Starting'), right: left, hint: p.detail || STAGE_HINTS[stage[2]] || '' },
+    { text: p.run && p.run[1] > 1 ? `Video ${p.run[0]} of ${p.run[1]}` : 'This run', right: eta ? `${left}, done around ${clockIn(eta.total_left)}` : '' },
+    eta && eta.adjusted_total ? 1 - eta.total_left / eta.adjusted_total : null);
   const up = data.upload, at = (up.progress || {}).upload;
-  setStrip('upload', up.running, at ? `Uploading ${at[0]}/${at[1]}` : 'Uploading', fmt(up.elapsed),
-    at && at[1] > 1 ? (at[0] - 1) / at[1] : null, at ? at[2] : 'Writing the title and description.');
+  const sending = at ? at[2] : 'Writing the title and description.';
+  setStrip('upload', up.running,
+    { text: at ? `Uploading ${at[0]}/${at[1]}` : 'Uploading', right: fmt(up.elapsed), hint: sending },
+    { text: at ? `Video ${at[0]} of ${at[1]}` : 'Getting ready', right: '', hint: sending },
+    at && at[1] > 1 ? (at[0] - 1) / at[1] : null);
   syncStrips();
 }
 
@@ -1565,13 +1570,11 @@ async function poll() {
   $('stop').hidden = !running;
 
   renderNow(data);
-  renderEtaDetail(running ? (data.progress || {}).eta : null, queuedNext);
+  renderEtaDetail(running ? (data.progress || {}).eta : null);
 
   if (running) {
     const p = data.progress || {};
-    const run = p.run ? ` · video ${p.run[0]} of ${p.run[1]}` : '';
-    const eta = p.eta ? ` · ${totalEta(p.eta, waitingWork)}` : '';
-    $('statusText').textContent = `Running${run} · ${fmt(data.elapsed)} so far (started ${data.started_at})${eta}`;
+    $('statusText').textContent = `Running · started ${data.started_at}, ${fmt(data.elapsed)} so far`;
   } else if (nextUp) {
     $('statusText').textContent = 'Starting the next job in the queue…';
   } else if (data.stopped) {
