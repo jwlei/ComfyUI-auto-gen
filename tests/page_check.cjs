@@ -86,6 +86,25 @@ assert(els.secondImage.hidden);
 els.workflow.value = '';
 run('workflowTakes = {}; syncImageInput()');
 
+// Resolution presets: both shapes from 360p up to the workflow's own size, and that's the highest.
+for (const size of ['640x352', '864x480', '960x544', '1280x736', '352x640', '480x864', '544x960', '736x1280']) {
+  assert(html.includes(`<option value="${size}">`), size);
+}
+assert.strictEqual([...html.matchAll(/<option value="(\d+)x(\d+)">/g)].filter(m => +m[1] * +m[2] > 1280 * 736).length, 0);
+els.sizePreset = element('sizePreset');
+els.size = element('size');
+els.sizePreset.value = '352x640';
+run('syncSize()');
+assert.strictEqual(els.size.value, '352x640', 'the preset is what the form sends');
+assert(els.size.hidden);
+els.sizePreset.value = 'custom';
+run('syncSize()');
+assert(!els.size.hidden, 'a custom size has somewhere to go');
+assert.strictEqual(els.size.value, '352x640', 'and starts from the last one');
+els.sizePreset.value = '';
+run('syncSize()');
+assert.strictEqual(els.size.value, '', 'the default sends no size, so it follows the image');
+
 // The film length range comes from the server, and goes down to one clip.
 assert(/id="duration"[^>]*min="5"[^>]*max="600"[^>]*step="5"/.test(html));
 assert.strictEqual(run('clipCount(1)'), '1 clip');

@@ -63,6 +63,11 @@ A workflow with one image input, like Built-in LTX, renders from image 1 alone. 
 it reaches the clips as words in the prompts: expect a description of that place or person, not a copy of it.
 A reference workflow gives image 2 to every clip.
 
+**Resolution** offers 360p, 480p, 540p and 720p, in landscape 16:9 or portrait 9:16. The default and highest preset
+is 720p (1280x736) in the shape of image 1, and **Custom size** takes anything else. The sizes are multiples of 32,
+so they're as near 16:9 as the models allow. An image of another shape is fitted to the size, usually by cropping
+its edges. The ETA scales with the pixel count.
+
 **While it runs:** you see each step with its ETA, which clip is rendering, ComfyUI's own progress, GPU use and the
 log. Generate adds more films to a queue, and each keeps the options it was queued with.
 
@@ -112,7 +117,7 @@ python main.py harbour.jpg "a storm rolls in over the harbour" --duration 3m --l
 | `--start` | `chain` for one continuous take (default), `image` for separate moments. |
 | `--reference IMAGE` | Another image, repeatable. The first one is image 2. |
 | `--image-2-role` | What image 2 is: `context` for more of the subject or the place to put them in (default), `character` for another character. |
-| `--size 1280x736` | Render size. By default it takes the image's shape at the workflow's pixel count. |
+| `--size 1280x736` | Render size, rounded to multiples of 32. By default it takes the image's shape at the workflow's pixel count. |
 | `--plan-only` | Writes the prompts and stops, so you can read them before spending the GPU time. |
 | `--upload`, `--privacy` | Uploads when the film is done. Private by default. |
 | `--resume RUN` | Continues a saved run. |

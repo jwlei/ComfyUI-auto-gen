@@ -108,7 +108,6 @@
   .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
   .top a { color: var(--muted); font-size: .8rem; text-decoration: none; }
   .top .sub { margin-bottom: 6px; }
-  details summary { cursor: pointer; font-size: .95rem; font-weight: 600; }
   .hidden { display: none !important; }
   .dashboard { display: flex; flex-direction: column; }
   .stepper { display: flex; gap: 4px; margin: 2px 0 12px; }
@@ -209,6 +208,20 @@
 
     <div class="range-head" style="margin-top:12px"><label for="duration">Film length</label><output id="durationText"></output></div>
     <input id="duration" name="duration" type="range" min="{{ film_limits[0] }}" max="{{ film_limits[1] }}" step="5" value="{{ film_limits[2] }}">
+
+    <label for="sizePreset">Resolution</label>
+    <select id="sizePreset">
+      <option value="">Highest (720p), in the shape of image 1</option>
+      <optgroup label="Landscape 16:9">
+        {% for name, width, height in size_presets %}<option value="{{ width }}x{{ height }}">{{ name }} ({{ width }}x{{ height }})</option>{% endfor %}
+      </optgroup>
+      <optgroup label="Portrait 9:16">
+        {% for name, width, height in size_presets %}<option value="{{ height }}x{{ width }}">{{ name }} ({{ height }}x{{ width }})</option>{% endfor %}
+      </optgroup>
+      <option value="custom">Custom size</option>
+    </select>
+    <input id="size" name="size" placeholder="Such as 1280x736, rounded to multiples of 32" autocomplete="off" style="margin-top:8px" hidden>
+    <div class="hint">Lower renders faster and needs less video memory. An image of another shape is fitted to this one, usually by cropping its edges.</div>
   </div>
 
   <div class="section">
@@ -257,14 +270,6 @@
     <div class="hint">For uploads when a film finishes and for the Upload buttons under Ready. YouTube forces uploads from an unverified Google Cloud app to private, whatever you pick here.</div>
   </div>
 
-  <div class="section">
-    <details>
-      <summary>Advanced</summary>
-      <label for="size">Render size</label>
-      <input id="size" name="size" placeholder="Same shape as the image" autocomplete="off">
-      <div class="hint">Such as 1280x736. Larger needs more video memory and takes longer. Rounded to multiples of 32.</div>
-    </details>
-  </div>
 </form>
 
 <div class="card run-card">
@@ -447,8 +452,14 @@ function syncImageInput() {
 
 const AVERAGE_SHOT_SECONDS = 8;
 function clipCount(n) { return `${n} ${n === 1 ? 'clip' : 'clips'}`; }
+function syncSize() {
+  const preset = $('sizePreset').value;
+  $('size').hidden = preset !== 'custom';
+  if (preset !== 'custom') $('size').value = preset;
+}
 function syncForm() {
   syncImageInput();
+  syncSize();
   const seconds = +$('duration').value;
   $('durationText').textContent = `${fmt(seconds)} · about ${clipCount(Math.max(1, Math.round(seconds / AVERAGE_SHOT_SECONDS)))}`;
 }

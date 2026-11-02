@@ -1,14 +1,16 @@
 import json
 import os
+import re
 import time
 
+from modules.media import RENDER_AREA
 from modules.planner import AVERAGE_SHOT_SECONDS, shot_count
 from modules.run_state import STAGES, RunState
 
 # Used until a finished step has been timed.
 DEFAULT_TIMINGS = {
     "Plan": 60,
-    "render": 31,  # Render time per second of film, measured on this GPU in yt-auto-shorts
+    "render": 31,  # Render time per second of film at full size, measured on this GPU in yt-auto-shorts
     "part": 6,  # One clip evened out for stitching
     "Upload": 120,
 }
@@ -34,6 +36,12 @@ def _option(argv, name, default):
     return argv[argv.index(name) + 1] if name in argv[:-1] else default
 
 
+def _size_share(argv):
+    """How much of a full-size render this size is. Render time follows the pixel count, near enough."""
+    match = re.fullmatch(r"(\d+)x(\d+)", str(_option(argv, "--size", "")))
+    return int(match.group(1)) * int(match.group(2)) / RENDER_AREA if match else 1
+
+
 class RunEta:
     """
     Estimates what is left of a run from how long each step took before. Steps are
@@ -52,6 +60,7 @@ class RunEta:
         except ValueError:
             self.film_seconds = 0
         self.shots = shot_count(self.film_seconds)
+        self.size_share = _size_share(argv)
         self.kept_stages = ()
         self.kept_seconds = 0
 
@@ -63,6 +72,7 @@ class RunEta:
             self.upload = bool(state.upload)
             self.film_seconds = sum(shot["seconds"] for shot in state.shots)
             self.shots = len(state.shots)
+            self.size_share = state.width * state.height / RENDER_AREA
             self.kept_seconds = state.kept_seconds()
             self.kept_stages = ("Plan",)
 
@@ -138,7 +148,8 @@ class RunEta:
 
     def _finish_attempt(self, now):
         if self.attempt_started is not None and self.attempt_seconds:
-            self._learn("render", (now - self.attempt_started) / self.attempt_seconds)
+            # As if at full size, or a 360p film would make the next 720p estimate far too short.
+            self._learn("render", (now - self.attempt_started) / self.attempt_seconds / self.size_share)
             self.done_seconds += self.attempt_seconds
             self.attempt_started = None
             self._save()
@@ -165,7 +176,7 @@ class RunEta:
     # --- Estimating ---
 
     def _render_seconds(self, film_seconds):
-        return self.timings["render"] * film_seconds
+        return self.timings["render"] * self.size_share * film_seconds
 
     def _stage_seconds(self, name):
         """What a step takes from the start, without the part a continued run kept."""

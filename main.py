@@ -156,7 +156,7 @@ def plan_run(args, stages):
     print(f"🎞️ {title}")
     for number, shot in enumerate(shots, 1):
         print(f"\n{number}. {shot['title']} ({shot['seconds']}s)\n   {shot['prompt']}")
-    print(f"\n⏳ Rendering should take about {fmt_time(state.seconds * RENDER_SECONDS_PER_SECOND)}.")
+    print(f"\n⏳ Rendering should take about {fmt_time(state.seconds * RENDER_SECONDS_PER_SECOND * width * height / media.RENDER_AREA)}.")
     return state
 
 

@@ -112,7 +112,8 @@ class PanelTest(unittest.TestCase):
         run_id = status["progress"]["run_id"]
         self.assertEqual([run["id"] for run in status["stopped_runs"]], [run_id])
         self.assertIn("Plan ready", status["stopped_runs"][0]["detail"])
-        self.assertGreater(status["stopped_runs"][0]["estimate"], 60 * 20, "it knows the render is still ahead")
+        # Eight clips to even out for stitching take 48 seconds, and this tiny test film's render comes on top.
+        self.assertGreater(status["stopped_runs"][0]["estimate"], 48, "it knows the render is still ahead")
 
         detail = self.client.get(f"/runs/{run_id}").get_json()
         self.assertEqual(detail["title"], "The Harbour Storm")
@@ -236,6 +237,23 @@ class PanelTest(unittest.TestCase):
         self.assertEqual((short["clips"], long["clips"]), (1, 75))
         self.assertGreater(long["total"], 5 * 3600 * 0.9, "about 5 hours at the default render speed")
         self.assertLess(short["total"], 600)
+
+    def test_the_estimate_follows_the_resolution(self):
+        clips = lambda **size: self.client.post("/api/estimate", data={"duration": "60", **size}).get_json()["steps"][1]["seconds"]
+        highest = clips()
+        self.assertEqual(clips(size="1280x736"), highest, "the default is the highest preset")
+        self.assertEqual(clips(size="736x1280"), highest, "turning it doesn't change the pixels")
+        self.assertAlmostEqual(clips(size="640x352") / highest, 640 * 352 / (1280 * 736), places=2)
+
+    def test_a_preset_is_what_gets_rendered(self):
+        self.comfy.script = []
+        self.claude.reply = plan_reply(shots=1, seconds=5)
+        self.assertTrue(self.generate(duration="5", size="352x640").get_json()["ok"])
+        self.wait_idle()
+        run = self.only_run()
+        self.assertEqual((run.width, run.height), (352, 640))
+        sent = self.comfy.prompts[0]["prompt"]
+        self.assertEqual((sent["292"]["inputs"]["value"], sent["293"]["inputs"]["value"]), (352, 640))
 
     def test_a_short_film_says_so_in_the_queue(self):
         self.comfy.script = ["hang"]

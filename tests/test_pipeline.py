@@ -22,6 +22,7 @@ from PIL import Image
 
 import main
 from modules import comfy, h3_prompt, media, paths, planner, publisher, run_state, wan_prompt
+from modules.run_eta import RunEta
 
 SHOTS = [("Opening", 2), ("Middle", 2), ("Ending", 2)]
 
@@ -264,6 +265,24 @@ class PartsTest(unittest.TestCase):
             f.write("hello")
         with self.assertRaises(RuntimeError):
             media.load_image(path)
+
+    def test_size_presets_are_on_the_grid_and_end_at_the_full_size(self):
+        for _, width, height in media.SIZE_PRESETS:
+            self.assertEqual((media.on_grid(width), media.on_grid(height)), (width, height))
+            self.assertAlmostEqual(width / height, 16 / 9, delta=0.05)
+        self.assertEqual(media.SIZE_PRESETS[-1][1:], media.DEFAULT_SHAPE)
+        self.assertEqual(media.SIZE_PRESETS[-1][1] * media.SIZE_PRESETS[-1][2], media.RENDER_AREA)
+
+    def test_a_low_resolution_film_teaches_the_full_size_speed(self):
+        def learned(*size, seconds_taken):
+            with mock.patch.object(RunEta, "_save"):
+                eta = RunEta(["--duration", "60", *size], "no_such_file.json")
+                eta.clip(1, 8, 10)
+                eta.attempt_started -= seconds_taken
+                eta.clip(2, 8, 10)
+            return eta.timings["render"]
+        share = 640 * 352 / media.RENDER_AREA
+        self.assertAlmostEqual(learned("--size", "640x352", seconds_taken=100 * share), learned(seconds_taken=100), delta=0.1)
 
     def test_render_size_keeps_the_shape_on_the_grid(self):
         self.assertEqual(media.render_size(1280, 736), (1280, 736))

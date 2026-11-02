@@ -898,6 +898,7 @@ def index():
         llms=[{"name": name, "label": label, "ready": planner.llm_configured(name)} for name, label in planner.LLMS],
         default_llm=planner.default_llm(),
         film_limits=[planner.MIN_FILM_SECONDS, planner.MAX_FILM_SECONDS, DEFAULT_FILM_SECONDS],
+        size_presets=media.SIZE_PRESETS[::-1],
         can_upload=youtube_configured(),
         can_open_folders=can_open_folders(),
     )
