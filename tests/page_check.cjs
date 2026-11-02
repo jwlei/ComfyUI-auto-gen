@@ -229,12 +229,16 @@ shots.finished = true;
 assert(!run('shotsHtml(shots)').includes('data-render'), 'a finished film has nothing left to render');
 
 // The Image side: a set's titles can hold anything, and its size is worked out as the pipeline does.
-const sets = [{ id: 'image_20261102_120000', label: 'A <b>set', total: 3, size: '1024x1024', created: '02 Nov', images: [{ position: 1, title: '<i>Look', version: 5 }] }];
+const sets = [{ id: 'image_20261102_120000', label: 'A <b>set', total: 3, size: '1024x1024', when: '02 Nov', images: [{ position: 1, title: '<i>Look', version: 5 }] }];
 context.sets = sets;
 const setHtml = run('imageSetHtml(sets[0])');
 assert(!setHtml.includes('<b>set') && !setHtml.includes('<i>Look'), 'titles are escaped');
 assert(setHtml.includes('/thumbnails/1?v=5') && setHtml.includes('/files/1?v=5') && setHtml.includes('loading="lazy"'), 'small pictures, that open full size');
 assert(setHtml.includes('data-delete-set=') && setHtml.includes('data-shots='));
+const inRow = setHtml.slice(setHtml.indexOf('class="image-set-row"'));
+assert(inRow.includes('<img') && inRow.indexOf('<img') < inRow.indexOf('data-shots') && inRow.indexOf('data-shots') < inRow.indexOf('data-delete-set'), 'the picture and its two buttons share one line');
+assert(/\.image-set-row \{ display: flex/.test(html) && /\.image-grid img \{ width: 56px/.test(html), 'and small enough to');
+assert(/input\[type=file\]::file-selector-button/.test(html), 'choosing a file has a real button');
 run('imageSets = sets; renderImageSets()');
 const once = els.imageSets.innerHTML;
 assert(once.includes('1 of 3'));
@@ -279,10 +283,11 @@ assert.strictEqual(els.jumpResults.textContent, 'Videos');
 assert(/body\.on-image \{ --accent/.test(html));
 
 // A stopped run reads top to bottom in its own box: title, details, then the buttons.
-run(`renderStopped([{ id: 'image_1', pipeline: 'image', label: 'Wardrobe', detail: '1 of 2 images · 1376x768', clips: 1, estimate: 190 }])`);
+run(`renderStopped([{ id: 'image_1', pipeline: 'image', label: 'Wardrobe', detail: '1 of 2 images · 1376x768', when: '02 Nov 23:46', clips: 1, estimate: 190 }])`);
 const stoppedBox = els.stoppedRuns.innerHTML;
 assert(stoppedBox.includes('class="stopped-run"'), 'in a box of its own');
 assert(stoppedBox.indexOf('Wardrobe') < stoppedBox.indexOf('Image · 1 of 2 images') && stoppedBox.indexOf('Image · 1 of 2 images') < stoppedBox.indexOf('class="stopped-actions"'), 'in that order');
+assert(stoppedBox.includes('<div class="hint">02 Nov 23:46</div>') && stoppedBox.indexOf('Image · 1 of 2 images') < stoppedBox.indexOf('02 Nov 23:46') && stoppedBox.indexOf('02 Nov 23:46') < stoppedBox.indexOf('class="stopped-actions"'), 'the date on its own line, under the details');
 assert(stoppedBox.indexOf('class="stopped-actions"') < stoppedBox.indexOf('data-shots') && stoppedBox.indexOf('data-shots') < stoppedBox.indexOf('data-continue') && stoppedBox.indexOf('data-continue') < stoppedBox.indexOf('data-discard'), 'the buttons last');
 assert(/\.stopped-run \{[^}]*border: 1px solid/.test(html));
 run('renderStopped([])');

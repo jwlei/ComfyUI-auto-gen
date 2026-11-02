@@ -177,7 +177,14 @@
   body.on-video { --accent: #4c8dff; }
   body.on-image { --accent: #2fbf71; }
   .pipeline-form textarea { min-height: 84px; resize: vertical; }
-  .pipeline-form input[type=file] { padding: 9px; font-size: .9rem; }
+  /* A dashed box to drop into, with a real button in it rather than the browser's own. */
+  .pipeline-form input[type=file] { padding: 6px; font-size: .84rem; color: var(--muted); background: transparent; border: 1px dashed var(--line); cursor: pointer; transition: border-color .15s; }
+  .pipeline-form input[type=file]:hover { border-color: var(--accent); }
+  .pipeline-form input[type=file]::file-selector-button {
+    margin-right: 10px; padding: 7px 14px; font: inherit; font-weight: 600; color: var(--text); cursor: pointer;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; transition: background .15s, border-color .15s, color .15s;
+  }
+  .pipeline-form input[type=file]:hover::file-selector-button { background: var(--accent); border-color: var(--accent); color: #fff; }
   #duration { padding: 0; margin-top: 8px; height: 22px; background: none; border: 0; outline: 0; accent-color: var(--accent); }
   /* One row per image: its thumbnail, the file, what it is, and Remove. */
   .image-box { min-width: 0; }
@@ -210,13 +217,18 @@
   .shots-foot button { flex: 1 1 28%; margin: 0; padding: 11px; font-size: .9rem; white-space: nowrap; }
   .shots-foot .plain { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
   /* A set of images: small pictures that open full size. */
-  .image-set { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+  .image-set { padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
   .image-set:last-child { border-bottom: 0; margin-bottom: 0; }
-  .image-set h3 { margin: 0 0 2px; font-size: .9rem; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+  .image-set h3 { margin: 0; font-size: .85rem; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
   .image-set .meta { color: var(--muted); font-size: .74rem; }
-  .image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; margin-top: 8px; }
-  .image-grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; display: block; background: #000; }
-  .image-set .plain { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+  .image-set-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+  /* Pictures wrap beside the buttons, rather than hiding along a line: a set can be a hundred. */
+  .image-grid { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+  .image-grid a { display: block; flex: none; }
+  .image-grid img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; display: block; background: #000; }
+  .image-set-actions { flex: none; display: flex; gap: 6px; }
+  .image-set-actions button { width: auto; margin: 0; padding: 6px 10px; font-size: .78rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+  .image-set-actions .del { background: transparent; color: var(--muted); }
   .shot-image { max-width: 100%; max-height: 300px; margin-top: 8px; border-radius: 8px; display: block; background: #000; }
   /* Phones: the page is one long column, so this stays at the bottom to get around it. */
   .stick {
@@ -324,7 +336,7 @@
     .videos-card { grid-column: 1 / -1; }
     .vid { flex-basis: 260px; }
     .pipeline-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 22px; }
-    .pipeline-form input:not([type=checkbox]), .pipeline-form select { padding: 9px 11px; font-size: .95rem; }
+    .pipeline-form input:not([type=checkbox]):not([type=file]), .pipeline-form select { padding: 9px 11px; font-size: .95rem; }
     .pipeline-form label { margin: 9px 0 4px; }
     .pipeline-form .section { margin-top: 12px; }
     .pipeline-form .form-col > .section:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
@@ -1382,9 +1394,11 @@ function imageSetHtml(set) {
   return `
   <div class="image-set">
     <h3>${esc(set.label)}</h3>
-    <div class="meta">${set.images.length} of ${set.total} · ${esc(set.size)} · ${esc(set.created)}</div>
-    <div class="image-grid">${pictures}</div>
-    <div class="acts"><button type="button" class="plain" data-shots="${esc(set.id)}">Prompts</button><button type="button" class="del" data-delete-set="${esc(set.id)}">Delete</button></div>
+    <div class="meta">${set.images.length} of ${set.total} · ${esc(set.size)} · ${esc(set.when)}</div>
+    <div class="image-set-row">
+      <div class="image-grid">${pictures}</div>
+      <div class="image-set-actions"><button type="button" data-shots="${esc(set.id)}">Prompts</button><button type="button" class="del" data-delete-set="${esc(set.id)}">Delete</button></div>
+    </div>
   </div>`;
 }
 function renderImageSets() {
@@ -1814,6 +1828,7 @@ function renderStopped(runs) {
     <div class="stopped-run">
       <div class="what">${esc(run.label)}</div>
       <div class="hint">${SIDE_NAMES[run.pipeline] || 'Shorts'} · ${esc(run.detail)}</div>
+      ${run.when ? `<div class="hint">${esc(run.when)}</div>` : ''}
       <div class="stopped-actions">
         <span class="when">${fmtEta(run.estimate)}</span>
         ${run.pipeline !== 'shorts' ? `<button type="button" data-shots="${esc(run.id)}">Prompts</button>` : ''}

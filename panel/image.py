@@ -2,13 +2,12 @@
 import os
 import secrets
 import sys
-from datetime import datetime
 from types import SimpleNamespace
 
 from flask import abort, request, send_file
 
 from core.saved_workflows import is_for_image
-from panel.server import (IMAGE_TIMINGS, PIPELINES, _runs_cache, app, busy_runs, job, password_required, run_queue, saved_workflows)
+from panel.server import (IMAGE_TIMINGS, PIPELINES, _runs_cache, app, busy_runs, job, password_required, run_queue, saved_at, saved_workflows)
 from panel.video import clean_inputs, queue_label
 from pipelines.image import media
 from pipelines.image import planner as image_planner
@@ -72,14 +71,9 @@ def describe_run(state):
     """A saved run, as the panel lists it."""
     done, total = len(state.done), len(state.shots)
     parts = [f"{done} of {total} images" if done else f"Prompts ready, {total} {'image' if total == 1 else 'images'}", f"{state.width}x{state.height}"]
-    try:
-        created = datetime.fromtimestamp(os.path.getmtime(state.path)).strftime("%d %b %H:%M")
-        parts.append(created)
-    except OSError:
-        created = ""
     env = {"COMFYUI_WORKFLOW": state.workflow} if state.workflow else {}
     return {"id": state.id, "pipeline": "image", "label": state.title or state.brief, "detail": " · ".join(parts),
-            "clips": done, "finished": state.finished, "created": created, "total": total, "images": image_files(state),
+            "when": saved_at(state.path), "clips": done, "finished": state.finished, "total": total, "images": image_files(state),
             "size": f"{state.width}x{state.height}", "estimate": RunEta(resume_argv(state), env, IMAGE_TIMINGS).plan()["total"]}
 
 

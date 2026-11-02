@@ -503,6 +503,14 @@ def safe_video_path(folder, name):
     return path
 
 
+def saved_at(path):
+    """When a run was last saved, as the panel shows it. Empty if that can't be told."""
+    try:
+        return datetime.fromtimestamp(os.path.getmtime(path)).strftime("%d %b %H:%M")
+    except OSError:
+        return ""
+
+
 def lan_ip():
     """The address other devices on the home network reach this PC at."""
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:

@@ -3,13 +3,12 @@ import os
 import re
 import secrets
 import sys
-from datetime import datetime
 from types import SimpleNamespace
 
 from flask import abort, request, send_file
 
 from panel.server import (PIPELINES, VIDEO_TIMINGS, _runs_cache, app, busy_runs, item_images, job,
-                          password_required, run_queue, saved_runs, saved_workflows)
+                          password_required, saved_at, run_queue, saved_runs, saved_workflows)
 from panel.shorts import VOICES
 from pipelines.video import media, paths, planner
 from pipelines.video.run_eta import RunEta
@@ -68,12 +67,8 @@ def describe_run(state):
         parts.append(f"{len(state.clips)} of {len(state.shots)} clips kept")
     else:
         parts.append("Every clip is done, only stitching is left")
-    try:
-        parts.append(datetime.fromtimestamp(os.path.getmtime(state.path)).strftime("%d %b %H:%M"))
-    except OSError:
-        pass
     parts.append(f"{folder_size(state.folder) / 2 ** 20:.0f} MB")
-    return {"id": state.id, "pipeline": "video", "label": state.title or state.brief, "detail": " · ".join(parts),
+    return {"id": state.id, "pipeline": "video", "label": state.title or state.brief, "detail": " · ".join(parts), "when": saved_at(state.path),
             "clips": len(state.clips), "finished": bool(state.final),
             "estimate": RunEta(resume_argv(state), VIDEO_TIMINGS).plan()["total"]}
 

@@ -2,13 +2,12 @@
 import os
 import re
 import sys
-from datetime import datetime
 from types import SimpleNamespace
 
 from flask import request
 
 from core.paths import PROJECT_ROOT, WORKFLOWS_DIR
-from panel.server import (PIPELINES, SHORTS_TIMINGS, _runs_cache, app, busy_runs, job, list_videos, password_required,
+from panel.server import (PIPELINES, SHORTS_TIMINGS, _runs_cache, app, busy_runs, job, list_videos, password_required, saved_at,
                           run_queue, safe_video_path, saved_workflows, upload_queue)
 from pipelines.shorts.avatar_generator import avatar_clip_range, on_screen_range
 from pipelines.shorts.paths import avatar_still_path, thumbnail_path
@@ -62,13 +61,9 @@ def describe_stopped(state):
         parts.append(f"{len(state.avatar_clips)} of {len(state.avatar_indices)} avatar clips kept")
     if state.videos_after:
         parts.append(f"{state.videos_after} more {'video' if state.videos_after == 1 else 'videos'} after it")
-    try:
-        parts.append(datetime.fromtimestamp(os.path.getmtime(state.path)).strftime("%d %b %H:%M"))
-    except OSError:
-        pass
     parts.append(f"{folder_size(state.folder) / 2 ** 20:.0f} MB")
     return {"id": state.id, "pipeline": "shorts", "label": state.topic or f"Video {state.number}, no topic yet",
-            "detail": " · ".join(parts), "clips": len(state.avatar_clips),
+            "detail": " · ".join(parts), "when": saved_at(state.path), "clips": len(state.avatar_clips),
             "estimate": RunEta(resume_argv(state), state.env, SHORTS_TIMINGS).plan()["total"]}
 
 

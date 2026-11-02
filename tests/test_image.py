@@ -314,6 +314,8 @@ class PanelTest(unittest.TestCase):
         run = self.only_run()
         self.assertEqual([r["id"] for r in status["stopped_runs"]], [run.id])
         self.assertIn("Prompts ready", status["stopped_runs"][0]["detail"])
+        self.assertTrue(status["stopped_runs"][0]["when"], "its date is its own, for the box to give it a line")
+        self.assertNotIn(status["stopped_runs"][0]["when"], status["stopped_runs"][0]["detail"])
         detail = self.client.get(f"/image-runs/{run.id}").get_json()
         self.assertTrue(detail["is_image"])
         prompts = [shot["prompt"] for shot in detail["shots"]]
