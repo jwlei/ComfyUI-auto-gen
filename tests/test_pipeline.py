@@ -21,7 +21,7 @@ import ffmpeg
 from PIL import Image
 
 import main
-from modules import comfy, media, paths, planner, publisher, run_state
+from modules import comfy, h3_prompt, media, paths, planner, publisher, run_state, wan_prompt
 
 SHOTS = [("Opening", 2), ("Middle", 2), ("Ending", 2)]
 
@@ -331,31 +331,142 @@ class PlanTest(unittest.TestCase):
         self.assertIn("last frame", chain)
         self.assertIn("starts again from the attached image", planner._instructions("x", 120, "image"))
 
-    def test_one_guide_for_every_video_model(self):
-        guide = planner._instructions("a storm rolls in", 60, "chain")
-        self.assertIn("One flowing paragraph in the present tense, 60-120 words", guide)
-        self.assertIn("Name one camera move, and describe the light and the sound", guide)
-        self.assertNotRegex(guide, "LTX|Wan|H3|MiniMax", "it would be wrong about two of the three")
+    # --- MiniMax H3 ---
 
-    def test_references_are_named_in_the_same_guide(self):
-        two = planner._instructions("x", 60, "image", 2)
-        self.assertIn("<Picture 1> and <Picture 2>", two)
-        self.assertIn("One flowing paragraph", two)
-        self.assertNotRegex(two, "subject_definitions|retention_analysis|<Subject")
-        self.assertIn("Every clip is made on its own", two)
+    def h3_prompt_text(self, pictures="<Picture 1>"):
+        return (f"subject_definitions:\n<Subject 1> is the woman from {pictures}.\n\nsummary:\n[reference generation] She walks.\n\n"
+                "retention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - her hair.\n\n"
+                f"detailed_description:\nLive-action. [Shot 1] {'She walks. ' * 100}\n\noverall_soundscape:\nRain.\n\nnon_diegetic_music: N/A")
 
-    def test_without_an_image_everything_is_described(self):
-        none = planner._instructions("x", 60, "image", 0)
+    def test_h3_gets_its_own_instructions(self):
+        two = planner._instructions("a storm rolls in", 60, "image", 2, h3_prompt.MODEL)
+        self.assertIn("a storm rolls in", two)
+        for needed in ("subject_definitions:", "retention_analysis:", "<Picture 1> and <Picture 2>", "exactly 8 shots in order",
+                       "6 = 6.58 s", "350-500 words"):
+            self.assertIn(needed, two)
+        self.assertNotIn("LTX", two)
+        self.assertNotRegex(two, "(?i)freckles across|hazel|harbour", "an example's looks end up in the film")
+
+        one = planner._instructions("x", 60, "image", 1, h3_prompt.MODEL)
+        self.assertIn("The attached image is <Picture 1>", one)
+        self.assertIn("It is not a frame", one, "a reference isn't an opening image")
+        self.assertNotIn("<Picture 2>", one)
+
+        none = planner._instructions("x", 60, "image", 0, h3_prompt.MODEL)
+        self.assertIn("integrated_multimodal_description:", none)
+        self.assertNotIn("<Picture", none)
+        self.assertNotIn("retention_analysis:", none)
+
+    def test_a_long_h3_film_still_fits_in_one_reply(self):
+        self.assertIn("350-500 words", planner._instructions("x", 60, "image", 1, h3_prompt.MODEL))
+        self.assertIn("140-200 words", planner._instructions("x", 600, "image", 1, h3_prompt.MODEL))
+        low, high = h3_prompt._detail_words(75)
+        self.assertLessEqual(75 * (high + h3_prompt.SECTION_WORDS), h3_prompt.FILM_WORDS)
+
+    def test_other_workflows_keep_their_instructions(self):
+        self.assertEqual(planner._instructions("x", 60, "chain"), planner._instructions("x", 60, "chain", 1, None))
+        self.assertIn("LTX-2", planner._instructions("x", 60, "chain"))
+
+    def test_clip_lengths_match_the_workflows_own_rounding(self):
+        self.assertEqual([h3_prompt.clip_frames(s) for s in range(5, 11)], [124, 158, 175, 192, 226, 243])
+        self.assertTrue(all(h3_prompt.clip_frames(s) % 17 == 5 for s in range(1, 16)))
+
+    def test_a_prompt_h3_cant_use_is_asked_for_again(self):
+        self.assertIsNone(h3_prompt.problem(self.h3_prompt_text(), 1))
+        self.assertIn("<Picture 2>", h3_prompt.problem(self.h3_prompt_text(), 2))
+        self.assertIsNone(h3_prompt.problem(self.h3_prompt_text("<Picture 1> and <Picture 2>"), 2))
+        self.assertIn("subject_definitions", h3_prompt.problem("A woman walks in the rain.", 1))
+        self.assertIn("more than one", h3_prompt.problem(self.h3_prompt_text().replace("[Shot 1] She", "[Shot 1] She stops. [Shot 2] She"), 1))
+        sketch = self.h3_prompt_text().replace("She walks. " * 100, "She walks.")
+        self.assertIn("words", h3_prompt.too_thin([sketch] * 8, 1))
+        self.assertIsNone(h3_prompt.too_thin([sketch] + [self.h3_prompt_text()] * 7, 1), "one short clip isn't worth a new film")
+        short = self.h3_prompt_text().replace("She walks. " * 100, "She walks. " * 40)
+        self.assertIsNotNone(h3_prompt.too_thin([short] * 8, 1))
+        self.assertIsNone(h3_prompt.too_thin([short] * 75, 1), "a long film has less room per clip")
+        self.assertIn("<Subject 1>", h3_prompt.problem(self.h3_prompt_text().replace("<Subject 1>", "Woman"), 1))
+        text_only = "integrated_multimodal_description: [Shot 1] " + "Rain falls. " * 100 + "\n\noverall_soundscape: Rain.\n\nnon_diegetic_music: N/A"
+        self.assertIsNone(h3_prompt.problem(text_only, 0))
+
+        paragraph = self.reply([{"title": f"S{i}", "seconds": 8, "prompt": "A woman walks."} for i in range(8)])
+        good = self.reply([{"title": f"S{i}", "seconds": 8, "prompt": self.h3_prompt_text()} for i in range(8)])
+        with mock.patch.object(planner, "_ask", side_effect=[paragraph, good]) as call:
+            _, planned = planner.plan_film(b"jpeg", "brief", 60, "image", "gemini", h3_prompt.MODEL)
+        self.assertEqual(call.call_count, 2)
+        self.assertNotIn("Your last reply", call.call_args_list[0].args[1])
+        self.assertIn("Your last reply came back with a prompt without subject_definitions", call.call_args_list[1].args[1])
+        self.assertEqual(planned[0]["prompt"], self.h3_prompt_text())
+
+        thin = self.reply([{"title": f"S{i}", "seconds": 8, "prompt": sketch} for i in range(8)])
+        with mock.patch.object(planner, "_ask", return_value=thin) as call:
+            _, planned = planner.plan_film(b"jpeg", "brief", 60, "image", "gemini", h3_prompt.MODEL)
+        self.assertEqual(call.call_count, 2, "asked once more, then a film of short prompts beats no film")
+        self.assertEqual(len(planned), 8)
+        with mock.patch.object(planner, "_ask", return_value=paragraph) as call:
+            planner.plan_film(b"jpeg", "brief", 60, "image", "gemini", None)
+        self.assertEqual(call.call_count, 1, "only H3 needs this shape")
+
+    def test_every_clip_gets_the_same_subject_definitions_naming_every_picture(self):
+        full = self.h3_prompt_text("<Picture 1>, with a scar on the left brow")
+        drifted = self.h3_prompt_text("<Picture 1>").replace("She walks. ", "She stops. ")
+        forgot = drifted.replace(" from <Picture 1>", "")
+        tidied = h3_prompt.tidy([forgot, full, drifted], 1)
+        self.assertEqual(len({prompt.split("summary:")[0] for prompt in tidied}), 1)
+        self.assertIn("a scar on the left brow", tidied[0])
+        self.assertIn("She stops.", tidied[0], "the rest of each clip stays its own")
+        self.assertEqual(tidied[1], full)
+
+        one_picture = h3_prompt.tidy([self.h3_prompt_text()], 2)[0]
+        self.assertIn("<Subject 1> also draws on <Picture 2>.\n\nsummary:", one_picture)
+        self.assertIsNone(h3_prompt.problem(one_picture, 2))
+
+        bare = self.h3_prompt_text().replace("<Subject 1>", "Subject 1").replace("<Picture 1>", "Picture 1")
+        self.assertEqual(h3_prompt.tidy([bare], 1), [self.h3_prompt_text()], "dropped brackets are put back")
+        self.assertIn("[Shot 1]", h3_prompt.tidy([bare], 1)[0], "a shot isn't a label")
+        self.assertEqual(h3_prompt.tidy(["A woman walks."], 1), ["A woman walks."], "asked for again, not patched")
+        self.assertEqual(h3_prompt.tidy(["Text only."], 0), ["Text only."])
+
+    def test_a_workflows_nodes_say_whose_prompts_it_gets(self):
+        self.assertIsNone(comfy.ComfyClient().video_model(), "the built-in workflow")
+
+        def model_of(node):
+            with tempfile.TemporaryDirectory() as folder:
+                path = os.path.join(folder, "workflow.json")
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump({"1": {"inputs": {"prompt": "x"}, "class_type": "Other"}, "2": node}, f)
+                with open(os.path.join(folder, "workflow.map.json"), "w", encoding="utf-8") as f:
+                    json.dump({"prompt": "1.prompt"}, f)
+                with mock.patch.dict(os.environ, {"COMFYUI_WORKFLOW": path}):
+                    return comfy.ComfyClient().video_model()
+
+        self.assertEqual(model_of({"class_type": h3_prompt.REFERENCE_NODE, "inputs": {}}), h3_prompt.MODEL)
+        self.assertEqual(model_of({"class_type": "Wan22ImageToVideoLatent", "inputs": {}}), wan_prompt.MODEL)
+        self.assertEqual(model_of({"class_type": "CLIPLoader", "inputs": {"type": "wan"}}), wan_prompt.MODEL)
+        self.assertIsNone(model_of({"class_type": "CLIPLoader", "inputs": {"type": "ltxv"}}))
+
+    # --- Wan ---
+
+    def test_wan_gets_plain_prose_without_sound(self):
+        one = planner._instructions("a storm rolls in", 60, "chain", 1, wan_prompt.MODEL)
+        self.assertIn("a storm rolls in", one)
+        self.assertIn("from Wan", one)
+        self.assertIn("exactly 8 shots in order", one)
+        self.assertIn("how things move", one)
+        self.assertIn("exact last frame", one, "a continuous take works here")
+        self.assertIn("Wan makes no sound", one)
+        self.assertNotRegex(one, "subject_definitions|<Picture|<Subject|LTX")
+
+        none = planner._instructions("x", 60, "image", 0, wan_prompt.MODEL)
         self.assertIn("There is no image", none)
-        self.assertIn("describe the subject, place, light", none)
+        self.assertIn("Nothing shows Wan how anything looks", none)
         self.assertNotIn("attached image", none)
+        self.assertNotIn("exact last frame", planner._instructions("x", 5, "chain", 1, wan_prompt.MODEL), "there is no clip before")
 
-    def test_a_plain_paragraph_is_accepted_with_references(self):
-        reply = self.reply([{"title": f"S{i}", "seconds": 8, "prompt": "<Picture 1> walks into the rain."} for i in range(8)])
+    def test_wan_prompts_arent_held_to_h3s_shape(self):
+        reply = self.reply([{"title": f"S{i}", "seconds": 8, "prompt": "A woman walks into the rain."} for i in range(8)])
         with mock.patch.object(planner, "_ask", return_value=reply) as call:
-            _, planned = planner.plan_film([b"one", b"two"], "brief", 60, "image")
-        self.assertEqual(call.call_count, 1, "asked once, and not sent back for another shape")
-        self.assertEqual(planned[0]["prompt"], "<Picture 1> walks into the rain.")
+            _, planned = planner.plan_film(b"jpeg", "brief", 60, "chain", "gemini", wan_prompt.MODEL)
+        self.assertEqual(call.call_count, 1)
+        self.assertEqual(planned[0]["prompt"], "A woman walks into the rain.")
 
     def test_metadata_failure_falls_back_to_the_title(self):
         with mock.patch.object(planner, "_ask", side_effect=RuntimeError("no quota")):

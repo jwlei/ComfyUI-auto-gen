@@ -138,7 +138,8 @@ def plan_run(args, stages):
 
     print_stage("Plan", stages)
     print(f"🧠 {llm} is writing {planner.shot_count(state.seconds)} prompts for a {state.seconds}s film at {width}x{height}...")
-    title, shots = planner.plan_film([media.preview_jpeg(image) for image in images], args.prompt, state.seconds, state.start, llm)
+    title, shots = planner.plan_film([media.preview_jpeg(image) for image in images], args.prompt, state.seconds, state.start, llm,
+                                     comfy.video_model())
     for image, path in zip(images, state.image_paths):
         media.save_input(image, path)
     state.update(title=title, shots=shots)
