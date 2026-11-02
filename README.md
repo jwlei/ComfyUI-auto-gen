@@ -131,14 +131,9 @@ Without an image, the LLM describes everything in full in every prompt and the f
 a size. With references, every clip gets all of them and the LLM calls them `<Picture 1>`, `<Picture 2>`. A T2V or
 R2V workflow can't start a clip on the last frame of the one before, so its clips are separate moments.
 
-A workflow using MiniMax H3's reference-to-video node gets prompts written for H3 instead: its six labelled
-fields, the subjects' details named and repeated word for word in every clip, actions sized to how long they really
-take. `modules/h3_prompt.py` holds those instructions, rewritten from
-[minimax-h3-skill](https://github.com/teskor-hub/minimax-h3-skill) (MIT). A reply without those fields is asked
-for again rather than rendered.
-
-A Wan workflow gets prompts written for Wan: a plain paragraph of how things move, with no sound, since it makes
-none. Its negative prompt stays what you saved in the workflow. `modules/wan_prompt.py` holds those instructions.
+Every workflow gets the same prompting guide, whether it runs LTX, Wan or MiniMax H3: a flowing paragraph per shot,
+60-120 words in the present tense, with one main action, one camera move, the light and the sound. It's
+`_instructions` in `modules/planner.py`. Wan makes no sound, so what a prompt says about sound does nothing there.
 
 It works out which input is the prompt by following the sampler's positive input back to its text, or from a
 node's own `prompt` input. For length it wants a number node with "seconds" or "duration" in its title, or a
@@ -164,8 +159,6 @@ main.py               the run: plan, render, stitch, resume
 publish.py            uploads what's in output/
 start_webapp.pyw      what the shortcut runs
 modules/planner.py    writes the shot list and upload text, with Gemini or Claude
-modules/h3_prompt.py  what the LLM is told when a film renders on MiniMax H3
-modules/wan_prompt.py what the LLM is told when a film renders on Wan
 modules/comfy.py      talks to ComfyUI
 modules/media.py      images, frames and joining clips, with ffmpeg
 modules/run_state.py  what each run has finished
