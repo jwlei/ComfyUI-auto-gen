@@ -38,6 +38,12 @@ powershell -ExecutionPolicy Bypass -File scripts/create_shortcut.ps1
 That makes a **ComfyUI auto-gen** shortcut, which starts the panel and opens it at http://localhost:8800. `/shorts` and
 `/video` open each side directly. **Shut down** in the panel stops it. Or run `python webapp.py --host 0.0.0.0 --port 8800`.
 
+**From your phone, anywhere:** install [Tailscale](https://tailscale.com/download) on this PC and your phone and sign
+in to the same account on both. Starting the panel also starts Tailscale and reconnects it if it was off. **More** in
+the panel shows the address to open on your phone, `http://100.x.y.z:8800`, which stays the same, so it's worth
+bookmarking. Tailscale encrypts the connection, and only your own devices can reach it. `python webapp.py` on its own
+only listens to this PC and leaves Tailscale alone: add `--host 0.0.0.0`.
+
 Each pipeline also runs alone: `python -m pipelines.shorts.main --help` and `python -m pipelines.video.main --help`.
 
 ## Layout

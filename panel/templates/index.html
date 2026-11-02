@@ -415,6 +415,8 @@
   <details class="misc" id="misc">
     <summary>More</summary>
     <div class="phone">📱 Phone (same Wi-Fi): <code>{{ phone_url }}</code></div>
+    {% if tailscale_url %}<div class="phone">🌍 Phone (anywhere, with Tailscale on): <code>{{ tailscale_url }}</code></div>{% endif %}
+    {% if tailscale_problem %}<div class="phone">🌍 Phone (anywhere): {{ tailscale_problem }}</div>{% endif %}
   </details>
 </div>
 

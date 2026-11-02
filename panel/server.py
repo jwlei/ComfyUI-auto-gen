@@ -3,8 +3,8 @@ The web panel: one server, one GPU queue, and two pipelines, Shorts and Video.
 
 Starts their jobs, queues more while one is going, streams the log, shows whether
 ComfyUI is up, and lists the finished videos for playback and download, from the
-desktop or a phone on the same network. panel/shorts.py and panel/video.py hold
-what is particular to each.
+desktop or a phone, at home or anywhere over Tailscale. panel/shorts.py and
+panel/video.py hold what is particular to each.
 
     python webapp.py --host 0.0.0.0 --port 8800
     (or double-click start_webapp.pyw / the "ComfyUI auto-gen" desktop shortcut)
@@ -36,6 +36,7 @@ from flask import (Flask, abort, redirect, render_template, request,
 from core.paths import LOGS_DIR, PROJECT_ROOT, SAVED_WORKFLOWS_DIR, comfyui_client_id
 from core.quota import quota_summary
 from core.saved_workflows import is_for_shorts, list_saved
+from panel import tailscale
 from pipelines.shorts.paths import OUTPUT_DIR as SHORTS_READY, UPLOADED_DIR as SHORTS_UPLOADED
 from pipelines.shorts.run_eta import RunEta as ShortsEta
 from pipelines.video.paths import OUTPUT_DIR as VIDEO_OUTPUT
@@ -915,10 +916,14 @@ def index():
     context = {}
     for pipeline in PIPELINES.values():
         context.update(pipeline.context())
+    protected = bool(os.getenv("APP_PASSWORD"))
+    tailscale_url, tailscale_problem = tailscale.reach(port) if protected else (None, None)
     return render_template(
         "index.html",
-        protected=bool(os.getenv("APP_PASSWORD")),
+        protected=protected,
         phone_url=f"http://{lan_ip()}:{port}",
+        tailscale_url=tailscale_url,
+        tailscale_problem=tailscale_problem,
         can_open_folders=can_open_folders(),
         # The page you asked for by address, or else the one it last showed.
         initial_pipeline=request.path.strip("/"),
@@ -1107,6 +1112,14 @@ class _QuietPolling(logging.Filter):
         return "/api/status" not in record.getMessage()
 
 
+def connect_tailscale(port):
+    url, problem = tailscale.connect(port)
+    if url:
+        print(f"🌍 Anywhere:   {url}  (Tailscale)")
+    elif problem:
+        print(f"⚠️ {problem} Your phone can only reach the panel at home until it connects.")
+
+
 def main():
     logging.getLogger("werkzeug").addFilter(_QuietPolling())
 
@@ -1132,5 +1145,7 @@ def main():
     print(f"🌐 This PC:    http://127.0.0.1:{args.port}")
     if args.host == "0.0.0.0":
         print(f"📱 Your phone: http://{lan_ip()}:{args.port}  (or http://{socket.gethostname()}.local:{args.port})")
+        # In the background: it can take a while, and the panel shouldn't wait for it.
+        threading.Thread(target=connect_tailscale, args=(args.port,), daemon=True).start()
     print("   Stop it with 'Shut down' in the panel (or close this window if it has one).")
     app.run(host=args.host, port=args.port, debug=args.debug, threaded=True)
