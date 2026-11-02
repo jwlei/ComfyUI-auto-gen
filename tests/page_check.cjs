@@ -157,7 +157,8 @@ run('workflowTakes = {}; syncImageInput()');
 for (const size of ['640x352', '864x480', '960x544', '1280x736', '352x640', '480x864', '544x960', '736x1280']) {
   assert(html.includes(`<option value="${size}">`), size);
 }
-assert.strictEqual([...html.matchAll(/<option value="(\d+)x(\d+)">/g)].filter(m => +m[1] * +m[2] > 1280 * 736).length, 0);
+const filmSizes = html.slice(html.indexOf('id="sizePreset"'), html.indexOf('id="size"'));
+assert.strictEqual([...filmSizes.matchAll(/<option value="(\d+)x(\d+)">/g)].filter(m => +m[1] * +m[2] > 1280 * 736).length, 0);
 els.sizePreset = element('sizePreset');
 els.size = element('size');
 els.sizePreset.value = '352x640';
@@ -226,6 +227,56 @@ shots.start = 'image';
 assert(run('shotsHtml(shots)').includes('leaves the others as they are'));
 shots.finished = true;
 assert(!run('shotsHtml(shots)').includes('data-render'), 'a finished film has nothing left to render');
+
+// The Image side: a set's titles can hold anything, and its size is worked out as the pipeline does.
+const sets = [{ id: 'image_20261102_120000', label: 'A <b>set', total: 3, size: '1024x1024', created: '02 Nov', images: [{ position: 1, title: '<i>Look', version: 5 }] }];
+context.sets = sets;
+const setHtml = run('imageSetHtml(sets[0])');
+assert(!setHtml.includes('<b>set') && !setHtml.includes('<i>Look'), 'titles are escaped');
+assert(setHtml.includes('/thumbnails/1?v=5') && setHtml.includes('/files/1?v=5') && setHtml.includes('loading="lazy"'), 'small pictures, that open full size');
+assert(setHtml.includes('data-delete-set=') && setHtml.includes('data-shots='));
+run('imageSets = sets; renderImageSets()');
+const once = els.imageSets.innerHTML;
+assert(once.includes('1 of 3'));
+els.imageSets.innerHTML = 'untouched';
+run('renderImageSets()');
+assert.strictEqual(els.imageSets.innerHTML, 'untouched', 'a poll with nothing new reloads no pictures');
+const imageRun = { id: 'image_1', is_image: true, title: 'T', brief: 'b', llm: 'claude', direct: false, size: '1024x1024', busy: false, finished: false,
+  shots: [{ title: 'One', prompt: '</textarea><script>x</script>', rendered: true, version: 1 }, { title: 'Two', prompt: 'p', rendered: false, version: 0 }] };
+context.imageRun = imageRun;
+const imageDialog = run('shotsHtml(imageRun)');
+assert(!imageDialog.includes('<script>'), 'prompts are escaped');
+assert(imageDialog.includes('data-redo="1"') && !imageDialog.includes('data-redo="2"') && imageDialog.includes('Make the 1 left') && imageDialog.includes('data-delete-image="2"'));
+assert.strictEqual(run("runUrl('image_1')"), '/image-runs/image_1');
+assert.strictEqual(run("runUrl('run_1')"), '/runs/run_1');
+const picked = (aspect, megapixels, source) => {
+  els.imageAspect.value = aspect;
+  els.imageMegapixels.value = megapixels;
+  run(`sourceSize = ${JSON.stringify(source)}`);
+  return run('pickedSize().join("x")');
+};
+assert.strictEqual(picked('1:1', '1', null), '1024x1024');
+assert.strictEqual(picked('16:9', '1', null), '1360x768');
+assert.strictEqual(picked('image', '1', null), '1024x1024', 'nothing to match: square');
+assert.strictEqual(picked('image', 'image', [800, 1200]), '800x1200', 'the image\'s own resolution');
+assert.strictEqual(picked('image', '1', [800, 1200]), '832x1248', 'its shape at the pixel count asked for');
+assert.strictEqual(picked('1:1', 'image', [800, 1200]), '976x976', 'its pixel count in the shape asked for');
+run('sourceSize = null');
+for (const size of ['1920x1080', '2560x1440', '3840x2160', '1272x2772']) assert(html.includes(`<option value="${size}">`), size);
+els.imageAspect.value = '1920x1080';
+els.imageMegapixels.value = '1';
+run('syncImageSize()');
+assert(els.imageSizeHint.textContent.includes('Makes 1920x1080 exactly'), 'a screen is its exact size, whatever the grid');
+assert(!els.imageSizeHint.textContent.includes('far above'));
+els.imageAspect.value = '3840x2160';
+run('syncImageSize()');
+assert(els.imageSizeHint.textContent.includes('far above'), 'it says what asking for 4K costs');
+run("setPipeline('image', false)");
+assert.strictEqual(run('folder'), 'image');
+assert.strictEqual(els.jumpResults.textContent, 'Images');
+run("setPipeline('shorts', false)");
+assert.strictEqual(els.jumpResults.textContent, 'Videos');
+assert(/body\.on-image \{ --accent/.test(html));
 
 // Films.
 run("folder = 'video'");
@@ -331,7 +382,7 @@ assert.deepStrictEqual(links.map(id => html.indexOf(`id="${id}"`)), links.map(id
 // Status comes first, Generate is called just that, and it sits with the options.
 assert(html.indexOf('id="runCard"') < html.indexOf('id="optionsCard"'));
 assert(/id="go">Generate</.test(html) && script.includes("'Add to queue'"), 'Generate, or Add to queue while something runs');
-assert(/<a href="#videosCard">Videos<\/a>/.test(html) && !html.includes('jumpCount'), 'the footer has no count on Videos');
+assert(/<a href="#videosCard" id="jumpResults">Videos<\/a>/.test(html) && !html.includes('jumpCount'), 'the footer has no count on Videos');
 // Each heading holds its section, and the first is called Generation.
 assert(!html.includes('What to make'));
 assert(/<details class="section" id="formTopic">\s*<summary class="section-title">Generation</.test(html));

@@ -144,7 +144,7 @@ Ctrl+C cancels the clip in ComfyUI, and `--resume` continues. The plan is in `ru
 
 ## Using another workflow
 
-**ComfyUI workflow** in the panel lists what you saved in ComfyUI, except those ending in `_ytautoshort`, which are tuned for yt-auto-shorts. The panel converts the one you pick into API
+**ComfyUI workflow** in the panel lists what you saved in ComfyUI, except those ending in `_ytautoshort`, which are tuned for yt-auto-shorts, and those starting `image_`, which are for [Image](image.md). The panel converts the one you pick into API
 format when it lists them, and finds its prompt, image, length and size inputs from the graph. **Built-in LTX**
 stays the default and works as before.
 
@@ -175,7 +175,7 @@ It works out which input is the prompt by following the sampler's positive input
 node's own `prompt` input. For length it wants a number node with "seconds" or "duration" in its title, or a
 `length` input next to `width` and `height`. For size, integer nodes titled "width" and "height", or those same
 inputs. A workflow that can't run stays in the list, greyed out, and the hint says why: a model or node that isn't
-installed, or subgraphs. A saved `SaveVideo` becomes VideoHelperSuite's Video Combine, the only way to keep its
+installed. Subgraphs are opened up as if you had unpacked them. A saved `SaveVideo` becomes VideoHelperSuite's Video Combine, the only way to keep its
 clips out of ComfyUI's output folder.
 
 A run keeps its workflow when you continue it or redo a shot. The conversions sit in `logs/workflows/`, so with

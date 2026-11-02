@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
 import ffmpeg
+from PIL import Image
 
 # main.py does this for a real run. The pipeline's emoji don't fit a Windows console's default.
 sys.stdout.reconfigure(encoding="utf-8")
@@ -51,11 +52,11 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def _clip_seconds(workflow):
-    """Wherever this workflow says how long a clip is: a node of seconds, or a latent's frames."""
+    """Wherever this workflow says how long a clip is: a node of seconds, or a latent's frames. None if it makes images."""
     for node in workflow.values():
         if "SECONDS" in node["_meta"]["title"].upper() or "DURATION" in node["_meta"]["title"].upper():
             return node["inputs"]["value"]
-    return next(node["inputs"]["length"] / 24 for node in workflow.values() if isinstance(node["inputs"].get("length"), int))
+    return next((node["inputs"]["length"] / 24 for node in workflow.values() if isinstance(node["inputs"].get("length"), int)), None)
 
 
 class _ComfyHandler(_Handler):
@@ -112,6 +113,15 @@ class _ComfyHandler(_Handler):
             elif step == "hang":
                 state.hanging.add(prompt_id)
                 state.queue = {"queue_running": [[0, prompt_id, {}, {"client_id": data["client_id"]}]], "queue_pending": []}
+            elif seconds is None:
+                path = os.path.join(state.folder, f"{prompt_id}.png")
+                if step == "corrupt":
+                    with open(path, "wb") as f:
+                        f.write(b"not an image")
+                else:
+                    # What a real one does with an empty latent: the size it was told.
+                    latent = next((node["inputs"] for node in data["prompt"].values() if node["class_type"] == "EmptyLatentImage"), {})
+                    Image.new("RGB", (latent.get("width", 32), latent.get("height", 32)), (number * 40 % 256, 20, 40)).save(path)
             else:
                 make_clip(os.path.join(state.folder, f"{prompt_id}.mp4"), 0.5 if step == "short" else seconds,
                           color=f"0x{(number * 40) % 256:02x}2040", audio=step != "silent")
@@ -190,10 +200,22 @@ OBJECT_INFO = {kind: {"display_name": kind, "input": {"required": required}} for
     "CreateVideo": {"images": ["IMAGE"], "fps": ["FLOAT", {}]},
     "SaveVideo": {"video": ["VIDEO"], "filename_prefix": ["STRING", {}]},
     "VHS_VideoCombine": {"images": ["IMAGE"], "frame_rate": ["FLOAT", {}], "save_output": ["BOOLEAN", {}]},
+    "SaveImage": {"images": ["IMAGE"], "filename_prefix": ["STRING", {}]},
+    "SaveImageAdvanced": {"images": ["IMAGE"], "filename_prefix": ["STRING", {}], "format": ["COMFY_DYNAMICCOMBO_V3", {}]},
+    "EmptyLatentImage": {"width": ["INT", {}], "height": ["INT", {}], "batch_size": ["INT", {}]},
+    "ConditioningZeroOut": {"conditioning": ["CONDITIONING"]},
+    "PrimitiveBoolean": {"value": ["BOOLEAN", {}]},
+    "ComfySwitchNode": {"switch": ["BOOLEAN", {}]},
+    "TextGenerate": {"prompt": ["STRING", {}], "clip": ["CLIP"]},
+    "TextEncodeEdit": {"prompt": ["STRING", {}], "clip": ["CLIP"]},
+    "FluxKontextImageScale": {"image": ["IMAGE"]},
+    "VAEEncode": {"pixels": ["IMAGE"]},
 }.items()}
 # Inputs a workflow runs fine without.
 OBJECT_INFO["LatentVideo"]["input"]["optional"] = {"start_image": ["IMAGE"]}
 OBJECT_INFO["ReferenceToVideo"]["input"]["optional"] = {"ref_images": ["COMFY_AUTOGROW_V3", {}]}
+OBJECT_INFO["ComfySwitchNode"]["input"]["optional"] = {"on_false": ["COMFY_MATCHTYPE_V3", {}], "on_true": ["COMFY_MATCHTYPE_V3", {}]}
+OBJECT_INFO["TextEncodeEdit"]["input"]["optional"] = {"image1": ["IMAGE"], "image2": ["IMAGE"]}
 
 
 def saved_workflow():
@@ -247,6 +269,90 @@ def text_only_workflow():
         entry for entry in next(node for node in ui["nodes"] if node["id"] == 5)["inputs"] if entry["name"] != "start_image"]
     ui["links"] = [link for link in ui["links"] if link[0] != 9]
     return ui
+
+
+def _inside(link_id, origin, slot, target, target_slot, kind):
+    return {"id": link_id, "origin_id": origin, "origin_slot": slot, "target_id": target, "target_slot": target_slot, "type": kind}
+
+
+def text_to_image_workflow():
+    """
+    Like ComfyUI's Krea-2 template: everything in a subgraph, set on its face, with its size from a node outside.
+    A prompt refiner that's on and a style LoRA that's off, whose file isn't installed.
+    """
+    return {"nodes": [
+        _ui_node(29, "SaveImage", {"filename_prefix": "Krea2_turbo"}, {"images": 44}),
+        _ui_node(30, "sub-text", {"value": "saved prompt", "value_1": True, "seed_1": 99, "value_3": False, "lora_name_1": "krea2_darkbrush.safetensors"},
+                 {"width_1": 84, "height_1": 85}, ["IMAGE"]),
+        _ui_node(49, "SizePicker", {"megapixels": 1}, outputs=["INT", "INT"]),
+        _ui_node(47, "MarkdownNote", values=["notes"]),
+    ], "links": [[44, 30, 0, 29, 0, "IMAGE"], [84, 49, 0, 30, 3, "INT"], [85, 49, 1, 30, 4, "INT"]],
+       "last_node_id": 50, "last_link_id": 90,
+       "definitions": {"subgraphs": [{"id": "sub-text", "name": "Text to Image", "inputs": [
+           {"name": "value", "type": "STRING"}, {"name": "value_1", "type": "BOOLEAN"}, {"name": "seed_1", "type": "INT"},
+           {"name": "width_1", "type": "INT"}, {"name": "height_1", "type": "INT"}, {"name": "value_3", "type": "BOOLEAN"},
+           {"name": "lora_name_1", "type": "COMBO"}],
+           "outputs": [{"name": "IMAGE", "type": "IMAGE"}],
+           "nodes": [
+               _ui_node(10, "CheckpointLoader", {"ckpt_name": "model.safetensors"}, outputs=["MODEL", "CLIP"]),
+               _ui_node(15, "LoraLoaderModelOnly", links={"model": 16, "lora_name": 78}, outputs=["MODEL"]),
+               _ui_node(19, "PrimitiveStringMultiline", links={"value": 45}, values=["what was typed inside"], outputs=["STRING"], title="Text String (User Prompt)"),
+               _ui_node(24, "PrimitiveBoolean", links={"value": 46}, outputs=["BOOLEAN"], title="Boolean (Refine Prompt?)"),
+               _ui_node(23, "PrimitiveBoolean", links={"value": 77}, outputs=["BOOLEAN"], title="Boolean (Enable LoRA?)"),
+               _ui_node(16, "TextGenerate", {"prompt": ""}, {"clip": 18}, ["STRING"]),
+               _ui_node(21, "ComfySwitchNode", links={"on_false": 34, "on_true": 33, "switch": 32}, outputs=["STRING"]),
+               _ui_node(22, "ComfySwitchNode", links={"on_false": 28, "on_true": 29, "switch": 31}, outputs=["MODEL"]),
+               _ui_node(6, "CLIPTextEncode", links={"clip": 10, "text": 72}, outputs=["CONDITIONING"]),
+               _ui_node(13, "ConditioningZeroOut", links={"conditioning": 13}, outputs=["CONDITIONING"]),
+               _ui_node(5, "EmptyLatentImage", {"batch_size": 1}, {"width": 74, "height": 75}, ["LATENT"]),
+               _ui_node(3, "KSampler", {"steps": 8}, {"model": 30, "positive": 4, "negative": 14, "latent_image": 2, "seed": 76}, ["LATENT"]),
+               _ui_node(8, "VAEDecode", links={"samples": 7}, outputs=["IMAGE"]),
+               _ui_node(50, "Note", values=["notes inside"]),
+           ],
+           "links": [
+               _inside(45, -10, 0, 19, 0, "STRING"), _inside(46, -10, 1, 24, 0, "BOOLEAN"), _inside(76, -10, 2, 3, 4, "INT"),
+               _inside(74, -10, 3, 5, 0, "INT"), _inside(75, -10, 4, 5, 1, "INT"), _inside(77, -10, 5, 23, 0, "BOOLEAN"),
+               _inside(78, -10, 6, 15, 1, "COMBO"), _inside(16, 10, 0, 15, 0, "MODEL"), _inside(18, 10, 1, 16, 0, "CLIP"),
+               _inside(34, 19, 0, 21, 0, "STRING"), _inside(33, 16, 0, 21, 1, "STRING"), _inside(32, 24, 0, 21, 2, "BOOLEAN"),
+               _inside(28, 10, 0, 22, 0, "MODEL"), _inside(29, 15, 0, 22, 1, "MODEL"), _inside(31, 23, 0, 22, 2, "BOOLEAN"),
+               _inside(10, 10, 1, 6, 0, "CLIP"), _inside(72, 21, 0, 6, 1, "STRING"), _inside(13, 6, 0, 13, 0, "CONDITIONING"),
+               _inside(30, 22, 0, 3, 0, "MODEL"), _inside(4, 6, 0, 3, 1, "CONDITIONING"), _inside(14, 13, 0, 3, 2, "CONDITIONING"),
+               _inside(2, 5, 0, 3, 3, "LATENT"), _inside(7, 3, 0, 8, 0, "LATENT"), _inside(43, 8, 0, -20, 0, "IMAGE"),
+           ]}]}}
+
+
+def edit_image_workflow():
+    """Like ComfyUI's Qwen-Image-Edit template: one Load Image into a subgraph, whose second image input is left empty, and a scaler."""
+    return {"nodes": [
+        _ui_node(41, "LoadImage", {"image": "example.png"}, values=["example.png", "image"], outputs=["IMAGE", "MASK"]),
+        _ui_node(170, "sub-edit", {"prompt": "saved instruction", "prompt_1": "", "seed": 7}, {"image": 376, "image2": None}, ["IMAGE"]),
+        _ui_node(195, "SaveImageAdvanced", {"filename_prefix": "Edit", "format": "png"}, {"images": 388}),
+    ], "links": [[376, 41, 0, 170, 0, "IMAGE"], [388, 170, 0, 195, 0, "IMAGE"]],
+       "definitions": {"subgraphs": [{"id": "sub-edit", "name": "Image Edit", "inputs": [
+           {"name": "image", "type": "IMAGE"}, {"name": "image2", "type": "IMAGE"}, {"name": "prompt", "type": "STRING"},
+           {"name": "prompt_1", "type": "STRING"}, {"name": "seed", "type": "INT"}],
+           "outputs": [{"name": "IMAGE", "type": "IMAGE"}],
+           "nodes": [
+               _ui_node(1, "CheckpointLoader", {"ckpt_name": "model.safetensors"}, outputs=["MODEL", "CLIP"]),
+               _ui_node(160, "FluxKontextImageScale", links={"image": 362}, outputs=["IMAGE"]),
+               _ui_node(149, "TextEncodeEdit", links={"clip": 1, "image1": 322, "image2": 366, "prompt": 378}, outputs=["CONDITIONING"]),
+               _ui_node(151, "TextEncodeEdit", links={"clip": 2, "image1": 325, "image2": 363, "prompt": 370}, outputs=["CONDITIONING"]),
+               _ui_node(156, "VAEEncode", links={"pixels": 334}, outputs=["LATENT"]),
+               _ui_node(169, "KSampler", {"steps": 40}, {"model": 3, "positive": 4, "negative": 5, "latent_image": 6, "seed": 387}, ["LATENT"]),
+               _ui_node(158, "VAEDecode", links={"samples": 7}, outputs=["IMAGE"]),
+           ],
+           "links": [
+               _inside(362, -10, 0, 160, 0, "IMAGE"), _inside(363, -10, 1, 151, 2, "IMAGE"), _inside(366, -10, 1, 149, 2, "IMAGE"),
+               _inside(370, -10, 2, 151, 3, "STRING"), _inside(378, -10, 3, 149, 3, "STRING"), _inside(387, -10, 4, 169, 4, "INT"),
+               _inside(1, 1, 1, 149, 0, "CLIP"), _inside(2, 1, 1, 151, 0, "CLIP"), _inside(322, 160, 0, 149, 1, "IMAGE"),
+               _inside(325, 160, 0, 151, 1, "IMAGE"), _inside(334, 160, 0, 156, 0, "IMAGE"), _inside(3, 1, 0, 169, 0, "MODEL"),
+               _inside(4, 151, 0, 169, 1, "CONDITIONING"), _inside(5, 149, 0, 169, 2, "CONDITIONING"), _inside(6, 156, 0, 169, 3, "LATENT"),
+               _inside(7, 169, 0, 158, 0, "LATENT"), _inside(344, 158, 0, -20, 0, "IMAGE"),
+           ]}]}}
+
+
+def versions_reply(count=3, title="Three Looks"):
+    return [json.dumps({"title": title, "versions": [{"title": f"Look {i + 1}", "prompt": f"Change to look number {i + 1}."} for i in range(count)]})]
 
 
 def plan_reply(shots=8, seconds=8, title="The Harbour Storm"):

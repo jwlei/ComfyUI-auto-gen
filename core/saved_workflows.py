@@ -4,10 +4,12 @@ workflow and the '.map.json' next to it.
 
 ComfyUI saves what its editor shows, and only its web page turns that into what
 its API takes. So this does the same for the parts that exist only in the editor:
-Set/Get nodes, reroutes, primitives, and bypassed or muted nodes. Which inputs to
-fill is worked out from the graph. Anything that won't run says why, rather than
-failing an hour into a queue.
+subgraphs, Set/Get nodes, reroutes, primitives, and bypassed or muted nodes. Which
+inputs to fill is worked out from the graph. Anything that won't run says why, rather
+than failing an hour into a queue.
 """
+import copy
+import itertools
 import json
 import os
 import re
@@ -29,6 +31,18 @@ SHORTS_SUFFIX = "_ytautoshort"
 COMBINE = "VHS_VideoCombine"
 COMBINE_DEFAULTS = {"loop_count": 0, "filename_prefix": "pipeline", "format": "video/h264-mp4", "pix_fmt": "yuv420p",
                     "crf": 19, "save_metadata": False, "trim_to_audio": False, "pingpong": False, "save_output": False}
+# Saved as the Image side's: ComfyUI's own image templates are named this way, and its image-to-video ones video_.
+IMAGE_PREFIX = "image_"
+# These always write to ComfyUI's output folder. Preview Image does the same job in its temp folder.
+IMAGE_SAVES = ("SaveImage", "SaveImageAdvanced")
+PREVIEW = "PreviewImage"
+SWITCHES = ("ComfySwitchNode",)
+# Snap the source image to a size of their own. The pipeline fits it to the size you chose instead.
+IMAGE_SCALERS = ("FluxKontextImageScale",)
+# How a subgraph's links name the two ends it has in place of nodes.
+SUBGRAPH_IN, SUBGRAPH_OUT = -10, -20
+# Far more than any workflow has. Only subgraphs that contain each other get this far.
+MOST_SUBGRAPHS = 200
 
 
 class Unusable(Exception):
@@ -48,14 +62,107 @@ def _options(config):
     return config[0] if isinstance(config[0], list) else extra.get("options") if config[0] == "COMBO" else None
 
 
+def _link_row(link):
+    """A link as [id, origin node, origin slot, target node, target slot, type]. Subgraphs save theirs as objects."""
+    if isinstance(link, dict):
+        return [link["id"], link["origin_id"], link["origin_slot"], link["target_id"], link["target_slot"], link["type"]]
+    return list(link)
+
+
+def _widgets_of(node):
+    """What a node's widgets are set to, by name, from the list they're saved in."""
+    values = node.get("widgets_values")
+    if isinstance(values, dict):
+        return {name: value for name, value in values.items() if name != "videopreview"}
+    values = list(values or [])
+    inputs = {}
+    position = 0
+    for name in [entry["widget"]["name"] for entry in node.get("inputs", []) if "widget" in entry]:
+        if position >= len(values):
+            break
+        inputs[name] = values[position]
+        position += 1
+        # The dropdown saved after a seed, which only the editor reads.
+        if position < len(values) and values[position] in SEED_CONTROLS and isinstance(inputs[name], int):
+            position += 1
+    # Widgets a node's own script added, such as Power Lora Loader's list.
+    loras = [value for value in values[position:] if isinstance(value, dict) and "lora" in value]
+    inputs.update({f"lora_{number}": lora for number, lora in enumerate(loras, 1)})
+    return inputs
+
+
+def _open_subgraph(instance, subgraph, nodes, links, node_ids, link_ids):
+    """Puts one subgraph's nodes where it stood, each wired to what the subgraph's own inputs and outputs were."""
+    renumbered = {node["id"]: next(node_ids) for node in subgraph["nodes"]}
+    inner = copy.deepcopy(subgraph["nodes"])
+    entries = {entry["link"]: entry for node in inner for entry in node.get("inputs", []) if entry.get("link") is not None}
+    for entry in entries.values():
+        entry["link"] = None
+    for node in inner:
+        node["id"] = renumbered[node["id"]]
+        if instance.get("mode"):
+            node["mode"] = instance["mode"]
+    nodes += inner
+
+    outer_inputs = {entry["name"]: entry for entry in instance.get("inputs", [])}
+    widgets = _widgets_of(instance)
+    outputs = {}
+    for link_id, origin, slot, target, target_slot, kind in map(_link_row, subgraph.get("links", [])):
+        if target == SUBGRAPH_OUT:
+            outputs[target_slot] = (renumbered.get(origin, origin), slot)
+            continue
+        if origin == SUBGRAPH_IN:
+            name = subgraph["inputs"][slot]["name"]
+            outer = links.get(outer_inputs.get(name, {}).get("link"))
+            if outer:
+                origin, slot = outer[1], outer[2]
+            elif name in widgets:
+                # Set on the subgraph's face, which is what counts over the value saved inside it.
+                origin, slot = next(node_ids), 0
+                nodes.append({"id": origin, "type": "PrimitiveNode", "widgets_values": [widgets[name]]})
+            else:
+                continue  # Nothing plugged in: as if the input inside had nothing either
+        else:
+            origin = renumbered[origin]
+        new_id = next(link_ids)
+        links[new_id] = [new_id, origin, slot, renumbered[target], target_slot, kind]
+        if link_id in entries:
+            entries[link_id]["link"] = new_id
+
+    for link_id, link in list(links.items()):
+        if link[1] == instance["id"]:
+            origin, slot = outputs.get(link[2], (None, None))
+            if origin == SUBGRAPH_IN:
+                outer = links.get(outer_inputs.get(subgraph["inputs"][slot]["name"], {}).get("link"))
+                origin, slot = (outer[1], outer[2]) if outer else (None, None)
+            if origin is None:
+                del links[link_id]
+            else:
+                link[1], link[2] = origin, slot
+
+
+def _without_subgraphs(ui):
+    """The workflow as if every subgraph in it had been unpacked in ComfyUI. Returns a new one."""
+    definitions = {subgraph["id"]: subgraph for subgraph in ui.get("definitions", {}).get("subgraphs", [])}
+    nodes = list(ui["nodes"])
+    if not any(node["type"] in definitions for node in nodes):
+        return ui
+    links = {row[0]: row for row in map(_link_row, ui.get("links", []))}
+    node_ids = itertools.count(max([node["id"] for node in nodes] + [ui.get("last_node_id") or 0]) + 1)
+    link_ids = itertools.count(max([*links, ui.get("last_link_id") or 0]) + 1)
+    for _ in range(MOST_SUBGRAPHS):
+        instance = next((node for node in nodes if node["type"] in definitions), None)
+        if not instance:
+            return {**ui, "nodes": nodes, "links": list(links.values())}
+        nodes.remove(instance)
+        _open_subgraph(instance, definitions[instance["type"]], nodes, links, node_ids, link_ids)
+    raise Unusable("Its subgraphs contain each other. Unpack them in ComfyUI and save it again.")
+
+
 class _Graph:
     def __init__(self, ui, info):
         self.info = info
-        self.links = {}
-        for link in ui.get("links", []):
-            if isinstance(link, dict):
-                link = [link["id"], link["origin_id"], link["origin_slot"], link["target_id"], link["target_slot"], link["type"]]
-            self.links[link[0]] = link
+        self.links = {row[0]: row for row in map(_link_row, ui.get("links", []))}
         self.nodes = {node["id"]: node for node in ui["nodes"]}
         self.setters = {(node.get("widgets_values") or [None])[0]: node for node in ui["nodes"] if node["type"] == "SetNode"}
 
@@ -94,25 +201,7 @@ class _Graph:
         return self.source(inputs[slot if slot in matching else matching[0]].get("link"), seen)
 
     def inputs_of(self, node):
-        inputs = {}
-        values = node.get("widgets_values")
-        if isinstance(values, dict):
-            inputs.update({name: value for name, value in values.items() if name != "videopreview"})
-        else:
-            values = list(values or [])
-            widgets = [entry["widget"]["name"] for entry in node.get("inputs", []) if "widget" in entry]
-            position = 0
-            for name in widgets:
-                if position >= len(values):
-                    break
-                inputs[name] = values[position]
-                position += 1
-                # The dropdown saved after a seed, which only the editor reads.
-                if position < len(values) and values[position] in SEED_CONTROLS and isinstance(inputs[name], int):
-                    position += 1
-            # Widgets a node's own script added, such as Power Lora Loader's list.
-            loras = [value for value in values[position:] if isinstance(value, dict) and "lora" in value]
-            inputs.update({f"lora_{number}": lora for number, lora in enumerate(loras, 1)})
+        inputs = _widgets_of(node)
         for entry in node.get("inputs", []):
             if entry.get("link") is not None:
                 source = self.source(entry["link"])
@@ -144,6 +233,57 @@ def _keep_out_of_output_folder(api, info):
         node.update(_node(COMBINE, inputs, "Video Combine"))
 
 
+def _save_images_to_temp(api, info):
+    """Swaps each node that saves images for Preview Image, which keeps them out of ComfyUI's output folder. Returns those nodes."""
+    saves = [node_id for node_id, node in api.items() if node["class_type"] in IMAGE_SAVES]
+    if saves and PREVIEW not in info:
+        raise Unusable("ComfyUI has no Preview Image node to keep its images out of its output folder.")
+    for node_id in saves:
+        api[node_id] = _node(PREVIEW, {"images": api[node_id]["inputs"].get("images")}, "Preview Image")
+    return saves
+
+
+def _replace_uses(api, node_id, slot, source):
+    """Whatever took this output takes source instead, or nothing if there is none."""
+    for node in api.values():
+        for name, value in list(node["inputs"].items()):
+            if value == [node_id, slot]:
+                if source is None:
+                    del node["inputs"][name]
+                else:
+                    node["inputs"][name] = source
+
+
+def _settle_switches(api):
+    """
+    A switch set on the workflow's face goes the way it's set, for good. So a style LoRA that's off needs
+    no file, and with Refine Prompt off nothing rewrites the prompt: the LLM's or yours reaches the model as it is.
+    """
+    for node in api.values():
+        if re.search(r"refine|enhance", node["_meta"]["title"], re.I) and isinstance(node["inputs"].get("value"), bool):
+            node["inputs"]["value"] = False
+    while True:
+        for node_id, node in api.items():
+            if node["class_type"] not in SWITCHES:
+                continue
+            switch = node["inputs"].get("switch")
+            setter = api.get(switch[0]) if isinstance(switch, list) else None
+            value = setter["inputs"].get("value") if setter else switch
+            if isinstance(value, bool):
+                _replace_uses(api, node_id, 0, node["inputs"].get("on_true" if value else "on_false"))
+                del api[node_id]
+                break
+        else:
+            return
+
+
+def _skip_image_scalers(api):
+    for node_id, node in list(api.items()):
+        if node["class_type"] in IMAGE_SCALERS:
+            _replace_uses(api, node_id, 0, node["inputs"].get("image"))
+            del api[node_id]
+
+
 def _upstream(api, roots):
     """Only what the video needs: ComfyUI wouldn't run the rest, and a preview would save files of its own."""
     kept, waiting = set(), list(roots)
@@ -170,10 +310,9 @@ def _check_installed(api, info):
                 raise Unusable(f"{node['_meta']['title']} has nothing set for {name}.")
 
 
-def to_api(ui, info):
-    """The saved workflow as ComfyUI's API takes it. Raises Unusable."""
-    if ui.get("definitions", {}).get("subgraphs"):
-        raise Unusable("It uses subgraphs. Unpack them in ComfyUI and save it again.")
+def to_api(ui, info, images=False):
+    """The saved workflow as ComfyUI's API takes it. images: it makes images rather than a video. Raises Unusable."""
+    ui = _without_subgraphs(ui)
     graph = _Graph(ui, info)
     api = {}
     for node in ui["nodes"]:
@@ -185,10 +324,17 @@ def to_api(ui, info):
         title = node.get("title") or info[kind].get("display_name") or kind
         api[str(node["id"])] = _node(kind, graph.inputs_of(node), title)
 
-    _keep_out_of_output_folder(api, info)
-    saves = [node_id for node_id, node in api.items() if "save_output" in node["inputs"]]
-    if not saves:
-        raise Unusable("It doesn't make a video the pipeline can pick up.")
+    if images:
+        saves = _save_images_to_temp(api, info)
+        if not saves:
+            raise Unusable("It doesn't save an image the pipeline can pick up: it needs a Save Image node.")
+        _settle_switches(api)
+        _skip_image_scalers(api)
+    else:
+        _keep_out_of_output_folder(api, info)
+        saves = [node_id for node_id, node in api.items() if "save_output" in node["inputs"]]
+        if not saves:
+            raise Unusable("It doesn't make a video the pipeline can pick up.")
     api = _upstream(api, saves)
     _check_installed(api, info)
     return api
@@ -310,6 +456,28 @@ def find_fields(api, info, needs_audio=False):
     return fields
 
 
+def find_image_fields(api, info):
+    """Which inputs the pipeline fills in a workflow that makes an image. Raises Unusable."""
+    fields = {"prompt": _prompt_input(api), **_image_fields(api, info)}
+    if not fields["prompt"]:
+        raise Unusable("Couldn't find its prompt: nothing feeds the sampler's positive input, or a prompt input.")
+    width, height = _titled(api, r"^width$", (int,)), _titled(api, r"^height$", (int,))
+    if width and height:
+        fields["width"], fields["height"] = width, height
+        return fields
+    sized = [node_id for node_id, node in api.items() if all(k in node["inputs"] for k in ("width", "height"))]
+    # The empty latent decides the size. An upscale further on only changes what that size becomes.
+    size_node = next((node_id for node_id in sized if "latent" in api[node_id]["class_type"].lower()), sized[0] if sized else None)
+    if size_node:
+        fields["width"], fields["height"] = [size_node, "width"], [size_node, "height"]
+    return fields
+
+
+def image_takes(fields):
+    """As takes(), and whether its size can be chosen: by its own inputs, or by the source image it follows."""
+    return {**takes(fields), "size": "width" in fields or bool(image_slots(fields))}
+
+
 def frames_for(seconds, fps):
     return round(seconds * fps / FRAME_STEP) * FRAME_STEP + 1
 
@@ -329,6 +497,14 @@ def _label(name):
 
 def is_for_shorts(name):
     return _label(name).endswith(SHORTS_SUFFIX)
+
+
+def is_for_image(name):
+    return not is_for_shorts(name) and _label(name).replace("\\", "/").rsplit("/", 1)[-1].startswith(IMAGE_PREFIX)
+
+
+def pipeline_of(name):
+    return "shorts" if is_for_shorts(name) else "image" if is_for_image(name) else "video"
 
 
 def _file_stem(name):
@@ -377,14 +553,18 @@ def _grow_references(api, info):
 
 def _prepare(name, ui, info, folder):
     """Writes what the pipeline runs. Returns its path, and how many images it takes."""
-    api = to_api(ui, info)
-    if not is_for_shorts(name):
-        _grow_references(api, info)
-    fields = find_fields(api, info, needs_audio=is_for_shorts(name))
+    if is_for_image(name):
+        api = to_api(ui, info, images=True)
+        fields = find_image_fields(api, info)
+    else:
+        api = to_api(ui, info)
+        if not is_for_shorts(name):
+            _grow_references(api, info)
+        fields = find_fields(api, info, needs_audio=is_for_shorts(name))
     stem = os.path.join(folder, _file_stem(name))
     _write_json(stem + ".json", api)
     _write_json(stem + ".map.json", {"_saved_as": name, **{field: f"{node_id}.{input_name}" for field, (node_id, input_name) in fields.items()}})
-    return stem + ".json", takes(fields)
+    return stem + ".json", image_takes(fields) if is_for_image(name) else takes(fields)
 
 
 def _from_comfyui(url, folder):
@@ -438,7 +618,7 @@ def _from_earlier(folder):
             except (OSError, ValueError, KeyError):
                 continue
             if os.path.exists(path) and ("audio" in fields or not is_for_shorts(name)):
-                found.append({"name": name, "label": _label(name), "path": path, "takes": takes(fields)})
+                found.append({"name": name, "label": _label(name), "path": path, "takes": image_takes(fields) if is_for_image(name) else takes(fields)})
     return found
 
 

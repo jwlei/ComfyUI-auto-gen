@@ -1,10 +1,10 @@
 """
-The web panel: one server, one GPU queue, and two pipelines, Shorts and Video.
+The web panel: one server, one GPU queue, and three pipelines: Shorts, Video and Image.
 
 Starts their jobs, queues more while one is going, streams the log, shows whether
 ComfyUI is up, and lists the finished videos for playback and download, from the
-desktop or a phone, at home or anywhere over Tailscale. panel/shorts.py and
-panel/video.py hold what is particular to each.
+desktop or a phone, at home or anywhere over Tailscale. panel/shorts.py,
+panel/video.py and panel/image.py hold what is particular to each.
 
     python webapp.py --host 0.0.0.0 --port 8800
     (or double-click start_webapp.pyw / the "ComfyUI auto-gen" desktop shortcut)
@@ -35,8 +35,10 @@ from flask import (Flask, abort, redirect, render_template, request,
 
 from core.paths import LOGS_DIR, PROJECT_ROOT, SAVED_WORKFLOWS_DIR, comfyui_client_id
 from core.quota import quota_summary
-from core.saved_workflows import is_for_shorts, list_saved
+from core.saved_workflows import list_saved, pipeline_of
 from panel import tailscale
+from pipelines.image.paths import OUTPUT_DIR as IMAGE_OUTPUT
+from pipelines.image.run_eta import RunEta as ImageEta
 from pipelines.shorts.paths import OUTPUT_DIR as SHORTS_READY, UPLOADED_DIR as SHORTS_UPLOADED
 from pipelines.shorts.run_eta import RunEta as ShortsEta
 from pipelines.video.paths import OUTPUT_DIR as VIDEO_OUTPUT
@@ -44,13 +46,15 @@ from pipelines.video.run_eta import RunEta as VideoEta
 
 load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
 
-FOLDERS = {"output": SHORTS_READY, "uploaded": SHORTS_UPLOADED, "video": VIDEO_OUTPUT}
-FOLDER_PIPELINES = {"output": "shorts", "uploaded": "shorts", "video": "video"}
+FOLDERS = {"output": SHORTS_READY, "uploaded": SHORTS_UPLOADED, "video": VIDEO_OUTPUT, "image": IMAGE_OUTPUT}
+FOLDER_PIPELINES = {"output": "shorts", "uploaded": "shorts", "video": "video", "image": "image"}
 SHORTS_TIMINGS = os.path.join(LOGS_DIR, "stage_timings_shorts.json")
 VIDEO_TIMINGS = os.path.join(LOGS_DIR, "stage_timings_video.json")
+IMAGE_TIMINGS = os.path.join(LOGS_DIR, "stage_timings_image.json")
 ETAS = {"shorts": lambda argv, env: ShortsEta(argv, env, SHORTS_TIMINGS),
-        "video": lambda argv, env: VideoEta(argv, VIDEO_TIMINGS)}
-# What panel/shorts.py and panel/video.py each add: load_run, describe_runs, continue_run,
+        "video": lambda argv, env: VideoEta(argv, VIDEO_TIMINGS),
+        "image": lambda argv, env: ImageEta(argv, env, IMAGE_TIMINGS)}
+# What panel/shorts.py, panel/video.py and panel/image.py each add: load_run, describe_runs, continue_run,
 # discard_run, delete_video, captions and context.
 PIPELINES = {}
 # A phone photo or a song is well under this; the limit only stops a mistake filling the disk.
@@ -196,6 +200,12 @@ class Job:
             ("retry", re.compile(r"(?:Rejected: |\u274c )(.*) \(attempt (\d+)/(\d+)\)")),
             ("part", re.compile(r"Preparing clip (\d+)/(\d+)")),
         ],
+        "image": [
+            ("run_id", re.compile(r"Run folder: (image_\w+)")),
+            ("stage", re.compile(r"\u25b6 Stage (\d+)/(\d+): (.+)")),
+            ("image", re.compile(r"Image (\d+)/(\d+) \u00b7 (.+)")),
+            ("retry", re.compile(r"(?:Rejected: |\u274c )(.*) \(attempt (\d+)/(\d+)\)")),
+        ],
     }
 
     def _track(self, line):
@@ -229,6 +239,9 @@ class Job:
             elif kind == "shot":
                 p["detail"] = f"Clip {m.group(1)} of {m.group(2)}: {m.group(3)}, {m.group(4)}s"
                 self.eta.clip(int(m.group(1)), int(m.group(2)), int(m.group(4)))
+            elif kind == "image":
+                p["detail"] = f"Image {m.group(1)} of {m.group(2)}: {m.group(3)}"
+                self.eta.image(int(m.group(1)), int(m.group(2)))
             elif kind == "retry":
                 self.eta.clip_retry(int(m.group(2)), int(m.group(3)), m.group(1))
             elif kind == "part":
@@ -520,9 +533,9 @@ def comfyui_online():
     return _comfyui_cache["online"]
 
 
-# What each node of the LTX workflow is doing, in plain words.
+# What each node of the workflows is doing, in plain words.
 COMFY_LABELS = {
-    "UNETLoader": "Loading the video model", "UnetLoaderGGUF": "Loading the video model",
+    "UNETLoader": "Loading the model", "UnetLoaderGGUF": "Loading the model", "CLIPLoader": "Loading the text encoder",
     "DualCLIPLoader": "Loading the text encoder", "DualCLIPLoaderGGUF": "Loading the text encoder",
     "VAELoader": "Loading the VAE", "VAELoaderKJ": "Loading the audio VAE",
     "LatentUpscaleModelLoader": "Loading the upscaler",
@@ -531,7 +544,8 @@ COMFY_LABELS = {
     "LTXVImgToVideoInplace": "Placing the reference image", "LTXVPreprocess": "Preparing the image",
     "SamplerCustomAdvanced": "Generating video", "LTXVLatentUpsampler": "Upscaling",
     "VAEDecodeTiled": "Decoding frames", "LTXVAudioVAEDecode": "Decoding audio",
-    "VHS_VideoCombine": "Saving the video",
+    "VHS_VideoCombine": "Saving the video", "TextEncodeQwenImageEditPlus": "Reading the prompt", "KSampler": "Generating the image",
+    "VAEEncode": "Encoding the image", "VAEDecode": "Decoding the image", "PreviewImage": "Saving the image",
 }
 
 
@@ -680,6 +694,11 @@ def remove_partial_videos():
             for name in os.listdir(folder) if os.path.isdir(folder) else ():
                 if name.endswith(".part"):
                     os.remove(os.path.join(folder, name))
+        # Each set of images has a folder of its own.
+        for folder, _, names in os.walk(IMAGE_OUTPUT):
+            for name in names:
+                if name.endswith(".part"):
+                    os.remove(os.path.join(folder, name))
     except OSError as e:
         job.log(f"⚠️ Could not remove the unfinished video: {e}")
 
@@ -777,8 +796,9 @@ def prepare_run(item):
     if item.get("plan_only"):
         return None  # Writing the prompts needs no GPU
     try:
-        needs_comfyui = pipeline == "video" or (item["form"].get("avatar_source") or "comfyui") == "comfyui"
-        if needs_comfyui and (pipeline == "video" or (item["form"].get("avatar_clips") or "auto") != "0") and start_comfyui():
+        always = pipeline in ("video", "image")
+        needs_comfyui = always or (item["form"].get("avatar_source") or "comfyui") == "comfyui"
+        if needs_comfyui and (always or (item["form"].get("avatar_clips") or "auto") != "0") and start_comfyui():
             item["env"] = {**(item.get("env") or {}), "COMFYUI_STARTUP_WAIT": str(COMFYUI_STARTUP_WAIT)}
     except RuntimeError as e:
         return str(e)
@@ -835,7 +855,9 @@ def stopped_runs():
 
 
 def run_pipeline(run_id):
-    """Shorts' runs are numbered within their batch: run_20261101_120000_1."""
+    """Shorts' runs are numbered within their batch: run_20261101_120000_1. Image's start image_."""
+    if run_id.startswith("image_"):
+        return PIPELINES["image"]
     return PIPELINES["shorts" if re.fullmatch(r"run_\d{8}_\d{6}_\d+", run_id) else "video"]
 
 
@@ -913,6 +935,7 @@ def can_open_folders():
 @app.route("/")
 @app.route("/shorts", endpoint="shorts_page")
 @app.route("/video", endpoint="video_page")
+@app.route("/image", endpoint="image_page")
 @password_required
 def index():
     port = request.host.rsplit(":", 1)[-1] if ":" in request.host else "80"
@@ -1039,6 +1062,7 @@ def status():
     payload["upload"] = uploads.snapshot()
     payload["upload"]["queue"] = upload_queue.snapshot()
     payload["videos"] = {folder: list_videos(folder) for folder in FOLDERS}
+    payload["image_sets"] = [run for run in saved_runs() if run["pipeline"] == "image" and run["images"]]
     online = comfyui_online()
     payload["comfyui"] = {"online": online, "can_start": bool(comfyui_launcher()),
                           "starting": not online and time.time() - _comfyui_start_requested_at < COMFYUI_STARTUP_WAIT,
@@ -1051,10 +1075,13 @@ def status():
 @app.route("/api/workflows")
 @password_required
 def workflows():
-    """What runs on this pipeline. logs/workflows/not_listed.json says why anything else isn't here."""
-    shorts = request.args.get("pipeline") == "shorts"
-    found = [{key: w[key] for key in ("name", "label", "takes")} for w in saved_workflows()
-             if "problem" not in w and is_for_shorts(w["name"]) == shorts]
+    """
+    What runs on this pipeline. logs/workflows/not_listed.json says why anything else isn't here.
+    Image also lists what can't run, with why: it has no built-in workflow to fall back on, so an empty list says nothing.
+    """
+    pipeline = request.args.get("pipeline") or "video"
+    found = [{key: w[key] for key in ("name", "label", "takes", "problem") if key in w} for w in saved_workflows()
+             if pipeline_of(w["name"]) == pipeline and (pipeline == "image" or "problem" not in w)]
     return {"online": comfyui_online(), "workflows": found}
 
 

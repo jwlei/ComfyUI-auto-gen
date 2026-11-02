@@ -141,7 +141,10 @@ class ComfyClient:
         self._set(workflow, "height", height)
         if audio:
             self._set(workflow, "audio", audio)
+        return self._download(self._run(workflow), save_as)
 
+    def _run(self, workflow):
+        """Queues the filled-in workflow and waits. Returns its history entry, or raises."""
         # Fresh seeds every run: ComfyUI would otherwise return its cached result.
         for node in workflow.values():
             for key in SEED_INPUTS:
@@ -162,16 +165,16 @@ class ComfyClient:
             print("   🛑 Cancelling this clip in ComfyUI...")
             self.cancel()
             raise
-        return self._download(entry, save_as)
+        return entry
 
-    def _download(self, entry, save_as):
+    def _download(self, entry, save_as, extensions=VIDEO_EXTENSIONS, what="a video"):
         outputs = [item
                    for node_output in entry.get("outputs", {}).values()
                    for items in node_output.values() if isinstance(items, list)
                    for item in items
-                   if isinstance(item, dict) and str(item.get("filename", "")).lower().endswith(VIDEO_EXTENSIONS)]
+                   if isinstance(item, dict) and str(item.get("filename", "")).lower().endswith(extensions)]
         if not outputs:
-            raise RuntimeError("The workflow finished without saving a video.")
+            raise RuntimeError(f"The workflow finished without saving {what}.")
 
         video = outputs[-1]
         save_path = save_as + os.path.splitext(video["filename"])[1]

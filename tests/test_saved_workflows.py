@@ -6,9 +6,10 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fakes import OBJECT_INFO, reference_workflow, saved_workflow, text_only_workflow
+from fakes import OBJECT_INFO, edit_image_workflow, reference_workflow, saved_workflow, text_only_workflow, text_to_image_workflow
 
-from core.saved_workflows import Unusable, _from_comfyui, _grow_references, _from_earlier, find_fields, frames_for, is_for_shorts, takes, to_api
+from core.saved_workflows import (Unusable, _from_comfyui, _grow_references, _from_earlier, find_fields, find_image_fields, frames_for, image_takes,
+                                  is_for_image, is_for_shorts, pipeline_of, takes, to_api)
 
 
 def node_of(ui, node_id):
@@ -20,6 +21,13 @@ class WhichPipelineTest(unittest.TestCase):
         self.assertTrue(is_for_shorts("x_ytautoshort.json"))
         self.assertFalse(is_for_shorts("x.json"))
         self.assertFalse(is_for_shorts("ytautoshort_x.json"))
+
+    def test_the_prefix_makes_it_an_image_workflow(self):
+        self.assertEqual(pipeline_of("image_krea2_turbo_t2i_int8.json"), "image")
+        self.assertEqual(pipeline_of("mine/image_edit.json"), "image", "in a folder too")
+        self.assertEqual(pipeline_of("video_image_to_video.json"), "video")
+        self.assertEqual(pipeline_of("image_x_ytautoshort.json"), "shorts", "tuned for Shorts is tuned for Shorts")
+        self.assertFalse(is_for_image("my_image_edit.json"))
 
     def test_shorts_needs_load_audio_and_video_does_not(self):
         import json
@@ -70,12 +78,82 @@ class ConvertTest(unittest.TestCase):
         with self.assertRaisesRegex(Unusable, "SomeoneElsesNode"):
             to_api(missing_node, OBJECT_INFO)
 
-        with self.assertRaisesRegex(Unusable, "subgraphs"):
-            to_api({**saved_workflow(), "definitions": {"subgraphs": [{"id": "x"}]}}, OBJECT_INFO)
+        looping = {"nodes": [{"id": 1, "type": "loop", "inputs": []}], "links": [], "definitions": {"subgraphs": [
+            {"id": "loop", "inputs": [], "outputs": [], "links": [], "nodes": [{"id": 1, "type": "loop", "inputs": []}]}]}}
+        with self.assertRaisesRegex(Unusable, "contain each other"):
+            to_api(looping, OBJECT_INFO)
 
         no_combine = {kind: spec for kind, spec in OBJECT_INFO.items() if kind != "VHS_VideoCombine"}
         with self.assertRaisesRegex(Unusable, "VideoHelperSuite"):
             to_api(saved_workflow(), no_combine)
+
+
+class SubgraphTest(unittest.TestCase):
+    def test_a_subgraph_opens_as_if_unpacked(self):
+        api = to_api(text_to_image_workflow(), OBJECT_INFO, images=True)
+        by_class = {node["class_type"]: node for node in api.values()}
+        self.assertEqual(by_class["KSampler"]["inputs"]["seed"], 99, "what's set on its face wins over what's inside")
+        self.assertEqual(by_class["KSampler"]["inputs"]["steps"], 8, "what isn't on its face stays as saved inside")
+        self.assertEqual(by_class["PrimitiveStringMultiline"]["inputs"]["value"], "saved prompt")
+        self.assertEqual(by_class["EmptyLatentImage"]["inputs"]["width"], ["49", 0], "wired to a node outside it")
+        self.assertEqual(by_class["PreviewImage"]["inputs"]["images"][0], next(k for k, n in api.items() if n["class_type"] == "VAEDecode"), "its output goes on to the node outside")
+
+    def test_a_video_workflow_in_a_subgraph_opens_too(self):
+        ui = saved_workflow()
+        inner = [node for node in ui["nodes"] if node["id"] in (1, 2, 3)]
+        ui["nodes"] = [node for node in ui["nodes"] if node["id"] not in (1, 2, 3)] + [
+            {"id": 99, "type": "sub", "inputs": [], "outputs": [{"type": "MODEL"}, {"type": "CONDITIONING"}, {"type": "CONDITIONING"}], "widgets_values": []}]
+        # The clip links now run inside it. What leaves it comes from its outputs.
+        ui["links"] = [link for link in ui["links"] if link[0] not in (2, 7)]
+        for link in ui["links"]:
+            if link[1] in (1, 2, 3):
+                link[1], link[2] = 99, {1: 0, 2: 1, 3: 2}[link[1]]
+        ui["definitions"] = {"subgraphs": [{"id": "sub", "inputs": [], "outputs": [{"name": "m"}, {"name": "p"}, {"name": "n"}], "nodes": inner, "links": [
+            {"id": 2, "origin_id": 1, "origin_slot": 1, "target_id": 2, "target_slot": 0, "type": "CLIP"},
+            {"id": 7, "origin_id": 1, "origin_slot": 1, "target_id": 3, "target_slot": 0, "type": "CLIP"},
+            {"id": 50, "origin_id": 1, "origin_slot": 0, "target_id": -20, "target_slot": 0, "type": "MODEL"},
+            {"id": 51, "origin_id": 2, "origin_slot": 0, "target_id": -20, "target_slot": 1, "type": "CONDITIONING"},
+            {"id": 52, "origin_id": 3, "origin_slot": 0, "target_id": -20, "target_slot": 2, "type": "CONDITIONING"}]}]}
+        api = to_api(ui, OBJECT_INFO)
+        self.assertEqual(api[find_fields(api, OBJECT_INFO)["prompt"][0]]["inputs"]["text"], "saved positive")
+        self.assertEqual(api["6"]["inputs"]["negative"][0], next(k for k, n in api.items() if n["inputs"].get("text") == "saved negative"))
+
+
+class ImageWorkflowTest(unittest.TestCase):
+    def test_text_to_image(self):
+        api = to_api(text_to_image_workflow(), OBJECT_INFO, images=True)
+        kinds = [node["class_type"] for node in api.values()]
+        fields = find_image_fields(api, OBJECT_INFO)
+        self.assertEqual(api[fields["prompt"][0]]["inputs"][fields["prompt"][1]], "saved prompt")
+        self.assertEqual(api[fields["width"][0]]["class_type"], "EmptyLatentImage")
+        self.assertEqual(image_takes(fields), {"min_images": 0, "max_images": 0, "size": True})
+        self.assertNotIn("SaveImage", kinds, "it would write to ComfyUI's output folder")
+        self.assertIn("PreviewImage", kinds)
+
+    def test_a_switch_goes_the_way_its_set(self):
+        kinds = [node["class_type"] for node in to_api(text_to_image_workflow(), OBJECT_INFO, images=True).values()]
+        self.assertNotIn("ComfySwitchNode", kinds)
+        self.assertNotIn("LoraLoaderModelOnly", kinds, "a style LoRA that's off needs no file")
+        self.assertNotIn("TextGenerate", kinds, "and nothing rewrites the prompt, though refining was on")
+
+    def test_image_edit(self):
+        api = to_api(edit_image_workflow(), OBJECT_INFO, images=True)
+        fields = find_image_fields(api, OBJECT_INFO)
+        self.assertEqual(api[fields["prompt"][0]]["inputs"]["prompt"], "saved instruction", "the positive one, not the negative")
+        self.assertEqual(image_takes(fields), {"min_images": 1, "max_images": 1, "size": True}, "its size follows the image, which it can't run without")
+        self.assertNotIn("FluxKontextImageScale", [node["class_type"] for node in api.values()], "or the size asked for would be snapped away")
+        encoders = [node for node in api.values() if node["class_type"] == "TextEncodeEdit"]
+        self.assertTrue(all(node["inputs"]["image1"] == [fields["image"][0], 0] for node in encoders))
+        self.assertTrue(all("image2" not in node["inputs"] for node in encoders), "the input nothing is plugged into is left out")
+        self.assertIsInstance(next(node for node in api.values() if node["class_type"] == "KSampler")["inputs"]["seed"], int)
+
+    def test_what_wont_run_says_why(self):
+        with self.assertRaisesRegex(Unusable, "Save Image"):
+            to_api(saved_workflow(), OBJECT_INFO, images=True)
+        missing = edit_image_workflow()
+        missing["definitions"]["subgraphs"][0]["nodes"][0]["widgets_values"] = ["gone.safetensors"]
+        with self.assertRaisesRegex(Unusable, "gone.safetensors"):
+            to_api(missing, OBJECT_INFO, images=True)
 
 
 class FieldsTest(unittest.TestCase):
