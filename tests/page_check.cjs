@@ -237,6 +237,25 @@ assert(html.indexOf('id="runCard"') < html.indexOf('id="optionsCard"'));
 assert(/id="go">Generate</.test(html) && !script.includes("'Add to queue'"));
 assert(html.indexOf('id="stop"') < html.indexOf('id="optionsCard"'), 'Stop stays with what is running');
 
+// Whichever mode is on is marked, for the eye and for screen readers, and the other isn't.
+const marks = () => {
+  const made = {};
+  for (const id of ['switchShorts', 'switchVideo']) {
+    const button = context.document.getElementById(id);
+    button.active = null;
+    button.classList = { toggle: (name, on) => { if (name === 'active') button.active = on; } };
+    button.setAttribute = (name, value) => { if (name === 'aria-selected') button.selected = value; };
+    made[id] = button;
+  }
+  return made;
+};
+const buttons = marks();
+run("setPipeline('video', false)");
+assert(buttons.switchVideo.active === true && buttons.switchShorts.active === false && buttons.switchVideo.selected === true);
+run("setPipeline('shorts', false)");
+assert(buttons.switchShorts.active === true && buttons.switchVideo.active === false && buttons.switchShorts.selected === true);
+assert(/\.switch button\.active \{ background: var\(--accent\)/.test(html) && /body\.on-video \{ --accent:/.test(html));
+
 // The switch is the top of the page, with the title gone and two icons beside it.
 assert(html.indexOf('id="switchShorts"') < html.indexOf('id="stick"') && !/<h1>/.test(html.slice(0, html.indexOf('<script>'))));
 assert(/id="shutdown" aria-label="Shut down"[^>]*><svg/.test(html));

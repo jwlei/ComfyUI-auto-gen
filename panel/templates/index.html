@@ -155,9 +155,11 @@
   .switch { display: flex; gap: 4px; }
   .switch button {
     flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0; padding: 9px; font-size: .95rem;
-    background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); border-radius: 10px;
+    background: transparent; color: var(--muted); border: 1px solid var(--line); border-radius: 10px; font-weight: 500;
   }
-  .switch button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .switch button.active { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 800; box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+  /* Each mode has its own colour across the page, so you can tell which you're in at a glance. */
+  body.on-video { --accent: #4c8dff; }
   .pipeline-form textarea { min-height: 84px; resize: vertical; }
   .pipeline-form input[type=file] { padding: 9px; font-size: .9rem; }
   #duration { padding: 0; margin-top: 8px; height: 22px; background: none; border: 0; outline: 0; accent-color: var(--accent); }
