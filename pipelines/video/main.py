@@ -44,8 +44,9 @@ def parse_args(argv=None):
     parser.add_argument("--no-image", action="store_true", help="Make the film from text alone, if the workflow can: give only the prompt.")
     parser.add_argument("--reference", action="append", default=[], metavar="IMAGE",
                         help="Another image. The first is image 2: if the clips only take one image, it goes to the LLM alone.")
-    parser.add_argument("--image-2-role", choices=planner.IMAGE_2_ROLES, default=planner.EXTRA_CONTEXT,
-                        help="What image 2 is: more of the subject or the place to put them in (context, default), or another character.")
+    parser.add_argument("--image-role", "--image-2-role", dest="image_roles", action="append", choices=planner.IMAGE_ROLES, default=[],
+                        help="What an image after the first is, once per image from image 2: view (more of the subject), "
+                             "character (someone else), place (where it happens), or context (the LLM tells by looking, the default)."),
     parser.add_argument("prompt", nargs="?", help="What should happen, in a sentence or two.")
     parser.add_argument("--duration", type=parse_duration, default="2m", help="Film length: 90, 3m or 2m30 (default 2m, from 5 seconds to 10 minutes).")
     parser.add_argument("--start", choices=("chain", "image"), default="chain",
@@ -142,7 +143,7 @@ def voiced_narration(args):
 
 def plan_run(args, stages):
     images = [media.load_image(path) for path in ([args.image] if args.image else []) + args.reference]
-    inputs = media.inputs_fingerprint(images, args.image_2_role,
+    inputs = media.inputs_fingerprint(images, args.image_roles,
                                       media.audio_fingerprint(path=args.audio, text=args.narration, voice=args.voice))
     comfy = ComfyClient()
     takes = comfy.takes()
@@ -175,7 +176,7 @@ def plan_run(args, stages):
     if image_2_in_words:
         print("🖼️ This workflow's clips take one image, so image 2 only reaches them through what the prompts say.")
     title, shots = planner.plan_film([media.preview_jpeg(image) for image in images], brief, state.seconds, state.start, llm,
-                                     comfy.video_model(), args.image_2_role, media.preview_jpeg(image_2_in_words) if image_2_in_words else None)
+                                     comfy.video_model(), args.image_roles, media.preview_jpeg(image_2_in_words) if image_2_in_words else None)
     for image, path in zip(images, state.image_paths):
         media.save_input(image, path)
     state.update(title=title, shots=shots)

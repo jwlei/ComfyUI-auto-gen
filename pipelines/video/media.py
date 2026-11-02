@@ -47,14 +47,16 @@ def audio_fingerprint(path=None, text=None, voice=None):
     return digest.hexdigest()
 
 
-def inputs_fingerprint(images, image_2_role, audio=None):
+def inputs_fingerprint(images, image_roles, audio=None):
     """What identifies a film's inputs, so the same ones can be recognised however they were uploaded."""
     digest = hashlib.sha256(str(audio).encode() if audio else b"")
     for image in images:
         digest.update(f"{image.size}{image.mode}".encode())
         digest.update(image.tobytes())
     if len(images) > 1:
-        digest.update(str(image_2_role).encode())
+        # One role reads as it always did, so a run from before can still be continued.
+        given = [image_roles] if isinstance(image_roles, str) else list(image_roles or [])
+        digest.update(",".join(given[:len(images) - 1] or ["context"]).encode())
     return digest.hexdigest()
 
 

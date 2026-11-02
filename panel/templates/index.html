@@ -172,6 +172,7 @@
   #duration { padding: 0; margin-top: 8px; height: 22px; background: none; border: 0; outline: 0; accent-color: var(--accent); }
   .image-boxes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 12px; }
   .image-box { min-width: 0; }
+  .image-role label { margin-top: 8px; }
   .image-box button { width: auto; margin: 6px 0 0; padding: 4px 10px; font-size: .78rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
   .preview { display: block; width: 100%; max-height: 220px; object-fit: contain; margin-top: 8px; border-radius: 10px; background: #000; }
   /* Films are as wide as the card; Shorts stand upright. */
@@ -542,14 +543,7 @@
   <details class="section" id="videoGeneration" open>
     <summary class="section-title">Generation</summary>
     <div class="image-boxes" id="imageBoxes"></div>
-    <div id="secondImage" hidden>
-      <label for="secondImageRole">What image 2 is</label>
-      <select id="secondImageRole" name="image_2_role">
-        <option value="context">Extra context: more of the character in image 1, or the place to put them in</option>
-        <option value="character">Another character</option>
-      </select>
-      <div class="hint" id="secondImageHint"></div>
-    </div>
+    <div class="hint" id="imagesHint" hidden></div>
 
     <label for="audioMode">Audio</label>
     <select id="audioMode" name="audio_mode">
@@ -929,9 +923,9 @@ $('tabUploaded').onclick = () => setTab('uploaded');
 const VIDEO_STORE_KEY = 'comfyui-auto-gen.video.v1';
 const VIDEO_DEFAULTS = { llm: {{ default_llm | tojson }}, review: true, duration: {{ film_limits[2] | tojson }}, privacy: 'private', start: 'chain' };
 // What belongs to one film rather than being the way you like to work.
-const NOT_REMEMBERED = ['prompt', 'size', 'image_2_role', 'narration'];
-// A file input also throws if you set its value.
-function remembered(el) { return el.name && el.type !== 'file' && !NOT_REMEMBERED.includes(el.name); }
+const NOT_REMEMBERED = ['prompt', 'size', 'narration'];
+// A file input also throws if you set its value. An image's role goes with that image.
+function remembered(el) { return el.name && el.type !== 'file' && !NOT_REMEMBERED.includes(el.name) && !/^image_\d+_role$/.test(el.name); }
 
 // --- Remember the last options (per browser) ---
 function saveVideoForm() {
@@ -981,18 +975,26 @@ function imageBoxes() { return [...$('imageBoxes').querySelectorAll('.image-box'
 function imageBoxCount(high) { return high === 1 ? 2 : high; }
 function imageLabel(number, low, high) {
   const optional = number > low ? ' (optional)' : '';
+  // Clips start on image 1 only when it's all they take; a reference workflow such as H3 starts none on it.
   if (number === 1 && high === 1) return low ? 'Image 1: first frame' : 'Image 1: first frame (optional: without one it starts from text)';
-  if (number === 1) return `Image 1: main subject${optional}`;
-  return number === 2 ? `Image 2: extra context${optional}` : `Image ${number}: another reference${optional}`;
+  if (number === 1) return `Image 1: main character${optional}`;
+  return `Image ${number}${optional}`;
 }
+// What each image after the first is. The pipeline also knows "context", where the LLM tells by looking.
+const IMAGE_ROLES = [['view', 'Same character, another view'], ['character', 'Another character'], ['place', 'Environment: where it happens']];
 function imageBoxHtml(number) {
   const name = number === 1 ? 'image' : `image_${number}`;
+  const role = number === 1 ? '' : `
+    <div class="image-role hidden">
+      <label for="${name}_role">What image ${number} is</label>
+      <select id="${name}_role" name="${name}_role" disabled>${IMAGE_ROLES.map(([value, text]) => `<option value="${value}">${text}</option>`).join('')}</select>
+    </div>`;
   return `
   <div class="image-box">
     <label for="${name}"></label>
     <input id="${name}" name="${name}" type="file" accept="image/*">
     <img class="preview hidden" alt="Image ${number}">
-    <button type="button" class="hidden" data-clear="1">Remove</button>
+    <button type="button" class="hidden" data-clear="1">Remove</button>${role}
   </div>`;
 }
 function showImage(box) {
@@ -1001,6 +1003,12 @@ function showImage(box) {
   preview.classList.toggle('hidden', !file);
   box.querySelector('button').classList.toggle('hidden', !file);
   if (file) preview.src = URL.createObjectURL(file);
+  // A role only goes with an image, so an empty box sends none.
+  const role = box.querySelector('.image-role');
+  if (role) {
+    role.classList.toggle('hidden', !file);
+    box.querySelector('select').disabled = !file;
+  }
 }
 function clearImage(box) {
   box.querySelector('input').value = '';
@@ -1019,10 +1027,10 @@ function syncImageInput() {
     box.querySelector('label').textContent = imageLabel(i + 1, low, high);
   });
   const second = imageBoxes()[1];
-  $('secondImage').hidden = !(second && !second.hidden && second.querySelector('input').files.length);
-  $('secondImageHint').textContent = high === 1
-    ? 'This workflow gives its clips one image, so the video model never sees this one. The LLM looks at it and puts what matters into the prompts in words.'
-    : 'Every clip gets this image too, and the LLM is told what it is for.';
+  $('imagesHint').hidden = !(second && !second.hidden && second.querySelector('input').files.length);
+  $('imagesHint').textContent = high === 1
+    ? 'This workflow gives its clips one image, so the video model never sees image 2. The LLM looks at it and puts what matters into the prompts in words.'
+    : 'Every clip gets all of these images, and the LLM is told what each one is for.';
   // Starting on the last frame only works when one image is all a clip takes.
   $('start').disabled = high !== 1;
 }
@@ -1654,7 +1662,7 @@ async function startJob(url) {
     $('narration').value = '';
     $('audioFile').value = '';
     imageBoxes().forEach(clearImage);
-    $('secondImageRole').value = 'context';
+    for (const select of $('imageBoxes').querySelectorAll('select')) select.value = 'view';
     syncImageInput();
     queuePlan();
     if (body.shots) openShots(body.shots);

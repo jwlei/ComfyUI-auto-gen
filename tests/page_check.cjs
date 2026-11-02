@@ -42,12 +42,14 @@ const run = code => vm.runInContext(code, context);
 for (const name of ['image', 'image_2', 'image_3']) assert(!run(`remembered({ name: '${name}', type: 'file' })`), name);
 assert(run(`remembered({ name: 'llm', type: 'select-one' })`));
 assert(!run(`remembered({ name: 'image_2_role', type: 'select-one' })`), 'each film starts from the default role');
+assert(!run(`remembered({ name: 'image_5_role', type: 'select-one' })`));
 
 // One box per image, built as a workflow needs them. The page's boxes, without a browser to parse them.
 function imageBox(number) {
   const hiddenClass = () => ({ toggle(name, on) { this.on = on; } });
   const input = { name: number === 1 ? 'image' : `image_${number}`, value: '', files: [], disabled: false };
-  const parts = { input, img: { src: '', classList: hiddenClass() }, button: { classList: hiddenClass() }, label: { textContent: '' } };
+  const parts = { input, img: { src: '', classList: hiddenClass() }, button: { classList: hiddenClass() }, label: { textContent: '' },
+    '.image-role': { classList: hiddenClass() }, select: { disabled: true, value: 'view' } };
   return { hidden: false, parts, querySelector: tag => parts[tag] };
 }
 const boxes = [];
@@ -55,29 +57,35 @@ const holder = context.document.getElementById('imageBoxes');
 holder.querySelectorAll = () => boxes;
 holder.insertAdjacentHTML = (_, html) => {
   assert(/type="file"/.test(html) && /<img class="preview hidden"/.test(html) && /data-clear/.test(html));
+  const number = boxes.length + 1;
+  assert.strictEqual(html.includes(`name="image_${number}_role"`), number > 1, 'every image after the first has a role');
+  if (number > 1) assert(/value="view">Same character, another view<[\s\S]*value="character">Another character<[\s\S]*value="place">Environment/.test(html));
   boxes.push(imageBox(boxes.length + 1));
 };
 const labels = () => boxes.filter(box => !box.hidden).map(box => box.parts.label.textContent);
 
 run('syncImageInput()');
-assert.deepStrictEqual(labels(), ['Image 1: first frame', 'Image 2: extra context (optional)'], 'the built-in workflow');
-assert(els.secondImage.hidden, 'nothing to say about an image 2 nobody chose');
+assert.deepStrictEqual(labels(), ['Image 1: first frame', 'Image 2 (optional)'], 'the built-in workflow');
+assert(els.imagesHint.hidden, 'nothing to say about an image 2 nobody chose');
 boxes[1].parts.input.files = [{}];
 boxes[1].parts.input.value = 'two.png';
+context.URL = { createObjectURL: () => 'blob:x', revokeObjectURL() {} };
+run('showImage(imageBoxes()[1])');
+assert(boxes[1].parts['.image-role'].classList.on === false && boxes[1].parts.select.disabled === false, 'image 2 chosen: its role shows and is sent');
 run('syncImageInput()');
-assert(!els.secondImage.hidden, 'image 2 chosen: say what it is');
-assert(els.secondImageHint.textContent.includes('never sees'), 'one input to fill: the LLM alone sees image 2');
+assert(!els.imagesHint.hidden);
+assert(els.imagesHint.textContent.includes('never sees'), 'one input to fill: the LLM alone sees image 2');
 
 run(`workflowTakes = { r2v: { min_images: 0, max_images: 3 }, t2v: { min_images: 0, max_images: 0 }, ti2v: { min_images: 0, max_images: 1 } }`);
 els.videoWorkflow.value = 'r2v';
 run('syncImageInput()');
-assert.deepStrictEqual(labels(), ['Image 1: main subject (optional)', 'Image 2: extra context (optional)', 'Image 3: another reference (optional)']);
-assert(els.secondImageHint.textContent.includes('Every clip'));
+assert.deepStrictEqual(labels(), ['Image 1: main character (optional)', 'Image 2 (optional)', 'Image 3 (optional)']);
+assert(els.imagesHint.textContent.includes('Every clip'));
 assert.strictEqual(boxes[1].parts.input.value, 'two.png', 'a workflow with room for it keeps the image');
 
 els.videoWorkflow.value = 'ti2v';
 run('syncImageInput()');
-assert.deepStrictEqual(labels(), ['Image 1: first frame (optional: without one it starts from text)', 'Image 2: extra context (optional)']);
+assert.deepStrictEqual(labels(), ['Image 1: first frame (optional: without one it starts from text)', 'Image 2 (optional)']);
 assert(boxes[2].parts.input.disabled, 'a hidden box sends nothing');
 
 els.videoWorkflow.value = 't2v';
@@ -85,7 +93,7 @@ boxes[1].parts.input.files = [];
 run('syncImageInput()');
 assert.deepStrictEqual(labels(), [], 'text alone has no image to ask for');
 assert.strictEqual(boxes[1].parts.input.value, '', 'and no image waiting in a hidden box');
-assert(els.secondImage.hidden);
+assert(els.imagesHint.hidden);
 els.videoWorkflow.value = '';
 run('workflowTakes = {}; syncImageInput()');
 

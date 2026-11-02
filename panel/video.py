@@ -18,6 +18,8 @@ from pipelines.video.run_state import STAGES, RunState, folder_size, list_runs, 
 COMMAND = [sys.executable, "-m", "pipelines.video.main"]
 DEFAULT_FILM_SECONDS = 120
 BUILT_IN_TAKES = {"min_images": 1, "max_images": 1}
+# More boxes than any workflow has Load Image nodes for.
+MOST_IMAGES = 9
 
 
 def option(flags, name, default=None):
@@ -95,10 +97,14 @@ def build_options(form):
         return None, "Unknown start mode."
     flags += ["--start", start]
 
-    image_2_role = form.get("image_2_role") or planner.EXTRA_CONTEXT
-    if image_2_role not in planner.IMAGE_2_ROLES:
-        return None, "Unknown role for image 2."
-    flags += ["--image-2-role", image_2_role]
+    # One role per image from image 2, in order. The form only sends one for an image that's chosen.
+    for number in range(2, MOST_IMAGES + 1):
+        role = form.get(f"image_{number}_role")
+        if role is None:
+            break
+        if role not in planner.IMAGE_ROLES:
+            return None, f"Unknown role for image {number}."
+        flags += ["--image-role", role]
 
     llm = form.get("llm") or planner.default_llm()
     if llm not in dict(planner.LLMS):
@@ -233,7 +239,7 @@ def run_to_continue(prompt, flags, env, takes, images, audio=None):
     the same brief, images, audio, length and workflow. Anything else changes the prompts.
     """
     busy = busy_runs()
-    inputs = media.inputs_fingerprint(images, option(flags, "--image-2-role"), audio)
+    inputs = media.inputs_fingerprint(images, [flags[i + 1] for i, flag in enumerate(flags) if flag == "--image-role"], audio)
     seconds, start = int(option(flags, "--duration")), option(flags, "--start")
     for state in reversed(list_runs()):
         if (state.id not in busy and state.shots and not state.final and state.inputs == inputs and state.brief == prompt

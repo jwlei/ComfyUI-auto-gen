@@ -330,9 +330,51 @@ def _file_stem(name):
     return re.sub(r"[^\w.-]+", "_", _label(name))
 
 
+# How many references a film gets on a node whose reference inputs grow, such as MiniMax's,
+# however many the saved workflow happens to wire up.
+MOST_REFERENCES = 5
+
+
+def _most(config):
+    """The largest count a growing input's settings allow, wherever they keep it, or None."""
+    if isinstance(config, dict):
+        found = [value for key, value in config.items() if key == "max" and isinstance(value, int)]
+        return found[0] if found else next(filter(None, (_most(value) for value in config.values())), None)
+    if isinstance(config, list):
+        return next(filter(None, (_most(value) for value in config)), None)
+    return None
+
+
+def _grow_references(api, info):
+    """
+    Wires more Load Image nodes into a reference input that grows (ref_images.ref_image_0, _1...),
+    up to MOST_REFERENCES or the node's own limit. Each new one is optional, so one left empty
+    comes out of the workflow again.
+    """
+    for node_id, node in list(api.items()):
+        for group, config in _input_spec(info.get(node["class_type"], {})).items():
+            if not (isinstance(config, list) and config and config[0] == "COMFY_AUTOGROW_V3"):
+                continue
+            wired = {}
+            for name, value in node["inputs"].items():
+                match = re.fullmatch(rf"{re.escape(group)}\.(\D*?)(\d+)", name)
+                if match and isinstance(value, list) and api.get(value[0], {}).get("class_type") == "LoadImage":
+                    wired[int(match.group(2))] = (match.group(1), value[0])
+            if not wired:
+                continue
+            most = min(MOST_REFERENCES, _most(config[1:]) or MOST_REFERENCES)
+            prefix, example = wired[max(wired)]
+            for number in range(max(wired) + 1, max(wired) + 1 + most - len(wired)):
+                new_id = str(max(int(key) for key in api if key.isdigit()) + 1)
+                api[new_id] = _node("LoadImage", dict(api[example]["inputs"]), f"Reference {number + 1} (added by the pipeline)")
+                node["inputs"][f"{group}.{prefix}{number}"] = [new_id, 0]
+
+
 def _prepare(name, ui, info, folder):
     """Writes what the pipeline runs. Returns its path, and how many images it takes."""
     api = to_api(ui, info)
+    if not is_for_shorts(name):
+        _grow_references(api, info)
     fields = find_fields(api, info, needs_audio=is_for_shorts(name))
     stem = os.path.join(folder, _file_stem(name))
     _write_json(stem + ".json", api)

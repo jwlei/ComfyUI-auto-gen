@@ -9,6 +9,8 @@ answer questions, there is no source video, and a film is many separate renders.
 import re
 import statistics
 
+from pipelines.video import roles as image_role
+
 MODEL = "minimax_h3"
 REFERENCE_NODE = "MiniMaxH3ReferenceToVideo"
 FPS = 24
@@ -70,15 +72,30 @@ def _what_to_describe(low, high):
     settled by the end."""
 
 
-def _second_picture(another_character):
-    if another_character:
-        return """- <Picture 1> and <Picture 2> are two different subjects: <Subject 1> comes from <Picture 1> and <Subject 2>
-      from <Picture 2>. Define both, and keep their details apart."""
-    return """- If <Picture 2> shows the same subject as <Picture 1>, <Subject 1> comes from both. If it shows a place, that
+def _second_picture(roles):
+    """Which subject each picture after the first is. Two pictures read as before; more go one by one."""
+    if roles == [image_role.CONTEXT]:
+        return """- If <Picture 2> shows the same subject as <Picture 1>, <Subject 1> comes from both. If it shows a place, that
       place is <Subject 2>, and <Subject 1> comes from <Picture 1> alone."""
+    if roles != [image_role.CHARACTER]:
+        numbers = image_role.subjects(roles)
+        lines = []
+        for number, role in enumerate(roles, 2):
+            picture = f"<Picture {number}>"
+            if role == image_role.VIEW:
+                lines.append(f"<Subject 1> also comes from {picture}, which shows them again.")
+            elif role == image_role.CHARACTER:
+                lines.append(f"{picture} is another character, <Subject {numbers[number]}>.")
+            elif role == image_role.PLACE:
+                lines.append(f"{picture} is a place, <Subject {numbers[number]}>, and nobody's looks come from it.")
+            else:
+                lines.append(f"If {picture} shows the same subject as <Picture 1>, <Subject 1> comes from it too; if it shows a place, that place is the next free <Subject N>.")
+        return "- " + "\n      ".join(lines) + "\n      Define every subject, and keep their details apart."
+    return """- <Picture 1> and <Picture 2> are two different subjects: <Subject 1> comes from <Picture 1> and <Subject 2>
+      from <Picture 2>. Define both, and keep their details apart."""
 
 
-def _format(images, low, high, another_character=False):
+def _format(images, low, high, roles=()):
     if not images:
         return f"""Every prompt is these three fields, in this order, in English. Replace the words in capitals:
 
@@ -121,7 +138,7 @@ def _format(images, low, high, another_character=False):
     - subject_definitions: state what each subject is and which pictures it comes from, and mention {pictures} here.
       The identity belongs in a <Subject N>. Don't give an image an entry of its own as <Picture N> when it only
       shows what a subject looks like.
-    {_second_picture(another_character) if images > 1 else ""}
+    {_second_picture(image_role.image_roles(roles, images)) if images > 1 else ""}
     - Whatever isn't named here comes back generic, and small details are the first to go. Look for three to eight
       things that can be checked by looking, such as tattoos, freckles, scars, moles, piercings, hair length, nail
       colour and clothes. Fix each one to a body landmark and a side ("on the right cheekbone"), and measure rather
@@ -141,7 +158,7 @@ def _format(images, low, high, another_character=False):
     {_what_to_describe(low, high)}"""
 
 
-def instructions(brief, seconds, count, images, shortest, longest, second_image="", another_character=False):
+def instructions(brief, seconds, count, images, shortest, longest, second_image="", roles=()):
     clips = "one clip" if count == 1 else f"{count} clips"
     shots = "one shot" if count == 1 else f"{count} shots in order"
     together = f"Use {seconds}." if count == 1 else f"All of them together add up to {seconds}."
@@ -176,7 +193,7 @@ def instructions(brief, seconds, count, images, shortest, longest, second_image=
     - prompt: the complete H3 prompt, as below, with at least {low} words describing the shot. Nothing else goes in it: no
       notes, headers or placeholders.
 
-    {_format(images, low, high, another_character)}
+    {_format(images, low, high, _as_roles(roles))}
 
     Each prompt is exactly one continuous shot, [Shot 1], with no cuts inside it. Change the distance or angle with a
     camera move, and keep new places for other clips.
@@ -239,7 +256,12 @@ def _description(prompt, images):
     return prompt.split(opening, 1)[-1].split("overall_soundscape:", 1)[0]
 
 
-def tidy(prompts, images, another_character=False):
+def _as_roles(roles):
+    """True and False were another character or not, before each picture had a role."""
+    return [image_role.CHARACTER] if roles is True else [] if roles is False or roles is None else list(roles)
+
+
+def tidy(prompts, images, roles=()):
     """
     Gives every clip the fullest subject_definitions, word for word and naming every
     picture. Done here rather than by asking again: in a long film some clip would
@@ -254,9 +276,12 @@ def tidy(prompts, images, another_character=False):
         return prompts
     fullest = max(definitions, key=lambda text: ("<Subject 1>" in text, sum(label in text for label in labels), len(text)))
     missing = [label for label in labels if label not in fullest]
-    if another_character and "<Picture 2>" in missing:
-        missing.remove("<Picture 2>")
-        fullest = f"{fullest.rstrip()}\n<Subject 2> comes from <Picture 2>.\n\n"
+    numbers = image_role.subjects(image_role.image_roles(_as_roles(roles), images))
+    for number in range(2, images + 1):
+        label = f"<Picture {number}>"
+        if label in missing and numbers.get(number, 1) != 1:
+            missing.remove(label)
+            fullest = f"{fullest.rstrip()}\n<Subject {numbers[number]}> comes from {label}.\n\n"
     if missing:
         fullest = f"{fullest.rstrip()}\n<Subject 1> also draws on {' and '.join(missing)}.\n\n"
     return [fullest + prompt[prompt.index("summary:"):] if "subject_definitions:" in prompt and "summary:" in prompt else prompt

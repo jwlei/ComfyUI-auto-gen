@@ -552,6 +552,43 @@ class PlanTest(unittest.TestCase):
                 self.assertIn("the second image", guide)
                 self.assertNotIn("<Picture", guide, "it takes plain prose")
 
+    def test_each_image_after_the_first_has_its_own_role(self):
+        roles = [planner.SAME_SUBJECT, planner.ANOTHER_CHARACTER, planner.PLACE, planner.PLACE]
+        guide = planner._instructions("x", 60, "image", 5, None, roles)
+        for needed in ("<Picture 2> shows the same subject as <Picture 1>", "<Picture 3> shows another character",
+                       "Call them <Picture 3>", "<Picture 4> shows a place", "<Picture 5> shows a place", "moves between them"):
+            self.assertIn(needed, guide)
+        wan = planner._instructions("x", 60, "image", 3, wan_prompt.MODEL, [planner.PLACE, planner.ANOTHER_CHARACTER])
+        self.assertIn("the second image shows a place", wan)
+        self.assertIn("the third image shows another character", wan)
+        self.assertNotIn("<Picture", wan)
+        self.assertIn("the second image shows a place", planner._instructions("x", 60, "chain", 1, None, planner.PLACE, True))
+        self.assertIn("shows the same subject again", planner._instructions("x", 60, "image", 2, None, planner.SAME_SUBJECT))
+
+    def test_h3_numbers_subjects_by_role(self):
+        roles = [planner.SAME_SUBJECT, planner.ANOTHER_CHARACTER, planner.PLACE, planner.EXTRA_CONTEXT]
+        guide = planner._instructions("x", 60, "image", 5, h3_prompt.MODEL, roles)
+        for needed in ("<Subject 1> also comes from <Picture 2>", "<Picture 3> is another character, <Subject 2>",
+                       "<Picture 4> is a place, <Subject 3>", "If <Picture 5> shows the same subject"):
+            self.assertIn(needed, guide)
+        merged = h3_prompt.tidy([self.h3_prompt_text()], 4, roles[:3])[0]
+        self.assertIn("<Subject 2> comes from <Picture 3>", merged)
+        self.assertIn("<Subject 3> comes from <Picture 4>", merged)
+        self.assertIn("<Subject 1> also draws on <Picture 2>", merged)
+
+    def test_one_role_fingerprints_as_it_always_did(self):
+        images = [Image.new("RGB", (4, 4)), Image.new("RGB", (4, 4), "red")]
+        self.assertEqual(media.inputs_fingerprint(images, "context"), media.inputs_fingerprint(images, []))
+        self.assertEqual(media.inputs_fingerprint(images, "character"), media.inputs_fingerprint(images, ["character"]))
+        self.assertNotEqual(media.inputs_fingerprint(images, ["view"]), media.inputs_fingerprint(images, ["place"]))
+
+    def test_roles_come_one_per_image(self):
+        args = main.parse_args(["a.png", "--reference", "b.png", "--reference", "c.png", "--image-role", "view",
+                                "--image-role", "place", "a prompt"])
+        self.assertEqual(args.image_roles, ["view", "place"])
+        self.assertEqual(main.parse_args(["a.png", "--image-2-role", "character", "a prompt"]).image_roles, ["character"],
+                         "a queue saved before still runs")
+
     def test_plan_film_attaches_image_2_after_the_others(self):
         reply = self.reply([{"title": f"S{i}", "seconds": 8, "prompt": "A walk."} for i in range(8)])
         with mock.patch.object(planner, "_ask", return_value=reply) as call:
