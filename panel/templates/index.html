@@ -143,7 +143,8 @@
   .comfy-now { margin-top: 12px; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; }
   .bar { height: 6px; background: #0a0b0f; border-radius: 4px; overflow: hidden; margin-top: 8px; }
   .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .4s; }
-  .gpu { margin: 10px 0 12px; font-variant-numeric: tabular-nums; }
+  .gpu { margin: -6px 0 12px; font-variant-numeric: tabular-nums; }
+  .gpu:empty, #stageDetail:empty { display: none; }
   .q-group { font-size: .72rem; color: var(--muted); margin: 9px 0 2px; }
   .q-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; font-size: .78rem; padding: 2px 0; }
   .q-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -265,15 +266,22 @@
   @media (min-width: 1000px) {
     .stick { display: none; }
     .wrap { padding-bottom: 20px; }
-    /* Status stays in sight above the rest, what's running on the left and what's around it on the right. */
+    /* Status stays in sight above the rest, half what's running and half its log. */
     .run-card {
       grid-column: 1 / -1; position: sticky; top: 0; z-index: 5; max-height: 50vh; overflow: auto;
-      display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 340px); grid-auto-flow: row dense; gap: 0 24px;
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto auto 1fr; gap: 0 24px;
     }
-    .run-card > * { grid-column: 1; }
-    .run-card > .gpu, .run-card > #uploadBox { grid-column: 2; }
-    .run-card > .status-head, .run-card > .log-box, .run-card > .status-queue, .run-card > .finished, .run-card > .misc { grid-column: 1 / -1; }
-    .run-card > .gpu { margin: 6px 0; }
+    .run-card > .status-head { grid-column: 1 / -1; grid-row: 1; margin-bottom: 8px; }
+    .run-card > .status-main { grid-column: 1; grid-row: 2; }
+    .run-card > .status-foot { grid-column: 1; grid-row: 3; }
+    .run-card > .log-box { grid-column: 2; grid-row: 2 / 4; position: relative; min-height: 240px; margin-top: 0; }
+    .run-actions { margin-top: 0; }
+    /* Always open here, and as tall as what's beside it: it scrolls rather than stretching the card. */
+    .log-box > summary { display: none; }
+    .log-panes { position: absolute; inset: 0; display: flex; flex-direction: column; }
+    .log-panes .q-group:first-child { margin-top: 0; }
+    .log-panes .log { flex: 2 1 0; min-height: 0; max-height: none; }
+    .log-panes #uploadLog { flex-grow: 1; }
     .options-col > .card { margin-bottom: 0; }
     /* However far down the options go, Generate stays in reach. */
     .form-actions {
@@ -364,6 +372,7 @@
     <div class="section-title">Status</div>
     <div class="comfy-status" title="Generate starts it when the run needs avatar clips and COMFYUI_LAUNCHER is set in .env."><span class="dot" id="comfyDot"></span><span id="comfyText">ComfyUI: checking…</span></div>
   </div>
+  <div class="status-main">
   <div class="run-actions" id="runActions" hidden>
     <button type="button" id="skip">Skip, resume later</button>
     <button type="button" class="danger" id="stop">Stop all</button>
@@ -373,6 +382,7 @@
     <span class="dot" id="dot"></span>
     <span id="statusText">Idle</span>
   </div>
+  <div class="hint gpu" id="gpuLine"></div>
   <div class="progress" id="runProgress" hidden>
     <div class="strip-head"><b id="runProgressText"></b><span id="runProgressRight"></span></div>
     <div class="bar"><div id="runProgressBar"></div></div>
@@ -380,15 +390,13 @@
   <div class="hint eta-detail" id="etaDetail" hidden></div>
   <div id="now" class="hidden">
     <div class="stepper" id="stepper"></div>
-    <div class="now-line"><b id="stageName"></b><span class="time" id="stageTime"></span></div>
     <div class="hint" id="stageDetail"></div>
     <div id="comfyNow" class="comfy-now hidden">
-      <div class="now-line"><span>ComfyUI:</span><b id="comfyLabel"></b><span class="time" id="comfySteps"></span></div>
+      <div class="now-line"><b id="comfyLabel"></b><span class="time" id="comfySteps"></span></div>
       <div class="bar"><div id="comfyBar"></div></div>
       <div class="hint" id="comfyMeta"></div>
     </div>
   </div>
-  <div class="hint gpu" id="gpuLine"></div>
 
   <div id="uploadBox" class="only-shorts" hidden>
     <div class="status">
@@ -407,13 +415,17 @@
     <div class="queue" id="stoppedRuns" hidden></div>
     <div class="queue only-shorts" id="uploadQueue" data-lane="upload" data-title="Uploads" hidden></div>
   </div>
+  </div>
   <details class="log-box" id="logBox">
     <summary>Expand to see the log</summary>
-    <div class="q-group">Generation</div>
-    <div class="log" id="log"><span class="empty-log">No run yet.</span></div>
-    <div class="q-group only-shorts">Upload</div>
-    <div class="log only-shorts" id="uploadLog"><span class="empty-log">No upload yet.</span></div>
+    <div class="log-panes">
+      <div class="q-group">Generation</div>
+      <div class="log" id="log"><span class="empty-log">No run yet.</span></div>
+      <div class="q-group only-shorts">Upload</div>
+      <div class="log only-shorts" id="uploadLog"><span class="empty-log">No upload yet.</span></div>
+    </div>
   </details>
+  <div class="status-foot">
   <details class="finished" id="finished" hidden>
     <summary id="finishedTitle"></summary>
     <div class="hint results" id="finishedList"></div>
@@ -424,12 +436,13 @@
     {% if tailscale_url %}<div class="phone">🌍 Phone (anywhere, with Tailscale on): <code>{{ tailscale_url }}</code></div>{% endif %}
     {% if tailscale_problem %}<div class="phone">🌍 Phone (anywhere): {{ tailscale_problem }}</div>{% endif %}
   </details>
+  </div>
 </div>
 
 <div class="options-col" id="optionsCard">
 <form class="card pipeline-form only-shorts" id="formShorts">
   <div class="form-col">
-    <details class="section" id="formTopic" open>
+    <details class="section" id="formTopic">
       <summary class="section-title">Generation</summary>
 
       <div id="workflowBox">
@@ -555,7 +568,7 @@
 </form>
 
 <form class="card pipeline-form only-video" id="formVideo">
-  <details class="section" id="videoGeneration" open>
+  <details class="section" id="videoGeneration">
     <summary class="section-title">Generation</summary>
     <label for="videoWorkflow">ComfyUI workflow</label>
     <select id="videoWorkflow" name="workflow">
@@ -1334,6 +1347,9 @@ function renderNow(data) {
   const p = data.progress || {};
   const c = data.comfyui || {};
   const show = data.running && p.stage;
+  const comfyBusy = c.active && c.connected;
+  // The clip being rendered is said in ComfyUI's box, so it isn't said twice.
+  const clip = comfyBusy && /^Clip \d/.test(p.detail || '') ? p.detail : '';
   $('now').classList.toggle('hidden', !show);
   if (show) {
     const [n, total, name] = p.stage;
@@ -1341,13 +1357,10 @@ function renderNow(data) {
     const steps = p.eta ? p.eta.steps : [];
     $('stepper').innerHTML = names.map((s, i) =>
       `<div class="step ${i + 1 < n ? 'done' : i + 1 === n ? 'now' : ''}">${esc(s)}<span class="eta">${stepEta(steps[i])}</span></div>`).join('');
-    $('stageName').textContent = `Step ${n} of ${total}: ${name}`;
-    $('stageTime').textContent = fmt(p.stage_elapsed);
-    $('stageDetail').textContent = p.detail || STAGE_HINTS[name] || '';
+    $('stageDetail').textContent = clip ? '' : p.detail || STAGE_HINTS[name] || '';
   }
 
   // ComfyUI's own progress: which part of the workflow, and sampling steps.
-  const comfyBusy = c.active && c.connected;
   $('comfyNow').classList.toggle('hidden', !comfyBusy);
   if (comfyBusy) {
     $('comfyLabel').textContent = c.label || 'Working';
@@ -1355,7 +1368,7 @@ function renderNow(data) {
     $('comfySteps').textContent = hasSteps ? `step ${c.value} of ${c.max}` : '';
     $('comfyBar').style.width = hasSteps ? `${Math.round(100 * c.value / c.max)}%` : '0';
     const queued = c.queue > 1 ? ` · ${c.queue - 1} more queued` : '';
-    $('comfyMeta').textContent = `This clip: ${fmt(c.elapsed || 0)}${queued}`;
+    $('comfyMeta').textContent = `${clip ? `${clip} · ` : ''}This clip: ${fmt(c.elapsed || 0)}${queued}`;
   }
 
   const g = data.gpu;
@@ -1670,6 +1683,11 @@ async function poll() {
   renderVideos();
 }
 
+// On a desktop the log is always open beside the run; on a phone it stays folded until asked for.
+const WIDE = window.matchMedia('(min-width: 1000px)');
+function syncLogBox() { $('logBox').open = WIDE.matches; }
+WIDE.addEventListener('change', syncLogBox);
+syncLogBox();
 // A folded log has no height to scroll, so it catches up as it opens.
 $('logBox').addEventListener('toggle', () => {
   if (autoScroll) $('log').scrollTop = $('log').scrollHeight;
@@ -1730,6 +1748,8 @@ $('check').addEventListener('click', () => startJob(`/check/${pipeline}`));
 $('goStick').addEventListener('click', () => $('go').click());
 
 function setPipeline(side, remember = true) {
+  // Each side opens with its headings folded.
+  if (side !== pipeline) for (const section of document.querySelectorAll('details.section')) section.open = false;
   pipeline = side;
   document.body.classList.toggle('on-shorts', side === 'shorts');
   document.body.classList.toggle('on-video', side === 'video');
@@ -1797,20 +1817,7 @@ function markJump() {
 }
 window.addEventListener('scroll', markJump, { passive: true });
 
-const SECTIONS_KEY = 'comfyui-auto-gen.sections.v1';
-function openSections() {
-  try { return JSON.parse(localStorage.getItem(SECTIONS_KEY)) || {}; } catch (e) { return {}; }
-}
-for (const section of document.querySelectorAll('details.section')) {
-  const open = openSections()[section.id];
-  if (open !== undefined) section.open = open;
-  section.addEventListener('toggle', () => {
-    const all = openSections();
-    all[section.id] = section.open;
-    try { localStorage.setItem(SECTIONS_KEY, JSON.stringify(all)); } catch (e) {}
-    markJump();
-  });
-}
+for (const section of document.querySelectorAll('details.section')) section.addEventListener('toggle', markJump);
 
 loadForm();
 syncForm();

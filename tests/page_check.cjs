@@ -23,10 +23,11 @@ function element(id) {
   };
 }
 const els = {};
+const wide = { matches: false, addEventListener() {} };
 const context = {
   document: { getElementById: id => (els[id] = els[id] || element(id)), querySelectorAll: () => [], documentElement: { style: { setProperty() {} } }, body: element('body'), addEventListener() {}, hidden: false },
   history: { replaceState() {} },
-  window: { addEventListener() {}, innerHeight: 800 },
+  window: { addEventListener() {}, innerHeight: 800, matchMedia: () => wide },
   localStorage: { getItem: () => null, setItem() {} },
   fetch: async () => { throw new Error('offline'); },
   FormData: class { delete() {} append() {} },
@@ -178,7 +179,7 @@ assert.strictEqual(run('clipCount(75)'), '75 clips');
 
 // One ETA for the run, on its bar: the status line and the step line don't repeat it.
 assert(!script.includes('totalEta(') && !script.includes('Original ETA') && !script.includes('Adjusted ETA'));
-assert(!/stageTime'\)\.textContent = [^;]*stepEta/.test(script));
+assert(!html.includes('stageName') && !html.includes('stageTime') && !script.includes('Step ${n}'), 'the stepper says which step, with no line repeating it');
 run(`renderEtaDetail({ changes: [], original_total: 600, adjusted_total: 600 })`);
 assert.strictEqual(els.etaDetail.hidden, true, 'on track: nothing to explain');
 run(`renderEtaDetail({ changes: [{ text: 'Clip <b>3</b> was slow', seconds: 120 }], original_total: 600, adjusted_total: 720 })`);
@@ -289,7 +290,7 @@ assert.strictEqual(els.runStrip.hidden, false, 'away from Status, the footer has
 assert.strictEqual(els.runProgress.hidden, false, 'and Status has it in full');
 assert.strictEqual(els.runProgressBar.style.width, '40%');
 assert(/^40% · ~10 min left, done around /.test(els.runProgressRight.textContent), 'Status has the one ETA, and when it ends');
-assert.strictEqual(els.runProgressText.textContent, 'This run', 'the step line under it names the stage');
+assert.strictEqual(els.runProgressText.textContent, 'This run', 'the stepper under it names the stage');
 assert.strictEqual(els.runStripText.textContent, 'Clips');
 assert.strictEqual(els.runStripRight.textContent, '40% · ~10 min left');
 assert.strictEqual(els.runStripBar.style.width, '40%');
@@ -333,9 +334,24 @@ assert(/id="go">Generate</.test(html) && script.includes("'Add to queue'"), 'Gen
 assert(/<a href="#videosCard">Videos<\/a>/.test(html) && !html.includes('jumpCount'), 'the footer has no count on Videos');
 // Each heading holds its section, and the first is called Generation.
 assert(!html.includes('What to make'));
-assert(/<details class="section" id="formTopic" open>\s*<summary class="section-title">Generation</.test(html));
-assert(/<details class="section" id="videoGeneration" open>\s*<summary class="section-title">Generation</.test(html));
+assert(/<details class="section" id="formTopic">\s*<summary class="section-title">Generation</.test(html));
+assert(/<details class="section" id="videoGeneration">\s*<summary class="section-title">Generation</.test(html));
 assert(!/<div class="section-title">(Voice|Publish|How)/.test(html));
+// Every heading starts folded, nothing brings back how they were left, and changing side folds them again.
+assert(!/<details class="section"[^>]* open/.test(html) && !script.includes('localStorage.setItem(SECTIONS_KEY'));
+{
+  const section = { open: true };
+  const all = context.document.querySelectorAll;
+  context.document.querySelectorAll = selector => (selector === 'details.section' ? [section] : []);
+  run("setPipeline('shorts', false)");
+  assert.strictEqual(section.open, true, 'pressing the side you are on folds nothing');
+  run("setPipeline('video', false)");
+  assert.strictEqual(section.open, false, 'to Video');
+  section.open = true;
+  run("setPipeline('shorts', false)");
+  assert.strictEqual(section.open, false, 'and back');
+  context.document.querySelectorAll = all;
+}
 // On Generate the footer keeps the button and the estimate.
 assert(html.indexOf('id="goStick"') > html.indexOf('id="stick"') && html.indexOf('id="goStick"') < html.indexOf('class="dashboard"'));
 assert(html.indexOf('id="stop"') < html.indexOf('id="optionsCard"'), 'Stop stays with what is running');
@@ -362,11 +378,38 @@ assert(/\.switch button\.active \{ background: var\(--accent\)/.test(html) && /b
 // The switch is the top of the page, with the title gone and two icons beside it.
 assert(html.indexOf('id="switchShorts"') < html.indexOf('id="stick"') && !/<h1>/.test(html.slice(0, html.indexOf('<script>'))));
 assert(/id="shutdown" aria-label="Shut down"[^>]*><svg/.test(html));
-// Queue and log live in Status, the queue first and the log folded away, and the footer no longer goes to them.
+// Queue and log live in Status, the queue first, and the footer no longer goes to them.
 const status = html.slice(html.indexOf('id="runCard"'), html.indexOf('id="optionsCard"'));
 assert(status.indexOf('id="runQueue"') > 0 && status.indexOf('id="runQueue"') < status.indexOf('id="logBox"') && status.indexOf('id="logBox"') < status.indexOf('id="log"'));
 assert(/<details class="log-box" id="logBox">\s*<summary>Expand to see/.test(status) && !/id="logBox" open/.test(html));
 assert(/<a href="#optionsCard">Generate<\/a>/.test(html) && !html.includes('href="#queueCard"') && !html.includes('href="#logCard"'));
+// The log is folded on a phone. On a desktop it is always open, with no heading to fold it by, beside the run at half the width.
+assert.strictEqual(els.logBox.open, false, 'folded on a phone');
+wide.matches = true;
+run('syncLogBox()');
+assert.strictEqual(els.logBox.open, true, 'open on a desktop');
+wide.matches = false;
+run('syncLogBox()');
+assert.strictEqual(els.logBox.open, false, 'and folded again once the window is narrow');
+assert(/\.log-box > summary \{ display: none; \}/.test(html));
+assert(/\.run-card \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/.test(html));
+assert(status.indexOf('id="logBox"') < status.indexOf('id="finished"'), 'on a phone it comes before Finished and More');
+
+// The GPU line is right under the running line, on both.
+assert(status.indexOf('id="statusText"') < status.indexOf('id="gpuLine"') && status.indexOf('id="gpuLine"') < status.indexOf('id="runProgress"'));
+
+// The clip being rendered is said quietly in ComfyUI's box, which no longer names ComfyUI.
+assert(!status.includes('<span>ComfyUI:</span>'));
+context.atStage = (detail, comfy) => ({ running: true, pipeline: 'shorts', gpu: null, progress: { stage: [4, 7, 'Avatar clips'], detail },
+  comfyui: comfy ? { active: true, connected: true, label: 'Generating video', value: 3, max: 8, elapsed: 65, queue: 1 } : {} });
+run(`renderNow(atStage('Clip 2 of 5 - scene 3, 6s lipsync', true))`);
+assert.strictEqual(els.comfyMeta.textContent, 'Clip 2 of 5 - scene 3, 6s lipsync · This clip: 1:05');
+assert.strictEqual(els.stageDetail.textContent, '', 'and not said again above it');
+run(`renderNow(atStage('Clip 2 of 5 - scene 3, 6s lipsync', false))`);
+assert.strictEqual(els.stageDetail.textContent, 'Clip 2 of 5 - scene 3, 6s lipsync', 'no box up yet: it still says it');
+run(`renderNow(atStage('Scene 4 of 9', true))`);
+assert.strictEqual(els.stageDetail.textContent, 'Scene 4 of 9', 'only a clip goes in the box');
+assert.strictEqual(els.comfyMeta.textContent, 'This clip: 1:05');
 
 // The footer bars show away from Status, which has its own.
 run('stripActive.run = true; stripActive.upload = false; syncStrips()');
