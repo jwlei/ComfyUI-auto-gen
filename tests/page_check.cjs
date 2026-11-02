@@ -23,7 +23,7 @@ function element(id) {
 }
 const els = {};
 const context = {
-  document: { getElementById: id => (els[id] = els[id] || element(id)), documentElement: { style: { setProperty() {} } }, body: element('body'), addEventListener() {}, hidden: false },
+  document: { getElementById: id => (els[id] = els[id] || element(id)), querySelectorAll: () => [], documentElement: { style: { setProperty() {} } }, body: element('body'), addEventListener() {}, hidden: false },
   history: { replaceState() {} },
   window: { addEventListener() {}, innerHeight: 800 },
   localStorage: { getItem: () => null, setItem() {} },
@@ -198,12 +198,16 @@ assert.strictEqual(run('runShort(rendering, false)'), 'Clip 2/75');
 assert.strictEqual(run('runShort({ ...idle, running: true }, false)'), 'Starting');
 run('renderStrips(idle)');
 assert(els.runStrip.hidden && els.uploadStrip.hidden, 'nothing going, no bars');
-const barOf = job => { const bar = context.document.getElementById(`${job}StripBar`); bar.parentElement = element('bar'); return bar; };
-barOf('run'); barOf('upload');
+const barOf = id => { const bar = context.document.getElementById(id); bar.parentElement = element('bar'); return bar; };
+for (const id of ['runStripBar', 'uploadStripBar', 'runProgressBar', 'uploadProgressBar']) barOf(id);
+context.document.getElementById('runCard').getBoundingClientRect = () => ({ top: 5000, bottom: 5100 });
 run('renderStrips(rendering)');
-assert.strictEqual(els.runStrip.hidden, false);
+assert.strictEqual(els.runStrip.hidden, false, 'away from Status, the footer has the bar');
+assert.strictEqual(els.runProgress.hidden, false, 'and Status has it in full');
+assert.strictEqual(els.runProgressBar.style.width, '40%');
+assert.strictEqual(els.runProgressRight.textContent, '~10 min left · 40%');
 assert.strictEqual(els.runStripText.textContent, 'Clips');
-assert.strictEqual(els.runStripRight.textContent, '~10 min left');
+assert.strictEqual(els.runStripRight.textContent, '~10 min left · 40%');
 assert.strictEqual(els.runStripBar.style.width, '40%');
 assert(els.runStripHint.textContent.startsWith('Clip 2 of 75'));
 context.uploading = { ...idle, upload: { running: true, elapsed: 75, progress: { upload: [2, 3, 'A.mp4'] } } };
@@ -211,6 +215,12 @@ run('renderStrips(uploading)');
 assert.strictEqual(els.uploadStripText.textContent, 'Uploading 2/3');
 assert.strictEqual(els.uploadStripHint.textContent, 'A.mp4');
 assert.strictEqual(els.uploadStripBar.style.width, '33%');
+assert.strictEqual(els.uploadProgressBar.style.width, '33%');
+assert.strictEqual(els.uploadProgressHint.textContent, 'A.mp4');
+assert.strictEqual(els.uploadProgress.hidden, false);
+context.document.getElementById('runCard').getBoundingClientRect = () => ({ top: 0, bottom: 100 });
+run('syncStrips()');
+assert(els.runStrip.hidden && els.uploadStrip.hidden, 'on Status the footer bars would only repeat it');
 assert.deepStrictEqual([...html.matchAll(/<a href="#(\w+)"/g)].map(m => m[1]), ['runCard', 'optionsCard', 'quotaCard', 'videosCard']);
 
 // Nothing a video does can hold up the status: no video loads until you press play.
@@ -234,7 +244,15 @@ for (const id of links) assert(ids.has(id), `#${id} is on the page`);
 assert.deepStrictEqual(links.map(id => html.indexOf(`id="${id}"`)), links.map(id => html.indexOf(`id="${id}"`)).sort((a, b) => a - b));
 // Status comes first, Generate is called just that, and it sits with the options.
 assert(html.indexOf('id="runCard"') < html.indexOf('id="optionsCard"'));
-assert(/id="go">Generate</.test(html) && !script.includes("'Add to queue'"));
+assert(/id="go">Generate</.test(html) && script.includes("'Add to queue'"), 'Generate, or Add to queue while something runs');
+assert(/<a href="#videosCard">Videos<\/a>/.test(html) && !html.includes('jumpCount'), 'the footer has no count on Videos');
+// Each heading holds its section, and the first is called Generation.
+assert(!html.includes('What to make'));
+assert(/<details class="section" id="formTopic" open>\s*<summary class="section-title">Generation</.test(html));
+assert(/<details class="section" id="videoGeneration" open>\s*<summary class="section-title">Generation</.test(html));
+assert(!/<div class="section-title">(Voice|Publish|How)/.test(html));
+// On Generate the footer keeps the button and the estimate.
+assert(html.indexOf('id="goStick"') > html.indexOf('id="stick"') && html.indexOf('id="goStick"') < html.indexOf('class="dashboard"'));
 assert(html.indexOf('id="stop"') < html.indexOf('id="optionsCard"'), 'Stop stays with what is running');
 
 // Whichever mode is on is marked, for the eye and for screen readers, and the other isn't.
@@ -265,13 +283,12 @@ assert(status.indexOf('id="runQueue"') > 0 && status.indexOf('id="runQueue"') < 
 assert(/<details class="log-box" id="logBox">\s*<summary>Expand to see/.test(status) && !/id="logBox" open/.test(html));
 assert(/<a href="#optionsCard">Generate<\/a>/.test(html) && !html.includes('href="#queueCard"') && !html.includes('href="#logCard"'));
 
-// The bars only show beside what they are about.
+// The footer bars show away from Status, which has its own.
 run('stripActive.run = true; stripActive.upload = false; syncStrips()');
-assert.strictEqual(els.runStrip.hidden, false);
-const realRect = els.runCard ? els.runCard.getBoundingClientRect : null;
+assert.strictEqual(els.runStrip.hidden, true, 'on Status');
 context.document.getElementById('runCard').getBoundingClientRect = () => ({ top: 5000, bottom: 5100 });
 run('syncStrips()');
-assert.strictEqual(els.runStrip.hidden, true, 'scrolled away from status');
+assert.strictEqual(els.runStrip.hidden, false, 'scrolled away from Status');
 context.document.getElementById('runCard').getBoundingClientRect = () => ({ top: 0, bottom: 100 });
 run('stripActive.run = false; syncStrips()');
 
@@ -302,6 +319,11 @@ assert(queue.innerHTML.includes('data-resume') && queue.innerHTML.includes('data
   context.fetch = answer({ ...quiet, server_started: 1, returncode: 0 });
   await run('poll()');
   assert.strictEqual(els.jumpRun.textContent, 'Done', 'it works again straight after a stuck one');
+  assert.strictEqual(els.go.textContent, 'Generate');
+  context.fetch = answer({ ...quiet, server_started: 1, queue: { ...quiet.queue, items: [{ id: 1, label: 'x', estimate: 60 }] } });
+  await run('poll()');
+  assert.strictEqual(els.go.textContent, 'Add to queue');
+  assert.strictEqual(els.goStick.textContent, 'Add to queue');
 
   // Signed out: the page goes to the login rather than sit there stale.
   context.fetch = answer({}, { redirected: true });
