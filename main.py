@@ -122,7 +122,8 @@ def preflight(needs_comfy):
 
 def plan_run(args, stages):
     images = [media.load_image(path) for path in ([args.image] if args.image else []) + args.reference]
-    takes = ComfyClient().takes()
+    comfy = ComfyClient()
+    takes = comfy.takes()
     if not takes["min_images"] <= len(images) <= takes["max_images"]:
         raise RuntimeError(f"This workflow takes {takes['min_images']}-{takes['max_images']} images, not {len(images)}.")
     # A clip can only start on the last one's final frame if an image is all it takes.
@@ -137,7 +138,8 @@ def plan_run(args, stages):
 
     print_stage("Plan", stages)
     print(f"🧠 {llm} is writing {planner.shot_count(state.seconds)} prompts for a {state.seconds}s film at {width}x{height}...")
-    title, shots = planner.plan_film([media.preview_jpeg(image) for image in images], args.prompt, state.seconds, state.start, llm)
+    title, shots = planner.plan_film([media.preview_jpeg(image) for image in images], args.prompt, state.seconds, state.start, llm,
+                                     comfy.video_model())
     for image, path in zip(images, state.image_paths):
         media.save_input(image, path)
     state.update(title=title, shots=shots)

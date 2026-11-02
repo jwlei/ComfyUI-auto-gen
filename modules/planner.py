@@ -10,6 +10,8 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel, ValidationError
 
+from modules import h3_prompt, wan_prompt
+
 # Who can write the plan: (name, what the panel calls it).
 LLMS = (("gemini", "Gemini (free tier)"), ("claude", "Claude Opus 5.5 (paid per use)"))
 
@@ -155,14 +157,18 @@ def _how_it_looks(images):
       instead of describing them again in full."""
 
 
-def _instructions(brief, seconds, start, images=1):
+def _instructions(brief, seconds, start, images=1, video_model=None):
     count = shot_count(seconds)
+    if video_model == h3_prompt.MODEL:
+        return h3_prompt.instructions(brief, seconds, count, images, MIN_SHOT_SECONDS, MAX_SHOT_SECONDS)
     clips = "one clip" if count == 1 else f"{count} consecutive clips"
     shots = "one shot" if count == 1 else f"{count} shots in order"
     shape = (f"Give the film a beginning, a development and a real ending, rather than {count} versions of the same moment."
              if count >= MIN_SHOTS_FOR_A_STORY else "This is too short for a story: show one clear moment that feels complete.")
     together = f"Use {seconds}." if count == 1 else f"All of them together add up to {seconds}."
     continuity = "" if count == 1 else SEPARATE_CLIPS if start == "image" and images != 1 else CONTINUITY[start]
+    if video_model == wan_prompt.MODEL:
+        return wan_prompt.instructions(brief, seconds, count, images, continuity, MIN_SHOT_SECONDS, MAX_SHOT_SECONDS)
     in_keeping = "the brief and\n    the image, and never contradicting them" if images else "the brief, and never contradicting it"
     sees = "one prompt and one start frame" if images == 1 else "one prompt and its images" if images else "one prompt"
     return f"""
@@ -349,17 +355,21 @@ def _ask(llm, prompt, model, schema, image_jpeg=None):
 
 # --- What the pipeline asks for ---
 
-def plan_film(image_jpeg, brief, seconds, start, llm="gemini"):
+def plan_film(image_jpeg, brief, seconds, start, llm="gemini", video_model=None):
     """
     Turns the image (several in a list, or none) and the short brief into a film's shot list. One request for the
     whole film rather than one per clip: the prompts have to know each other, and a
     long film would otherwise spend more than a free model's whole daily quota.
     """
-    instructions = _instructions(brief, seconds, start, len(_image_list(image_jpeg)))
+    images = len(_image_list(image_jpeg))
+    instructions = _instructions(brief, seconds, start, images, video_model)
+    is_h3 = video_model == h3_prompt.MODEL
 
     problem = None
     for attempt in range(1, PLAN_ATTEMPTS + 1):
-        reply = _ask(llm, instructions, Plan, PLAN_SCHEMA, image_jpeg)
+        # H3's rules are strict enough that saying what went wrong is worth it.
+        correction = f"\n\n    Your last reply came back with {problem}. Fix that." if is_h3 and problem else ""
+        reply = _ask(llm, instructions + correction, Plan, PLAN_SCHEMA, image_jpeg)
         try:
             plan = Plan.model_validate_json(reply)
         except ValidationError as e:
@@ -367,12 +377,25 @@ def plan_film(image_jpeg, brief, seconds, start, llm="gemini"):
         else:
             shots = [shot for shot in plan.shots if shot.prompt.strip()]
             # Too few or too many shots can't be fixed by changing their lengths.
-            if len(shots) * MIN_SHOT_SECONDS <= seconds <= len(shots) * MAX_SHOT_SECONDS:
+            if is_h3:
+                for shot, prompt in zip(shots, h3_prompt.tidy([shot.prompt for shot in shots], images)):
+                    shot.prompt = prompt
+            wrong_prompts = is_h3 and shots and h3_prompt.film_problem([shot.prompt for shot in shots], images)
+            thin = is_h3 and shots and not wrong_prompts and h3_prompt.too_thin([shot.prompt for shot in shots], images)
+            if wrong_prompts:
+                problem = wrong_prompts
+            # Worth asking once. A film of short prompts is better than no film.
+            elif thin and attempt == 1:
+                problem = thin
+            elif len(shots) * MIN_SHOT_SECONDS <= seconds <= len(shots) * MAX_SHOT_SECONDS:
+                if thin:
+                    print(f"   ⚠️ Using {thin}: expect less detail in the film.")
                 lengths = fit_durations([shot.seconds for shot in shots], seconds)
                 return plan.title.strip() or "Untitled", [
                     {"title": shot.title.strip(), "seconds": length, "prompt": shot.prompt.strip()}
                     for shot, length in zip(shots, lengths)]
-            problem = f"{len(shots)} shots for a {seconds}s film"
+            else:
+                problem = f"{len(shots)} shots for a {seconds}s film"
         print(f"   ⚠️ The plan came back with {problem} (attempt {attempt}/{PLAN_ATTEMPTS}).")
 
     raise RuntimeError(f"Could not get a usable plan: {problem}.")

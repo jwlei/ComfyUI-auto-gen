@@ -8,6 +8,7 @@ import time
 import requests
 from PIL import Image
 
+from modules import h3_prompt, wan_prompt
 from modules.paths import PROJECT_ROOT
 from modules.saved_workflows import frames_for, image_slots, takes
 
@@ -75,6 +76,12 @@ class ComfyClient:
 
     def takes(self):
         return takes(self.fields)
+
+    def video_model(self):
+        """The model, if its prompts have to be written a way of their own."""
+        if any(node.get("class_type") == h3_prompt.REFERENCE_NODE for node in self.workflow.values()):
+            return h3_prompt.MODEL
+        return wan_prompt.MODEL if wan_prompt.uses_wan(self.workflow) else None
 
     def is_reachable(self):
         try:
