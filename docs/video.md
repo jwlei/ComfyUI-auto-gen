@@ -64,9 +64,11 @@ MiniMax H3, which starts no clip on it. Each image after it is optional, and you
 
 If your prompt says how to use an image, that wins. On H3 each character and place becomes a `<Subject>` of its own.
 
-There are as many boxes as the workflow has Load Image nodes, except on a reference node whose inputs grow, such as
-MiniMax's: wire one or two references in ComfyUI and the pipeline adds Load Image nodes up to five, or the node's own
-limit if that's lower. The boxes you leave empty come out of the workflow again.
+You start with one box, and **+** below it opens the next once it holds an image. ✕ removes an image and the ones after
+it move up. It goes up to 20 boxes, or as many as the workflow has Load Image nodes if that's fewer. A reference node
+whose inputs grow is different: wire one or two references in ComfyUI and the pipeline adds Load Image nodes up to 20,
+or the node's own limit if that's lower, which is 9 on MiniMax H3. The boxes you leave empty come out of the workflow
+again.
 
 A workflow with one image input, like Built-in LTX, renders from image 1 alone. Only the LLM sees image 2 there, so
 it reaches the clips as words in the prompts: expect a description of that place or person, not a copy of it.

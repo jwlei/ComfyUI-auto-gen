@@ -47,7 +47,9 @@ assert(!run(`remembered({ name: 'image_5_role', type: 'select-one' })`));
 // One box per image, built as a workflow needs them. The page's boxes, without a browser to parse them.
 function imageBox(number) {
   const hiddenClass = () => ({ toggle(name, on) { this.on = on; } });
-  const input = { name: number === 1 ? 'image' : `image_${number}`, value: '', files: [], disabled: false };
+  // As in a browser, clearing an input's value empties its files.
+  const input = { name: number === 1 ? 'image' : `image_${number}`, files: [], disabled: false, text: '',
+    get value() { return this.text; }, set value(text) { this.text = text; if (!text) this.files = []; } };
   const parts = { input, img: { src: '', classList: hiddenClass() }, button: { classList: hiddenClass() }, label: { textContent: '' },
     select: { disabled: true, value: 'view', classList: hiddenClass() } };
   return { hidden: false, parts, querySelector: tag => parts[tag], classList: hiddenClass() };
@@ -65,13 +67,27 @@ holder.insertAdjacentHTML = (_, html) => {
 };
 const labels = () => boxes.filter(box => !box.hidden).map(box => box.parts.label.textContent);
 
-run('syncImageInput()');
-assert.deepStrictEqual(labels(), ['Image 1: first frame', 'Image 2 (optional)'], 'the built-in workflow');
-assert(els.imagesHint.hidden, 'nothing to say about an image 2 nobody chose');
-boxes[1].parts.input.files = [{}];
-boxes[1].parts.input.value = 'two.png';
 context.URL = { createObjectURL: () => 'blob:x', revokeObjectURL() {} };
-run('showImage(imageBoxes()[1])');
+const choose = (index, file = {}) => {
+  boxes[index].parts.input.files = [file];
+  boxes[index].parts.input.value = 'chosen.png';
+  run(`showImage(imageBoxes()[${index}]); syncImageInput()`);
+};
+const pressPlus = () => {
+  assert(!els.addImage.hidden, 'the + is there to press');
+  run('imagesShown++; syncImageInput()');
+};
+run('syncImageInput()');
+assert.deepStrictEqual(labels(), ['Image 1: first frame'], 'one box to start with');
+assert(els.addImage.hidden, 'no + until that box holds an image');
+assert(els.imagesHint.hidden, 'nothing to say about an image 2 nobody chose');
+choose(0);
+pressPlus();
+assert.deepStrictEqual(labels(), ['Image 1: first frame', 'Image 2 (optional)'], 'the built-in workflow');
+assert(els.addImage.hidden, 'the next + waits for this box');
+choose(1);
+assert.strictEqual(boxes[1].parts.input.value, 'chosen.png');
+assert(els.addImage.hidden, 'and one input has room for image 2, no more');
 assert(boxes[1].parts.select.classList.on === false && boxes[1].parts.select.disabled === false, 'image 2 chosen: its role shows and is sent');
 run('syncImageInput()');
 assert(!els.imagesHint.hidden);
@@ -80,9 +96,12 @@ assert(els.imagesHint.textContent.includes('never sees'), 'one input to fill: th
 run(`workflowTakes = { r2v: { min_images: 0, max_images: 3 }, t2v: { min_images: 0, max_images: 0 }, ti2v: { min_images: 0, max_images: 1 } }`);
 els.videoWorkflow.value = 'r2v';
 run('syncImageInput()');
+assert.deepStrictEqual(labels(), ['Image 1: main character (optional)', 'Image 2 (optional)'], 'the boxes open stay open');
+assert.strictEqual(boxes[1].parts.input.value, 'chosen.png', 'a workflow with room for it keeps the image');
+pressPlus();
 assert.deepStrictEqual(labels(), ['Image 1: main character (optional)', 'Image 2 (optional)', 'Image 3 (optional)']);
 assert(els.imagesHint.textContent.includes('Every clip'));
-assert.strictEqual(boxes[1].parts.input.value, 'two.png', 'a workflow with room for it keeps the image');
+assert(els.imagesHint.textContent.includes('takes 3 at most'), 'it says why the + stops');
 
 els.videoWorkflow.value = 'ti2v';
 run('syncImageInput()');
@@ -95,6 +114,41 @@ run('syncImageInput()');
 assert.deepStrictEqual(labels(), [], 'text alone has no image to ask for');
 assert.strictEqual(boxes[1].parts.input.value, '', 'and no image waiting in a hidden box');
 assert(els.imagesHint.hidden);
+
+// Up to 20 boxes, one + at a time, and however many a workflow could take.
+context.DataTransfer = class { constructor() { this.files = []; this.items = { add: file => this.files.push(file) }; } };
+run('workflowTakes = { many: { min_images: 0, max_images: 30 }, minimax: { min_images: 0, max_images: 9 } }');
+els.videoWorkflow.value = 'many';
+run('imagesShown = 1; syncImageInput()');
+for (let index = 0; index < 20; index++) {
+  assert.strictEqual(labels().length, index + 1);
+  choose(index, { number: index + 1 });
+  if (index < 19) pressPlus();
+}
+assert(els.addImage.hidden, 'twenty is the most');
+assert(!els.imagesHint.textContent.includes('at most'), 'the form\'s own limit, not the workflow\'s');
+
+// Taking one out moves the rest up, each with its role, and leaves no gap.
+boxes[3].parts.select.value = 'place';
+boxes[4].parts.select.value = 'character';
+run('removeImage(imageBoxes()[2]); syncImageInput()');
+const chosen = () => boxes.filter(box => !box.hidden).map(box => (box.parts.input.files[0] || {}).number);
+assert.deepStrictEqual(chosen().slice(0, 4), [1, 2, 4, 5]);
+assert.strictEqual(chosen().length, 19);
+assert.deepStrictEqual([boxes[2].parts.select.value, boxes[3].parts.select.value], ['place', 'character']);
+assert.strictEqual(boxes[19].parts.input.value, '', 'the last box is emptied');
+assert(!els.addImage.hidden, 'and there is room for one more');
+
+// A workflow with less room keeps what fits, and an emptied list leaves one box.
+els.videoWorkflow.value = 'minimax';
+run('syncImageInput()');
+assert.strictEqual(labels().length, 9);
+assert(els.addImage.hidden && els.imagesHint.textContent.includes('takes 9 at most'));
+assert(boxes[9].parts.input.disabled && !boxes[9].parts.input.files.length, 'what no longer fits is not sent');
+run('imagesShown = 1; for (const box of imageBoxes()) clearImage(box); syncImageInput()');
+assert.strictEqual(labels().length, 1);
+assert.strictEqual(boxes[0].parts.button.classList.on, true, 'an empty first box has nothing to remove');
+
 els.videoWorkflow.value = '';
 run('workflowTakes = {}; syncImageInput()');
 

@@ -131,13 +131,13 @@ class FieldsTest(unittest.TestCase):
         self.assertEqual(fields["seconds"], ["4", "value"], "titled duration, and a decimal")
         self.assertEqual((fields["width"], fields["height"]), (["6", "width"], ["6", "height"]), "replaces what fed them")
 
-    def test_a_reference_node_that_grows_gets_five(self):
+    def test_a_reference_node_that_grows_gets_twenty(self):
         api = to_api(reference_workflow(), OBJECT_INFO)
         _grow_references(api, OBJECT_INFO)
         fields = find_fields(api, OBJECT_INFO)
-        self.assertEqual(takes(fields), {"min_images": 0, "max_images": 5}, "two wired, three added")
-        self.assertEqual([fields[f"image_{n}_link"][1] for n in range(3, 6)],
-                         [f"ref_images.ref_image_{n}" for n in range(2, 5)], "numbered on from the last one")
+        self.assertEqual(takes(fields), {"min_images": 0, "max_images": 20}, "two wired, eighteen added")
+        self.assertEqual([fields[f"image_{n}_link"][1] for n in range(3, 21)],
+                         [f"ref_images.ref_image_{n}" for n in range(2, 20)], "numbered on from the last one, 10 after 9")
         info = {**OBJECT_INFO, "ReferenceToVideo": {**OBJECT_INFO["ReferenceToVideo"], "input": {
             **OBJECT_INFO["ReferenceToVideo"]["input"], "optional": {"ref_images": ["COMFY_AUTOGROW_V3", {"template": {"max": 3}}]}}}}
         api = to_api(reference_workflow(), info)

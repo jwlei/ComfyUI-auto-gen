@@ -236,6 +236,11 @@ def _one_input(api, class_type, name, what):
     return [found[0], name] if found else None
 
 
+def _in_number_order(name):
+    """ref_image_10 comes after ref_image_9, and not after ref_image_1."""
+    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", name)]
+
+
 def _image_fields(api, info):
     """
     image, image_2... for each Load Image, in the order the node using them numbers
@@ -249,7 +254,7 @@ def _image_fields(api, info):
                  if isinstance(value, list) and value[0] == node_id]
         found.append((users[0][1] if users else "", int(node_id), users))
     fields = {}
-    for number, (_, node_id, users) in enumerate(sorted(found, key=lambda entry: entry[:2]), 1):
+    for number, (_, node_id, users) in enumerate(sorted(found, key=lambda entry: (_in_number_order(entry[0]), entry[1])), 1):
         slot = "image" if number == 1 else f"image_{number}"
         fields[slot] = [str(node_id), "image"]
         if len(users) == 1:
@@ -332,7 +337,7 @@ def _file_stem(name):
 
 # How many references a film gets on a node whose reference inputs grow, such as MiniMax's,
 # however many the saved workflow happens to wire up.
-MOST_REFERENCES = 5
+MOST_REFERENCES = 20
 
 
 def _most(config):

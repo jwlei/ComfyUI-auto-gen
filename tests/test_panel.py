@@ -498,7 +498,7 @@ class PanelTest(unittest.TestCase):
             self.assertEqual(json.load(f), {"broken": "Needs gone.safetensors, which isn't installed."})
         self.assertEqual(self.client.get("/api/workflows?pipeline=shorts").get_json()["workflows"], [], "none are tuned for Shorts")
         self.assertEqual(reply["workflows"], [
-            {"name": "r2v.json", "label": "r2v", "takes": {"min_images": 0, "max_images": 5}},
+            {"name": "r2v.json", "label": "r2v", "takes": {"min_images": 0, "max_images": 20}},
             {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0}},
             {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1}}])
 
@@ -553,8 +553,8 @@ class PanelTest(unittest.TestCase):
     def test_a_reference_workflow_gets_every_clip_all_its_images(self):
         self.save_workflows()
         image = lambda: (io.BytesIO(png_bytes()), "ref.png")
-        six = {f"image_{number}": image() for number in range(2, 7)}
-        self.assertEqual(self.generate(workflow="r2v.json", **six).status_code, 400, "five references at most")
+        too_many = {f"image_{number}": image() for number in range(2, 22)}
+        self.assertEqual(self.generate(workflow="r2v.json", **too_many).status_code, 400, "twenty references at most")
         self.assertTrue(self.generate(workflow="r2v.json", image_2=image()).get_json()["ok"])
         self.wait_idle()
         run = self.only_run()
@@ -637,7 +637,7 @@ class PanelTest(unittest.TestCase):
             reply = self.client.get("/api/workflows").get_json()
             self.assertFalse(reply["online"])
             self.assertEqual(reply["workflows"], [
-                {"name": "r2v.json", "label": "r2v", "takes": {"min_images": 0, "max_images": 5}},
+                {"name": "r2v.json", "label": "r2v", "takes": {"min_images": 0, "max_images": 20}},
                 {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0}},
                 {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1}}])
             self.assertEqual(os.path.basename(video_panel.chosen_workflow({"workflow": "wan.json"})[0]["COMFYUI_WORKFLOW"]), "wan.json")

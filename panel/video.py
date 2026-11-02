@@ -18,8 +18,8 @@ from pipelines.video.run_state import STAGES, RunState, folder_size, list_runs, 
 COMMAND = [sys.executable, "-m", "pipelines.video.main"]
 DEFAULT_FILM_SECONDS = 120
 BUILT_IN_TAKES = {"min_images": 1, "max_images": 1}
-# More boxes than any workflow has Load Image nodes for.
-MOST_IMAGES = 9
+# The most the form offers, however many a workflow could take.
+MOST_IMAGES = 20
 
 
 def option(flags, name, default=None):
@@ -147,7 +147,7 @@ def form_uploads(files, takes):
         return None, "Fill the image boxes in order: each one adds to those before it."
     low, high = takes["min_images"], takes["max_images"]
     # Clips with room for one image still leave image 2 for the LLM.
-    room = 2 if high == 1 else high
+    room = min(MOST_IMAGES, 2 if high == 1 else high)
     if len(uploads) < low:
         return None, "Choose the image the film opens on." if low == 1 else f"This workflow needs {low} images."
     if len(uploads) > room:
@@ -392,6 +392,7 @@ def context():
         "llms": [{"name": name, "label": label, "ready": planner.llm_configured(name)} for name, label in planner.LLMS],
         "default_llm": planner.default_llm(),
         "film_limits": [planner.MIN_FILM_SECONDS, planner.MAX_FILM_SECONDS, DEFAULT_FILM_SECONDS],
+        "most_images": MOST_IMAGES,
         "size_presets": media.SIZE_PRESETS[::-1],
     }
 

@@ -170,6 +170,7 @@
   #duration { padding: 0; margin-top: 8px; height: 22px; background: none; border: 0; outline: 0; accent-color: var(--accent); }
   /* One row per image: its thumbnail, the file, what it is, and Remove. */
   .image-box { min-width: 0; }
+  #addImage { width: auto; margin: 8px 0 0; padding: 4px 16px; font-size: 1.1rem; }
   .image-line { display: flex; align-items: center; gap: 8px; }
   .image-line input[type=file] { flex: 1 1 0; min-width: 0; }
   .pipeline-form .image-line select { flex: 1 1 0; min-width: 0; width: auto; padding-left: 8px; padding-right: 4px; }
@@ -563,6 +564,7 @@
     <div class="hint" id="videoWorkflowHint">The image boxes below change to what it takes.</div>
 
     <div class="image-boxes" id="imageBoxes"></div>
+    <button type="button" class="ghost" id="addImage" aria-label="Add another image" title="Add another image" hidden>+</button>
     <div class="hint" id="imagesHint" hidden></div>
 
     <label for="audioMode">Audio</label>
@@ -983,8 +985,11 @@ async function loadVideoWorkflows() {
 }
 $('videoWorkflow').addEventListener('focus', loadVideoWorkflows);
 function imageBoxes() { return [...$('imageBoxes').querySelectorAll('.image-box')]; }
+const MOST_IMAGES = {{ most_images }};
+// How many boxes are open: one to start with, and + adds the next.
+let imagesShown = 1;
 // Clips with room for one image still leave image 2 for the LLM to put into words.
-function imageBoxCount(high) { return high === 1 ? 2 : high; }
+function imageBoxCount(high) { return Math.min(MOST_IMAGES, high === 1 ? 2 : high); }
 function imageLabel(number, low, high) {
   const optional = number > low ? ' (optional)' : '';
   // Clips start on image 1 only when it's all they take; a reference workflow such as H3 starts none on it.
@@ -1012,7 +1017,6 @@ function showImage(box) {
   const file = box.querySelector('input').files[0], preview = box.querySelector('img');
   if (preview.src) URL.revokeObjectURL(preview.src);
   preview.classList.toggle('hidden', !file);
-  box.querySelector('button').classList.toggle('hidden', !file);
   if (file) preview.src = URL.createObjectURL(file);
   // A role only goes with an image, so an empty box sends none.
   const role = box.querySelector('select');
@@ -1026,9 +1030,28 @@ function clearImage(box) {
   box.querySelector('input').value = '';
   showImage(box);
 }
+// A new list, because two inputs sharing one would both empty when either is cleared.
+function moveImage(from, to) {
+  const file = from.querySelector('input').files[0], files = new DataTransfer();
+  if (file) files.items.add(file);
+  to.querySelector('input').files = files.files;
+  const fromRole = from.querySelector('select'), toRole = to.querySelector('select');
+  if (fromRole && toRole) toRole.value = fromRole.value;
+  showImage(to);
+}
+// The images after it move up, so the boxes stay filled in order.
+function removeImage(box) {
+  const open = imageBoxes().filter(other => !other.hidden);
+  for (let i = open.indexOf(box); i < open.length - 1; i++) moveImage(open[i + 1], open[i]);
+  const last = open[open.length - 1], role = last.querySelector('select');
+  clearImage(last);
+  if (role) role.value = 'view';
+  imagesShown--;
+}
 function syncImageInput() {
   const { min_images: low, max_images: high } = workflowTakes[$('videoWorkflow').value] || BUILT_IN_TAKES;
-  const shown = imageBoxCount(high);
+  const room = imageBoxCount(high);
+  const shown = imagesShown = Math.min(room, Math.max(imagesShown, low, 1));
   for (let number = imageBoxes().length + 1; number <= shown; number++) $('imageBoxes').insertAdjacentHTML('beforeend', imageBoxHtml(number));
   imageBoxes().forEach((box, i) => {
     const input = box.querySelector('input');
@@ -1037,12 +1060,16 @@ function syncImageInput() {
     input.disabled = box.hidden;
     if (box.hidden && input.value) clearImage(box);
     box.querySelector('label').textContent = imageLabel(i + 1, low, high);
+    // An empty box after the first was opened by +, so it can be closed again.
+    box.querySelector('button').classList.toggle('hidden', !i && !input.files.length);
   });
+  const last = imageBoxes()[shown - 1];
+  $('addImage').hidden = shown >= room || !last || !last.querySelector('input').files.length;
   const second = imageBoxes()[1];
   $('imagesHint').hidden = !(second && !second.hidden && second.querySelector('input').files.length);
   $('imagesHint').textContent = high === 1
     ? 'This workflow gives its clips one image, so the video model never sees image 2. The LLM looks at it and puts what matters into the prompts in words.'
-    : 'Every clip gets all of these images, and the LLM is told what each one is for.';
+    : 'Every clip gets all of these images, and the LLM is told what each one is for.' + (shown === room && room < MOST_IMAGES ? ` This workflow takes ${room} at most.` : '');
   // Starting on the last frame only works when one image is all a clip takes.
   $('start').disabled = high !== 1;
 }
@@ -1074,7 +1101,11 @@ $('duration').addEventListener('input', syncVideoForm);
 $('imageBoxes').addEventListener('change', e => showImage(e.target.closest('.image-box')));
 $('imageBoxes').addEventListener('click', e => {
   if (!e.target.dataset.clear) return;
-  clearImage(e.target.closest('.image-box'));
+  removeImage(e.target.closest('.image-box'));
+  syncImageInput();
+});
+$('addImage').addEventListener('click', () => {
+  imagesShown++;
   syncImageInput();
 });
 
@@ -1677,6 +1708,7 @@ async function startJob(url) {
     $('audioFile').value = '';
     imageBoxes().forEach(clearImage);
     for (const select of $('imageBoxes').querySelectorAll('select')) select.value = 'view';
+    imagesShown = 1;
     syncImageInput();
     queuePlan();
     if (body.shots) openShots(body.shots);
