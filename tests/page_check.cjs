@@ -211,7 +211,7 @@ run('renderStrips(uploading)');
 assert.strictEqual(els.uploadStripText.textContent, 'Uploading 2/3');
 assert.strictEqual(els.uploadStripHint.textContent, 'A.mp4');
 assert.strictEqual(els.uploadStripBar.style.width, '33%');
-assert.deepStrictEqual([...html.matchAll(/<a href="#(\w+)"/g)].map(m => m[1]), ['runCard', 'optionsCard', 'queueCard', 'logCard', 'quotaCard', 'videosCard']);
+assert.deepStrictEqual([...html.matchAll(/<a href="#(\w+)"/g)].map(m => m[1]), ['runCard', 'optionsCard', 'quotaCard', 'videosCard']);
 
 // Nothing a video does can hold up the status: no video loads until you press play.
 assert(!/preload="(metadata|auto)"/.test(script) && !/preload="(metadata|auto)"/.test(html), 'videos must not hold the browser\'s connections');
@@ -237,14 +237,23 @@ assert(html.indexOf('id="runCard"') < html.indexOf('id="optionsCard"'));
 assert(/id="go">Generate</.test(html) && !script.includes("'Add to queue'"));
 assert(html.indexOf('id="stop"') < html.indexOf('id="optionsCard"'), 'Stop stays with what is running');
 
+// The switch is the top of the page, with the title gone and two icons beside it.
+assert(html.indexOf('id="switchShorts"') < html.indexOf('id="stick"') && !/<h1>/.test(html.slice(0, html.indexOf('<script>'))));
+assert(/id="shutdown" aria-label="Shut down"[^>]*><svg/.test(html));
+// Queue and log live in Status, the queue first and the log folded away, and the footer no longer goes to them.
+const status = html.slice(html.indexOf('id="runCard"'), html.indexOf('id="optionsCard"'));
+assert(status.indexOf('id="runQueue"') > 0 && status.indexOf('id="runQueue"') < status.indexOf('id="logBox"') && status.indexOf('id="logBox"') < status.indexOf('id="log"'));
+assert(/<details class="log-box" id="logBox">\s*<summary>Expand to see/.test(status) && !/id="logBox" open/.test(html));
+assert(/<a href="#optionsCard">Generate<\/a>/.test(html) && !html.includes('href="#queueCard"') && !html.includes('href="#logCard"'));
+
 // The bars only show beside what they are about.
 run('stripActive.run = true; stripActive.upload = false; syncStrips()');
 assert.strictEqual(els.runStrip.hidden, false);
 const realRect = els.runCard ? els.runCard.getBoundingClientRect : null;
-for (const id of ['runCard', 'queueCard', 'logCard']) context.document.getElementById(id).getBoundingClientRect = () => ({ top: 5000, bottom: 5100 });
+context.document.getElementById('runCard').getBoundingClientRect = () => ({ top: 5000, bottom: 5100 });
 run('syncStrips()');
-assert.strictEqual(els.runStrip.hidden, true, 'scrolled away from status, queue and log');
-for (const id of ['runCard', 'queueCard', 'logCard']) context.document.getElementById(id).getBoundingClientRect = () => ({ top: 0, bottom: 100 });
+assert.strictEqual(els.runStrip.hidden, true, 'scrolled away from status');
+context.document.getElementById('runCard').getBoundingClientRect = () => ({ top: 0, bottom: 100 });
 run('stripActive.run = false; syncStrips()');
 
 // The switch: each side only shows what applies to it, and a job on the other still shows.

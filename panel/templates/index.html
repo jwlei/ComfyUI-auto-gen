@@ -120,6 +120,11 @@
   .empty { color: var(--muted); font-size: .88rem; text-align: center; padding: 22px 0; flex: 1; }
   .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
   .top a { color: var(--muted); font-size: .8rem; text-decoration: none; }
+  .top { align-items: center; margin-bottom: 14px; }
+  .top .switch { flex: 1; max-width: 420px; }
+  .top-icons { display: flex; gap: 12px; align-items: center; }
+  .top-icons a { display: flex; opacity: .7; }
+  .top-icons a:hover { opacity: 1; color: var(--text); }
   .top .sub { margin-bottom: 6px; }
   details summary { cursor: pointer; font-size: .95rem; font-weight: 600; }
   .hidden { display: none !important; }
@@ -147,9 +152,9 @@
   .q-row.out .q-bar > div { background: var(--err); }
   /* Each side only shows what applies to it. */
   body.on-video .only-shorts, body.on-shorts .only-video { display: none !important; }
-  .switch { display: flex; gap: 4px; padding: 6px 16px 0; }
+  .switch { display: flex; gap: 4px; }
   .switch button {
-    flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0; padding: 6px; font-size: .88rem;
+    flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0; padding: 9px; font-size: .95rem;
     background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); border-radius: 10px;
   }
   .switch button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -188,14 +193,12 @@
   }
   .stick .strip { order: -1; padding-top: 6px; }
   .wrap { padding-bottom: calc(var(--head, 130px) + 16px); }
-  .jump { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 5px; padding: 6px 16px; }
+  .jump { display: grid; grid-template-columns: 1.7fr 1fr .8fr 1fr; gap: 5px; padding: 6px 16px; }
   .jump a {
-    grid-column: span 3; display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px;
+    display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px;
     background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; overflow: hidden;
     color: var(--muted); font-size: .76rem; font-weight: 600; text-decoration: none; white-space: nowrap;
   }
-  .jump a.options { grid-column: span 4; }
-  .jump a.run { grid-column: span 8; }
   .jump a.active { background: var(--panel); color: var(--text); border-color: var(--accent); }
   .jump small { font-size: .74rem; font-weight: 400; overflow: hidden; text-overflow: ellipsis; }
   .strip { padding: 0 16px 7px; font-size: .78rem; }
@@ -212,6 +215,8 @@
   .form-actions { margin-top: 16px; }
   .form-actions .btns { margin-top: 0; }
   .form-actions #go { margin-top: 0; }
+  .log-box { margin-top: 12px; font-size: .85rem; }
+  .log-box summary { color: var(--muted); }
   .current-work { font-size: .95rem; font-weight: 600; margin-bottom: 8px; overflow-wrap: anywhere; }
   .run-card .btns:empty { display: none; }
   #stop { margin: 0 0 12px; }
@@ -220,17 +225,16 @@
      quota cards and, from 1280px, the portrait videos on the far right, all on one
      screen. Narrower desktops put the videos underneath. Phones keep one column. */
   @media (min-width: 1000px) {
-    .jump, .strip { display: none; }
-    .stick { position: static; margin: 0 0 12px; padding: 0; background: none; border: 0; }
-    .switch { padding: 0; max-width: 360px; }
+    .stick { display: none; }
     .wrap { padding-bottom: 20px; }
     /* Status stays in sight above the rest, what's running on the left and what's around it on the right. */
     .run-card {
-      grid-column: 1 / -1; position: sticky; top: 0; z-index: 5; max-height: 38vh; overflow: auto;
+      grid-column: 1 / -1; position: sticky; top: 0; z-index: 5; max-height: 50vh; overflow: auto;
       display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 340px); grid-auto-flow: row dense; gap: 0 24px;
     }
     .run-card > * { grid-column: 1; }
     .run-card > .sys, .run-card > .gpu, .run-card > #uploadBox, .run-card > .phone { grid-column: 2; }
+    .run-card > .log-box, .run-card > .status-queue { grid-column: 1 / -1; }
     .run-card > .sys { margin-top: 18px; }
     .run-card > .gpu { margin: 6px 0; }
     .options-col > .card { margin-bottom: 0; }
@@ -244,9 +248,6 @@
     #stop { width: auto; padding: 8px 18px; justify-self: start; }
     #formVideo { display: block; }
     .wrap { max-width: 1880px; padding: 14px 20px 20px; }
-    .top { align-items: baseline; margin-bottom: 12px; }
-    .top .title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
-    .top .sub { margin: 0; }
     .dashboard {
       display: grid;
       grid-template-columns: minmax(0, 1.5fr) minmax(340px, 1fr);
@@ -270,13 +271,13 @@
     .dashboard {
       flex: 1;
       min-height: 540px;
-      grid-template-columns: minmax(500px, 1.25fr) minmax(360px, 1.35fr) minmax(260px, .7fr);
+      grid-template-columns: minmax(500px, 1.7fr) minmax(280px, .7fr) minmax(300px, .9fr);
       grid-template-rows: auto minmax(0, 1fr);
       align-items: stretch;
     }
     .dashboard > .card { overflow: auto; }
     .side, .options-col { overflow: auto; min-height: 0; }
-    .run-card { position: static; max-height: 34vh; }
+    .run-card { position: static; max-height: 45vh; }
     body.on-video .vid video { flex: none; }
     .side > .card { flex: none; }
     .videos-card { grid-column: auto; display: flex; flex-direction: column; overflow: hidden !important; }
@@ -287,25 +288,20 @@
 </style>
 
 <div class="top">
-  <div class="title">
-    <h1>🎬 ComfyUI auto-gen</h1>
-  </div>
-  <div style="display:flex;gap:14px;align-items:center">
-    <a href="#" id="shutdown" title="Force-stops everything, then the panel's server. Start it again with start_webapp.pyw or the ComfyUI auto-gen shortcut.">Shut down</a>
-    {% if protected %}<a href="{{ url_for('logout') }}">Sign out</a>{% endif %}
-  </div>
-</div>
-
-<div class="stick" id="stick">
   <div class="switch" role="tablist" aria-label="Pipeline">
     <button type="button" id="switchShorts" data-pipeline="shorts" role="tab">Shorts<span class="dot on hidden"></span></button>
     <button type="button" id="switchVideo" data-pipeline="video" role="tab">Video<span class="dot on hidden"></span></button>
   </div>
+  <div class="top-icons">
+    <a href="#" id="shutdown" aria-label="Shut down" title="Shut down: force-stops everything, then the panel's server. Start it again with start_webapp.pyw or the ComfyUI auto-gen shortcut."><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/></svg></a>
+    {% if protected %}<a href="{{ url_for('logout') }}" aria-label="Sign out" title="Sign out"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H5v16h4"/><path d="M15 8l4 4-4 4"/><path d="M19 12H9"/></svg></a>{% endif %}
+  </div>
+</div>
+
+<div class="stick" id="stick">
   <nav class="jump" id="jump" aria-label="Sections">
     <a href="#runCard" class="run"><span class="dot" id="jumpDot"></span>Status<small id="jumpRun">Idle</small></a>
-    <a href="#optionsCard" class="options">Options</a>
-    <a href="#queueCard">Queue (<span id="jumpQueue">0</span>)</a>
-    <a href="#logCard">Log</a>
+    <a href="#optionsCard">Generate</a>
     <a href="#quotaCard">Quota</a>
     <a href="#videosCard">Videos (<span id="jumpCount">0</span>)</a>
   </nav>
@@ -353,6 +349,18 @@
       <button type="button" class="danger" id="stopUpload" hidden>Stop</button>
     </div>
   </div>
+  <div class="status-queue" id="queueBox">
+    <div class="queue" id="runQueue" data-lane="run" data-title="Runs" hidden></div>
+    <div class="queue" id="stoppedRuns" hidden></div>
+    <div class="queue only-shorts" id="uploadQueue" data-lane="upload" data-title="Uploads" hidden></div>
+  </div>
+  <details class="log-box" id="logBox">
+    <summary>Expand to see the log</summary>
+    <div class="q-group">Generation</div>
+    <div class="log" id="log"><span class="empty-log">No run yet.</span></div>
+    <div class="q-group only-shorts">Upload</div>
+    <div class="log only-shorts" id="uploadLog"><span class="empty-log">No upload yet.</span></div>
+  </details>
   <div class="phone">📱 Phone (same Wi-Fi): <code>{{ phone_url }}</code></div>
 </div>
 
@@ -574,22 +582,6 @@
 </div>
 
 <div class="side">
-<div class="card" id="queueCard">
-  <div class="section-title">Queue</div>
-  <div class="hint" id="queueEmpty">Nothing waiting.</div>
-  <div class="queue" id="runQueue" data-lane="run" data-title="Runs" hidden></div>
-  <div class="queue" id="stoppedRuns" hidden></div>
-  <div class="queue only-shorts" id="uploadQueue" data-lane="upload" data-title="Uploads" hidden></div>
-</div>
-
-<div class="card" id="logCard">
-  <div class="section-title">Log</div>
-  <div class="q-group">Generation</div>
-  <div class="log" id="log"><span class="empty-log">No run yet.</span></div>
-  <div class="q-group only-shorts">Upload</div>
-  <div class="log only-shorts" id="uploadLog"><span class="empty-log">No upload yet.</span></div>
-</div>
-
 <div class="card" id="quotaCard">
   <div class="section-title">Quota today</div>
   <div id="quota"></div>
@@ -1432,7 +1424,7 @@ function inView(id) {
   const box = $(id).getBoundingClientRect();
   return box.top < window.innerHeight - $('stick').offsetHeight && box.bottom > 0;
 }
-const STRIP_SECTIONS = { run: ['runCard', 'queueCard', 'logCard'], upload: ['queueCard', 'logCard', 'videosCard'] };
+const STRIP_SECTIONS = { run: ['runCard'], upload: ['runCard', 'videosCard'] };
 const stripActive = { run: false, upload: false };
 function syncStrips() {
   for (const job of Object.keys(STRIP_SECTIONS)) {
@@ -1522,8 +1514,6 @@ async function poll() {
   $('dot').className = 'dot' + (running || nextUp ? ' on' : (data.returncode && !data.stopped ? ' fail' : ''));
   $('jumpDot').className = $('dot').className;
   $('jumpRun').textContent = runShort(data, nextUp);
-  $('jumpQueue').textContent = runsQueued + uploadsQueued + data.stopped_runs.length;
-  $('queueEmpty').hidden = !$('runQueue').hidden || !$('stoppedRuns').hidden || !$('uploadQueue').hidden;
   renderStrips(data);
   $('go').disabled = submitting;
   $('check').hidden = running;
@@ -1573,6 +1563,11 @@ async function poll() {
   renderVideos();
 }
 
+// A folded log has no height to scroll, so it catches up as it opens.
+$('logBox').addEventListener('toggle', () => {
+  if (autoScroll) $('log').scrollTop = $('log').scrollHeight;
+  $('uploadLog').scrollTop = $('uploadLog').scrollHeight;
+});
 $('log').addEventListener('scroll', () => {
   const el = $('log');
   autoScroll = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
