@@ -1,46 +1,28 @@
-# Dependencies
-node_modules/
-venv/
-
-# Environment variables (Critical for security)
+# Secrets
 .env
+client_secrets.json
+token.pickle
 
-# System files
-.DS_Store
-Thumbs.db
-
-# Build outputs
-/dist
-/build
-/video-gen
+# What runs make
+/logs
+/runs
+/inputs
+/output
 /assets/audio_clips
 /assets/final
-/0_output/*
-/1_uploaded/*
-/2_badOutput/*
-!/0_output/.gitkeep
-!/1_uploaded/.gitkeep
-!/2_badOutput/.gitkeep
-!/2_badOutput/notes.md
-/logs
 /assets/temp
 /assets/video_clips
 /assets/search_cache
-/assets/runs
 /assets/models
+/assets/runs
+/assets/avatar/avatar*.jpg
+/assets/avatar/avatars.mp4
+
 __pycache__/
 *.pyc
-/assets/avatar/avatar.mp4
-/assets/avatar/Gemini_Generated_Image_ww2ko4ww2ko4ww2k.png
 *.log
-
-# YouTube API credentials (NEVER commit!)
-client_secrets.json
-token.pickle
-upload_history.json
-metadata_review.json
-
-# Persona images used as the avatar reference (one is picked per video)
-/assets/avatar/avatar*.jpg
-
+venv/
+node_modules/
 .vscode/settings.json
+.DS_Store
+Thumbs.db

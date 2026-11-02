@@ -1,0 +1,1666 @@
+{% extends "base.html" %}
+{% block body %}
+<style>
+  .status { display: flex; align-items: center; gap: 9px; font-size: .9rem; margin-bottom: 12px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.on { background: var(--ok); animation: pulse 1.4s infinite; }
+  .dot.ok { background: var(--ok); }
+  .dot.fail { background: var(--err); }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .3 } }
+  .log {
+    background: #0a0b0f;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    max-height: 340px;
+    overflow: auto;
+    font-size: .84rem;
+    line-height: 1.5;
+    color: #cbd0dd;
+  }
+  .log .empty-log { color: var(--muted); }
+  .estimate { margin-top: 12px; font-size: .9rem; }
+  .estimate .err { margin: 0; }
+  .eta-detail .changes { max-height: 7.5em; overflow-y: auto; margin-top: 2px; }
+  #uploadBox .status { margin-bottom: 8px; }
+  #stopUpload { width: auto; margin: 0 0 0 auto; padding: 4px 10px; font-size: .8rem; }
+  .queue { margin-top: 12px; font-size: .84rem; }
+  .queue-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; margin-bottom: 4px; }
+  .queue-head b { font-weight: 600; }
+  .queue-head .when { color: var(--muted); font-size: .78rem; }
+  .queue-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+  .queue-item .what { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .queue-item .hint { margin-top: 0; }
+  .queue-item .when { color: var(--muted); font-size: .78rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .queue button { width: auto; margin: 0; padding: 4px 10px; font-size: .78rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+  .queue .results { margin-top: 6px; }
+  .queue .failed { color: var(--err); }
+  /* One row per line: a muted timestamp gutter, then the text colour-coded by kind. */
+  .ln { display: grid; grid-template-columns: 5.2em minmax(0, 1fr); gap: 10px; padding: 1px 0; }
+  .ln .t { color: #5d6376; font: .74rem/1.9 ui-monospace, "Cascadia Mono", Consolas, monospace; user-select: none; }
+  .ln .x { white-space: pre-wrap; word-break: break-word; }
+  .ln.err .x { color: var(--err); }
+  .ln.warn .x { color: #f2b84b; }
+  .ln.ok .x { color: var(--ok); }
+  .ln.dim .x { color: var(--muted); }
+  .ln.stage { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line); }
+  .ln.stage:first-child { margin-top: 0; padding-top: 1px; border-top: 0; }
+  .ln.stage .x { color: var(--accent); font-weight: 700; }
+  .hint { color: var(--muted); font-size: .78rem; margin-top: 5px; line-height: 1.4; }
+  .hint b { color: var(--text); font-weight: 600; }
+  /* Two range inputs on one track: only their thumbs take the pointer. */
+  .range-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .range-head label { margin-bottom: 0; }
+  .range-head output { font-size: .85rem; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .range { position: relative; height: 26px; margin-top: 2px; }
+  .range::before, .range .fill { content: ""; position: absolute; top: 11px; height: 4px; border-radius: 2px; }
+  .range::before { left: 0; right: 0; background: var(--line); }
+  .range .fill { background: var(--accent); }
+  .pipeline-form .range input[type=range] {
+    position: absolute; inset: 0; width: 100%; height: 26px; margin: 0; padding: 0;
+    background: none; border: 0; outline: 0; appearance: none; -webkit-appearance: none; pointer-events: none;
+  }
+  .range input::-webkit-slider-runnable-track { background: none; }
+  .range input::-moz-range-track { background: none; }
+  .range input::-webkit-slider-thumb {
+    -webkit-appearance: none; pointer-events: auto; cursor: pointer;
+    width: 20px; height: 20px; border-radius: 50%; background: var(--accent); border: 3px solid var(--panel);
+  }
+  .range input::-moz-range-thumb {
+    pointer-events: auto; cursor: pointer; box-sizing: border-box;
+    width: 20px; height: 20px; border-radius: 50%; background: var(--accent); border: 3px solid var(--panel);
+  }
+  .range input:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--text); }
+  .range input:focus-visible::-moz-range-thumb { outline: 2px solid var(--text); }
+  h2 { font-size: .95rem; margin: 0 0 4px; }
+  .section { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 4px; }
+  .form-col:first-child > .section:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+  .section-title { font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin: 14px 0 0; font-weight: 700; }
+  .check { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; cursor: pointer; text-transform: none; letter-spacing: 0; font-size: .95rem; color: var(--text); }
+  .check input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
+  .check .hint { margin-top: 2px; }
+  .btns { display: flex; gap: 10px; }
+  .btns button { margin-top: 0; white-space: nowrap; }
+  .btns .ghost { flex: 0 0 34%; }
+  .btns .danger { background: var(--err); }
+  .run-sep { border-top: 1px solid var(--line); margin: 14px 0 12px; }
+  .sys { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: .85rem; }
+  .sys .item { display: flex; align-items: center; gap: 8px; }
+  .phone { font-size: .82rem; color: var(--muted); margin-top: 10px; }
+  .phone code { color: var(--text); background: var(--panel-2); padding: 2px 6px; border-radius: 6px; user-select: all; }
+  .vhead { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .tabs { display: flex; gap: 6px; flex: 1 1 auto; }
+  .tabs button, .vhead > button { margin: 0; padding: 8px 10px; font-size: .82rem; white-space: nowrap; }
+  .tabs button { background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
+  .tabs button.active { background: var(--panel); color: var(--text); border-color: var(--accent); }
+  .vhead > button { width: auto; flex: 1 0 auto; }
+  /* One portrait video per slide; swipe, or use the arrows below. */
+  .carousel {
+    position: relative;
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+  .carousel::-webkit-scrollbar { display: none; }
+  .vid { flex: 0 0 78%; min-width: 0; scroll-snap-align: center; display: flex; flex-direction: column; }
+  .vid video { width: 100%; aspect-ratio: 9 / 16; max-height: 70vh; object-fit: contain; border-radius: 10px; background: #000; display: block; }
+  .vid h3 { margin: 9px 0 2px; font-size: .9rem; font-weight: 600; line-height: 1.3; }
+  .vid .meta { color: var(--muted); font-size: .74rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .acts { display: flex; gap: 8px; margin-top: 9px; }
+  .acts a, .acts button {
+    flex: 1; margin: 0; padding: 10px; font-size: .85rem; text-align: center;
+    text-decoration: none; border-radius: 9px; font-weight: 600;
+  }
+  .acts a { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
+  .acts .del { flex: 0 0 34%; background: transparent; border: 1px solid var(--line); color: var(--muted); }
+  .cnav { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 10px; font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .cnav button { width: auto; margin: 0; padding: 5px 16px; font-size: 1rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+  .empty { color: var(--muted); font-size: .88rem; text-align: center; padding: 22px 0; flex: 1; }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .top a { color: var(--muted); font-size: .8rem; text-decoration: none; }
+  .top .sub { margin-bottom: 6px; }
+  details summary { cursor: pointer; font-size: .95rem; font-weight: 600; }
+  .hidden { display: none !important; }
+  .dashboard { display: flex; flex-direction: column; }
+  .stepper { display: flex; gap: 4px; margin: 2px 0 12px; }
+  .step { flex: 1; text-align: center; font-size: .66rem; color: var(--muted); padding-top: 7px; border-top: 3px solid var(--line); line-height: 1.25; }
+  .step.done { border-color: var(--ok); color: var(--text); }
+  .step.now { border-color: var(--accent); color: var(--text); font-weight: 700; }
+  .step .eta { display: block; margin-top: 2px; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+  .now-line { font-size: .92rem; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+  .now-line .time { color: var(--muted); font-size: .8rem; font-variant-numeric: tabular-nums; }
+  .comfy-now { margin-top: 12px; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; }
+  .bar { height: 6px; background: #0a0b0f; border-radius: 4px; overflow: hidden; margin-top: 8px; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+  .gpu { margin: 10px 0 12px; font-variant-numeric: tabular-nums; }
+  .q-group { font-size: .72rem; color: var(--muted); margin: 9px 0 2px; }
+  .q-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; font-size: .78rem; padding: 2px 0; }
+  .q-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .q-val { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .q-bar { grid-column: 1 / -1; height: 3px; background: #0a0b0f; border-radius: 2px; overflow: hidden; }
+  .q-bar > div { height: 100%; background: var(--ok); }
+  .q-row.low .q-val { color: #f2b84b; }
+  .q-row.low .q-bar > div { background: #f2b84b; }
+  .q-row.out .q-val { color: var(--err); }
+  .q-row.out .q-bar > div { background: var(--err); }
+  /* Each side only shows what applies to it. */
+  body.on-video .only-shorts, body.on-shorts .only-video { display: none !important; }
+  .switch { display: flex; gap: 4px; padding: 6px 16px 0; }
+  .switch button {
+    flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0; padding: 6px; font-size: .88rem;
+    background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); border-radius: 10px;
+  }
+  .switch button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .pipeline-form textarea { min-height: 84px; resize: vertical; }
+  .pipeline-form input[type=file] { padding: 9px; font-size: .9rem; }
+  #duration { padding: 0; margin-top: 8px; height: 22px; background: none; border: 0; outline: 0; accent-color: var(--accent); }
+  .image-boxes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 12px; }
+  .image-box { min-width: 0; }
+  .image-box button { width: auto; margin: 6px 0 0; padding: 4px 10px; font-size: .78rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+  .preview { display: block; width: 100%; max-height: 220px; object-fit: contain; margin-top: 8px; border-radius: 10px; background: #000; }
+  /* Films are as wide as the card; Shorts stand upright. */
+  body.on-video .vid { flex-basis: 100%; }
+  body.on-video .vid video { aspect-ratio: 16 / 9; max-height: none; }
+  /* A film's prompts: read and change them before anything renders. */
+  dialog { width: min(860px, calc(100vw - 24px)); max-height: calc(100vh - 24px); padding: 0; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 14px; }
+  dialog::backdrop { background: rgba(0, 0, 0, .7); }
+  .shots-head { padding: 16px 16px 10px; border-bottom: 1px solid var(--line); }
+  .shots-head h2 { margin: 0; font-size: 1.05rem; }
+  .shots-list { padding: 4px 16px; }
+  .shot { padding: 12px 0; border-top: 1px solid var(--line); }
+  .shot:first-child { border-top: 0; }
+  .shot-title { display: flex; justify-content: space-between; gap: 10px; font-size: .9rem; }
+  .shot-title span { color: var(--muted); font-size: .78rem; white-space: nowrap; }
+  .shot video { width: 100%; max-height: 300px; margin-top: 8px; border-radius: 8px; background: #000; display: block; }
+  .shot textarea { min-height: 96px; margin-top: 8px; font-size: .9rem; line-height: 1.4; resize: vertical; }
+  .shot button { width: auto; margin: 8px 0 0; padding: 6px 12px; font-size: .8rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+  .shots-foot { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; background: var(--panel); border-top: 1px solid var(--line); }
+  .shots-foot button { flex: 1 1 28%; margin: 0; padding: 11px; font-size: .9rem; white-space: nowrap; }
+  .shots-foot .plain { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+  /* Phones: the page is one long column, so this stays at the bottom to get around it. */
+  .stick {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+    display: flex; flex-direction: column;
+    padding-bottom: env(safe-area-inset-bottom);
+    background: var(--bg); border-top: 1px solid var(--line);
+  }
+  .stick .strip { order: -1; padding-top: 6px; }
+  .wrap { padding-bottom: calc(var(--head, 130px) + 16px); }
+  .jump { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 5px; padding: 6px 16px; }
+  .jump a {
+    grid-column: span 3; display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; overflow: hidden;
+    color: var(--muted); font-size: .76rem; font-weight: 600; text-decoration: none; white-space: nowrap;
+  }
+  .jump a.options { grid-column: span 4; }
+  .jump a.run { grid-column: span 8; }
+  .jump a.active { background: var(--panel); color: var(--text); border-color: var(--accent); }
+  .jump small { font-size: .74rem; font-weight: 400; overflow: hidden; text-overflow: ellipsis; }
+  .strip { padding: 0 16px 7px; font-size: .78rem; }
+  .strip-head { display: flex; justify-content: space-between; gap: 10px; }
+  .strip-head b { font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .strip-head span { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .strip .bar { height: 3px; margin-top: 4px; }
+  .strip .hint { margin-top: 3px; font-size: .72rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  /* How far along can't be told: it says it's working, not how much is done. */
+  .bar.busy > div { animation: slide 1.4s ease-in-out infinite; }
+  @keyframes slide { from { margin-left: -30%; } to { margin-left: 100%; } }
+  .dashboard .card { scroll-margin-top: 8px; }
+  .options-col { min-width: 0; }
+  .form-actions { margin-top: 16px; }
+  .form-actions .btns { margin-top: 0; }
+  .form-actions #go { margin-top: 0; }
+  .current-work { font-size: .95rem; font-weight: 600; margin-bottom: 8px; overflow-wrap: anywhere; }
+  .run-card .btns:empty { display: none; }
+  #stop { margin: 0 0 12px; }
+  .card > .section-title:first-child { margin-top: 0; }
+  /* Desktop: options (two columns), the run, queue, log and
+     quota cards and, from 1280px, the portrait videos on the far right, all on one
+     screen. Narrower desktops put the videos underneath. Phones keep one column. */
+  @media (min-width: 1000px) {
+    .jump, .strip { display: none; }
+    .stick { position: static; margin: 0 0 12px; padding: 0; background: none; border: 0; }
+    .switch { padding: 0; max-width: 360px; }
+    .wrap { padding-bottom: 20px; }
+    .run-card { grid-column: 1 / -1; }
+    .form-actions { grid-column: 1 / -1; }
+    #formVideo { display: block; }
+    .wrap { max-width: 1880px; padding: 14px 20px 20px; }
+    .top { align-items: baseline; margin-bottom: 12px; }
+    .top .title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
+    .top .sub { margin: 0; }
+    .dashboard {
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(340px, 1fr);
+      align-items: start;
+      gap: 16px;
+    }
+    .dashboard > .card { margin-bottom: 0; min-width: 0; }
+    .side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+    .side > .card { margin-bottom: 0; }
+    .videos-card { grid-column: 1 / -1; }
+    .vid { flex-basis: 260px; }
+    .pipeline-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 22px; }
+    .pipeline-form input:not([type=checkbox]), .pipeline-form select { padding: 9px 11px; font-size: .95rem; }
+    .pipeline-form label { margin: 9px 0 4px; }
+    .pipeline-form .section { margin-top: 12px; }
+    .pipeline-form .form-col > .section:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+    .pipeline-form .section-title { margin-top: 10px; }
+  }
+  @media (min-width: 1280px) {
+    .wrap { height: 100vh; display: flex; flex-direction: column; }
+    .dashboard {
+      flex: 1;
+      min-height: 540px;
+      grid-template-columns: minmax(500px, 1.25fr) minmax(360px, 1.35fr) minmax(260px, .7fr);
+      grid-template-rows: auto minmax(0, 1fr);
+      align-items: stretch;
+    }
+    .dashboard > .card { overflow: auto; }
+    .side, .options-col { overflow: auto; min-height: 0; }
+    .run-card { max-height: 34vh; }
+    .side > .card { flex: none; }
+    .videos-card { grid-column: auto; display: flex; flex-direction: column; overflow: hidden !important; }
+    .carousel { flex: 1; min-height: 0; }
+    .vid { flex-basis: 100%; }
+    .vid video { flex: 1 1 0; min-height: 0; aspect-ratio: auto; max-height: none; }
+  }
+</style>
+
+<div class="top">
+  <div class="title">
+    <h1>🎬 ComfyUI auto-gen</h1>
+  </div>
+  <div style="display:flex;gap:14px;align-items:center">
+    <a href="#" id="shutdown" title="Force-stops everything, then the panel's server. Start it again with start_webapp.pyw or the ComfyUI auto-gen shortcut.">Shut down</a>
+    {% if protected %}<a href="{{ url_for('logout') }}">Sign out</a>{% endif %}
+  </div>
+</div>
+
+<div class="stick" id="stick">
+  <div class="switch" role="tablist" aria-label="Pipeline">
+    <button type="button" id="switchShorts" data-pipeline="shorts" role="tab">Shorts<span class="dot on hidden"></span></button>
+    <button type="button" id="switchVideo" data-pipeline="video" role="tab">Video<span class="dot on hidden"></span></button>
+  </div>
+  <nav class="jump" id="jump" aria-label="Sections">
+    <a href="#runCard" class="run"><span class="dot" id="jumpDot"></span>Status<small id="jumpRun">Idle</small></a>
+    <a href="#optionsCard" class="options">Options</a>
+    <a href="#queueCard">Queue (<span id="jumpQueue">0</span>)</a>
+    <a href="#logCard">Log</a>
+    <a href="#quotaCard">Quota</a>
+    <a href="#videosCard">Videos (<span id="jumpCount">0</span>)</a>
+  </nav>
+  <div class="strip" id="runStrip" hidden>
+    <div class="strip-head"><b id="runStripText"></b><span id="runStripRight"></span></div>
+    <div class="bar"><div id="runStripBar"></div></div>
+    <div class="hint" id="runStripHint"></div>
+  </div>
+  <div class="strip only-shorts" id="uploadStrip" hidden>
+    <div class="strip-head"><b id="uploadStripText"></b><span id="uploadStripRight"></span></div>
+    <div class="bar"><div id="uploadStripBar"></div></div>
+    <div class="hint" id="uploadStripHint"></div>
+  </div>
+</div>
+
+<div class="dashboard">
+<div class="card run-card" id="runCard">
+  <div class="section-title">Status</div>
+  <button type="button" class="danger" id="stop" hidden>Stop</button>
+  <div class="current-work" id="currentWork" hidden></div>
+  <div class="status">
+    <span class="dot" id="dot"></span>
+    <span id="statusText">Idle</span>
+  </div>
+  <div class="hint eta-detail" id="etaDetail" hidden></div>
+  <div id="now" class="hidden">
+    <div class="stepper" id="stepper"></div>
+    <div class="now-line"><b id="stageName"></b><span class="time" id="stageTime"></span></div>
+    <div class="hint" id="stageDetail"></div>
+    <div id="comfyNow" class="comfy-now hidden">
+      <div class="now-line"><span>ComfyUI:</span><b id="comfyLabel"></b><span class="time" id="comfySteps"></span></div>
+      <div class="bar"><div id="comfyBar"></div></div>
+      <div class="hint" id="comfyMeta"></div>
+    </div>
+  </div>
+  <div class="hint gpu" id="gpuLine"></div>
+  <div class="sys" title="Generate starts it when the run needs avatar clips and COMFYUI_LAUNCHER is set in .env.">
+    <div class="item"><span class="dot" id="comfyDot"></span><span id="comfyText">ComfyUI: checking…</span></div>
+  </div>
+
+  <div id="uploadBox" class="only-shorts" hidden>
+    <div class="status">
+      <span class="dot" id="uploadDot"></span>
+      <span id="uploadStatus"></span>
+      <button type="button" class="danger" id="stopUpload" hidden>Stop</button>
+    </div>
+  </div>
+  <div class="phone">📱 Phone (same Wi-Fi): <code>{{ phone_url }}</code></div>
+</div>
+
+<div class="options-col" id="optionsCard">
+<form class="card pipeline-form only-shorts" id="formShorts">
+  <div class="form-col">
+    <div class="section" id="formTopic">
+      <div class="section-title">What to make</div>
+
+      <label for="topic">Topic</label>
+      <input id="topic" name="topic" placeholder="e.g. Why the Sahara was once green" autocomplete="off">
+      <div class="hint">Leave empty for an AI pick. Topics already made aren't repeated.</div>
+
+      <div class="row">
+        <div>
+          <label for="runs">How many videos</label>
+          <input id="runs" name="runs" type="number" min="1" max="10" value="1" inputmode="numeric">
+        </div>
+        <div>
+          <label for="lang">Language</label>
+          <select id="lang" name="lang">
+            <option value="en-GB">English (UK)</option>
+            <option value="en-US">English (US)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="section" id="formVoice">
+      <div class="section-title">Voice</div>
+      <label for="voice">Narrator</label>
+      <select id="voice" name="voice">
+        {% for value, label in voices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+      </select>
+      <div class="hint">If both Gemini voice models fail, the run stops.</div>
+    </div>
+  </div>
+
+  <div class="form-col">
+    <div class="section" id="formAvatar">
+      <div class="section-title">Avatar (presenter)</div>
+      <label for="avatar_clips">When she appears</label>
+      <select id="avatar_clips" name="avatar_clips">
+        <option value="auto">Auto — opens the video, then the scenes with the weakest stock footage</option>
+        <option value="3">Opens the video + 2 middle scenes (3 clips)</option>
+        <option value="2">2 middle scenes only (2 clips)</option>
+        <option value="0">No avatar — stock footage only</option>
+      </select>
+      <div class="hint"><b>Auto</b> gives her the opening and the scenes with the weakest stock footage.</div>
+
+      <div id="avatarOpts">
+        <div id="clipsSlider">
+          <div class="range-head"><label>Clips per video</label><output id="clipsText"></output></div>
+          <div class="range" id="clipsRange">
+            <div class="fill"></div>
+            <input type="range" name="avatar_clips_min" min="1" max="9" value="3" aria-label="Fewest clips per video">
+            <input type="range" name="avatar_clips_max" min="1" max="9" value="5" aria-label="Most clips per video">
+          </div>
+        </div>
+        <div class="range-head"><label>Clip length</label><output id="secondsText"></output></div>
+        <div class="range" id="secondsRange">
+          <div class="fill"></div>
+          <input type="range" name="avatar_seconds_min" min="2" max="10" value="3" aria-label="Shortest clip in seconds">
+          <input type="range" name="avatar_seconds_max" min="2" max="10" value="6" aria-label="Longest clip in seconds">
+        </div>
+        <div class="hint">A longer line cuts to stock footage while her voice carries on.</div>
+        <div class="hint" id="avatarMix"></div>
+
+        <div class="row">
+          <div>
+            <label for="avatar_source">Source</label>
+            <select id="avatar_source" name="avatar_source">
+              <option value="comfyui">Generate with ComfyUI</option>
+              <option value="static" {% if not static_avatar %}disabled{% endif %}>Static clip (avatars.mp4){% if not static_avatar %} — not found{% endif %}</option>
+            </select>
+          </div>
+          <div>
+            <label for="avatar_style">Style</label>
+            <select id="avatar_style" name="avatar_style">
+              <option value="lipsync">Speaks the line (lip-sync)</option>
+              <option value="reaction">Silent reactions</option>
+            </select>
+          </div>
+        </div>
+        <label for="workflow">ComfyUI workflow</label>
+        <select id="workflow" name="workflow">
+          <option value="">LTX-2.3</option>
+        </select>
+        <button type="button" class="ghost" id="comfyStart" title="Only ComfyUI can list what's saved in it." hidden>Start ComfyUI</button>
+        <div class="hint" id="workflowHint">Replaces Style. Each needs a Load Audio node feeding the video.</div>
+      </div>
+    </div>
+
+    <div class="section" id="formPublish">
+      <div class="section-title">Publish</div>
+      <label class="check">
+        <input type="checkbox" name="upload" id="upload">
+        <span>Upload to YouTube when done
+        </span>
+      </label>
+      <label for="privacy">Privacy</label>
+      <select id="privacy" name="privacy">
+        <option value="public" selected>Public</option>
+        <option value="unlisted">Unlisted — anyone with the link</option>
+        <option value="private">Private — only you</option>
+      </select>
+      <div class="hint">YouTube forces uploads from an unverified Google app to private.</div>
+    </div>
+
+    <div class="section" id="formAdvanced">
+      <details>
+        <summary>Advanced</summary>
+        <label for="output">File name (single video only)</label>
+        <input id="output" name="output" placeholder="short_YYYYMMDD_HHMMSS_model.mp4" autocomplete="off">
+
+        <label class="check">
+          <input type="checkbox" name="fail_fast">
+          <span>Stop the batch at the first failed video
+          </span>
+        </label>
+        <label class="check">
+          <input type="checkbox" name="keep_cache">
+          <span>Keep intermediate files
+            <div class="hint">Normally deleted after each video.</div>
+          </span>
+        </label>
+      </details>
+    </div>
+  </div>
+
+</form>
+
+<form class="card pipeline-form only-video" id="formVideo">
+  <div class="section">
+    <div class="section-title">What to make</div>
+    <div class="image-boxes" id="imageBoxes"></div>
+    <div id="secondImage" hidden>
+      <label for="secondImageRole">What image 2 is</label>
+      <select id="secondImageRole" name="image_2_role">
+        <option value="context">Extra context: more of the character in image 1, or the place to put them in</option>
+        <option value="character">Another character</option>
+      </select>
+      <div class="hint" id="secondImageHint"></div>
+    </div>
+
+    <label for="audioMode">Audio</label>
+    <select id="audioMode" name="audio_mode">
+      <option value="none">None</option>
+      <option value="file">Upload a file</option>
+      <option value="text">Text to speech</option>
+    </select>
+    <div id="audioFileBox" class="hidden">
+      <label for="audioFile">Audio file</label>
+      <input id="audioFile" name="audio_file" type="file" accept="audio/*,video/*">
+    </div>
+    <div id="narrationBox" class="hidden">
+      <label for="narration">What to say</label>
+      <textarea id="narration" name="narration" placeholder="The film is voiced with this, and its shots follow it."></textarea>
+      <label for="videoVoice">Voice</label>
+      <select id="videoVoice" name="voice">
+        {% for value, label in voices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="hint" id="audioHint" hidden>The film is as long as the audio. A workflow with Load Audio gets it per clip.</div>
+
+    <label for="prompt">What should happen</label>
+    <textarea id="prompt" name="prompt" placeholder="e.g. A storm rolls in over the harbour and the fishing boats race home"></textarea>
+    <div class="hint">A sentence or two is enough.</div>
+
+    <div id="durationBox">
+    <div class="range-head" style="margin-top:12px"><label for="duration">Film length</label><output id="durationText"></output></div>
+    <input id="duration" name="duration" type="range" min="{{ film_limits[0] }}" max="{{ film_limits[1] }}" step="5" value="{{ film_limits[2] }}">
+    </div>
+
+    <label for="sizePreset">Resolution</label>
+    <select id="sizePreset">
+      <option value="">Highest (720p), in the shape of image 1</option>
+      <optgroup label="Landscape 16:9">
+        {% for name, width, height in size_presets %}<option value="{{ width }}x{{ height }}">{{ name }} ({{ width }}x{{ height }})</option>{% endfor %}
+      </optgroup>
+      <optgroup label="Portrait 9:16">
+        {% for name, width, height in size_presets %}<option value="{{ height }}x{{ width }}">{{ name }} ({{ height }}x{{ width }})</option>{% endfor %}
+      </optgroup>
+      <option value="custom">Custom size</option>
+    </select>
+    <input id="size" name="size" placeholder="Such as 1280x736, rounded to multiples of 32" autocomplete="off" style="margin-top:8px" hidden>
+    <div class="hint">Lower renders faster. An image of another shape gets cropped.</div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">How</div>
+    <label for="llm">Who writes the prompts</label>
+    <select id="llm" name="llm">
+      {% for llm in llms %}<option value="{{ llm.name }}" {% if not llm.ready %}disabled{% endif %}>{{ llm.label }}{% if not llm.ready %} (no key in .env){% endif %}</option>{% endfor %}
+    </select>
+
+    <label for="videoWorkflow">ComfyUI workflow</label>
+    <select id="videoWorkflow" name="workflow">
+      <option value="">Built-in LTX</option>
+    </select>
+    <div class="hint" id="videoWorkflowHint">The image boxes above change to what it takes.</div>
+
+    <label for="start">How clips connect</label>
+    <select id="start" name="start">
+      <option value="chain">One continuous take: each clip starts on the last frame of the one before</option>
+      <option value="image">Separate moments: each clip starts on your image, with a fade between</option>
+    </select>
+    <div class="hint">Redoing a shot in a continuous take also redoes the ones after it.</div>
+
+    <label class="check">
+      <input type="checkbox" name="review" id="review">
+      <span>Let me read the prompts before rendering
+        <div class="hint">Stops after the prompts are written, so you can change them.</div>
+      </span>
+    </label>
+  </div>
+</form>
+
+</div>
+
+<div class="side">
+<div class="card" id="queueCard">
+  <div class="section-title">Queue</div>
+  <div class="hint" id="queueEmpty">Nothing waiting.</div>
+  <div class="queue" id="runQueue" data-lane="run" data-title="Runs" hidden></div>
+  <div class="queue" id="stoppedRuns" hidden></div>
+  <div class="queue only-shorts" id="uploadQueue" data-lane="upload" data-title="Uploads" hidden></div>
+</div>
+
+<div class="card" id="logCard">
+  <div class="section-title">Log</div>
+  <div class="q-group">Generation</div>
+  <div class="log" id="log"><span class="empty-log">No run yet.</span></div>
+  <div class="q-group only-shorts">Upload</div>
+  <div class="log only-shorts" id="uploadLog"><span class="empty-log">No upload yet.</span></div>
+</div>
+
+<div class="card" id="quotaCard">
+  <div class="section-title">Quota today</div>
+  <div id="quota"></div>
+  <div class="hint"><span id="quotaReset"></span> Gemini and YouTube are counted from this app's own calls.</div>
+</div>
+</div>
+
+<div class="card videos-card" id="videosCard">
+  <div class="vhead">
+    <div class="tabs only-shorts">
+      <button type="button" id="tabOutput" class="active">Ready (<span id="countOutput">0</span>)</button>
+      <button type="button" id="tabUploaded">Uploaded (<span id="countUploaded">0</span>)</button>
+    </div>
+    <button type="button" class="ghost" id="openFolder" title="Open this tab's folder in File Explorer." {% if not can_open_folders %}hidden{% endif %}>Open folder</button>
+    <button type="button" class="only-shorts" id="uploadAll" {% if not can_upload %}disabled title="Set the YouTube keys in .env first (run scripts/authorize_youtube.py once)."{% endif %}>Upload all</button>
+  </div>
+  <div class="carousel" id="videos"></div>
+  <div class="cnav" id="cnav" hidden>
+    <button type="button" id="prevVid" aria-label="Previous video">‹</button>
+    <span id="vidPos"></span>
+    <button type="button" id="nextVid" aria-label="Next video">›</button>
+  </div>
+</div>
+</div>
+
+<div class="form-actions" id="formActions">
+  <div class="btns">
+    <button type="button" class="ghost" id="check" title="Verifies keys, ffmpeg and ComfyUI for these options without making anything.">Check setup</button>
+    <button type="button" id="go">Generate</button>
+  </div>
+  <div class="err" id="formError" hidden></div>
+  <div class="hint" id="formNote" hidden></div>
+  <div class="estimate" id="estimate" hidden>
+    <div class="hint" id="estimateContinues" hidden></div>
+    <div id="estimateTotal"></div>
+    <div class="hint" id="estimateDetail"></div>
+  </div>
+</div>
+
+<dialog id="shotsDialog"><div id="shotsBody"></div></dialog>
+
+<script>
+const $ = id => document.getElementById(id);
+const STORE_KEY = 'autoshorts.form.v3';  // v3: privacy became public by default; older saves kept the old default
+let autoScroll = true;
+let folder = 'output';
+let lastVideos = { output: [], uploaded: [], video: [] };
+let pipeline = 'shorts';
+const PIPELINE_KEY = 'comfyui-auto-gen.pipeline';
+
+const DEFAULTS = {
+  avatar_source: {{ (defaults.avatar_source if defaults.avatar_source in ['comfyui', 'static'] else 'comfyui') | tojson }},
+  avatar_clips: {{ defaults.avatar_clips | tojson }},
+  avatar_clips_min: {{ defaults.avatar_clips_min | tojson }},
+  avatar_clips_max: {{ defaults.avatar_clips_max | tojson }},
+  avatar_seconds_min: {{ defaults.avatar_seconds_min | tojson }},
+  avatar_seconds_max: {{ defaults.avatar_seconds_max | tojson }},
+};
+
+// --- Remember the last options (per browser) ---
+function saveForm() {
+  const data = {};
+  for (const el of $('formShorts').elements) {
+    if (!el.name || el.name === 'topic' || el.name === 'output') continue;
+    data[el.name] = el.type === 'checkbox' ? el.checked : el.value;
+  }
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch (e) {}
+}
+function loadForm() {
+  let data = {};
+  try {
+    data = JSON.parse(localStorage.getItem(STORE_KEY));
+    if (!data) {
+      data = JSON.parse(localStorage.getItem('autoshorts.form.v2'));
+      if (data) delete data.privacy;
+    }
+  } catch (e) {}
+  data = { ...DEFAULTS, ...data };
+  for (const el of $('formShorts').elements) {
+    if (!el.name || !(el.name in data)) continue;
+    if (el.type === 'checkbox') el.checked = !!data[el.name];
+    else if ([...(el.options || [])].some(o => o.value === String(data[el.name]) && !o.disabled) || !el.options) el.value = data[el.name];
+  }
+}
+// --- Workflows saved in ComfyUI ---
+const WORKFLOW_HINT = $('workflowHint').textContent;
+let workflowsFor = null;
+function rememberedWorkflow() {
+  try { return (JSON.parse(localStorage.getItem(STORE_KEY)) || {}).workflow || ''; } catch (e) { return ''; }
+}
+async function loadWorkflows() {
+  let data;
+  try { data = await (await fetch('/api/workflows?pipeline=shorts')).json(); } catch (e) { return; }
+  const select = $('workflow');
+  const key = JSON.stringify(data);
+  // Writing the options closes the list, and this also runs as it opens.
+  if (select.dataset.key === key) return;
+  const wanted = select.dataset.key ? select.value : rememberedWorkflow();
+  select.dataset.key = key;
+  const none = !data.online && !data.workflows.length;
+  select.innerHTML = '<option value="">LTX-2.3</option>' + data.workflows.map(w =>
+    `<option value="${esc(w.name)}">${esc(w.label)}</option>`).join('')
+    + (none ? '<option disabled>Yours appear once ComfyUI is on</option>' : '');
+  if (data.workflows.some(w => w.name === wanted)) select.value = wanted;
+  const off = data.online ? '' : none ? ' Start ComfyUI once to list yours.' : ' ComfyUI is off: this is the last list.';
+  $('workflowHint').textContent = WORKFLOW_HINT + off;
+  syncForm();
+}
+$('workflow').addEventListener('focus', loadWorkflows);
+$('comfyStart').addEventListener('click', async () => {
+  $('comfyStart').hidden = true;
+  const body = await (await fetch('/comfyui/start', { method: 'POST' })).json();
+  if (!body.ok) alert(body.error);
+});
+
+function syncForm() {
+  $('avatarOpts').classList.toggle('hidden', $('avatar_clips').value === '0');
+  $('clipsSlider').classList.toggle('hidden', $('avatar_clips').value !== 'auto');
+  $('workflow').disabled = $('avatar_source').value !== 'comfyui';
+  $('avatar_style').disabled = $('avatar_source').value !== 'comfyui' || !!$('workflow').value;
+  syncSliders();
+}
+$('formShorts').addEventListener('change', () => { syncForm(); saveForm(); });
+
+// --- Avatar sliders ---
+// A typical video, for the estimate of how much of it is her.
+const TYPICAL_VIDEO = 50, TYPICAL_SCENE = 5.5;
+function syncRange(id, moved) {
+  const box = $(id);
+  const [low, high] = box.querySelectorAll('input');
+  // The thumbs push each other along instead of crossing.
+  if (+low.value > +high.value) {
+    if (moved === high) low.value = high.value; else high.value = low.value;
+  }
+  const at = input => (input.value - input.min) / (input.max - input.min) * 100;
+  box.querySelector('.fill').style.left = `${at(low)}%`;
+  box.querySelector('.fill').style.right = `${100 - at(high)}%`;
+  return [+low.value, +high.value];
+}
+function syncSliders(moved) {
+  const [fewest, most] = syncRange('clipsRange', moved);
+  const [shortest, longest] = syncRange('secondsRange', moved);
+  $('clipsText').textContent = fewest === most ? `${most}` : `${fewest}–${most}`;
+  $('secondsText').textContent = shortest === longest ? `${longest} s` : `${shortest}–${longest} s`;
+
+  const layout = $('avatar_clips').value;
+  const [low, high] = layout === 'auto' ? [fewest, most] : [+layout, +layout];
+  const least = Math.round(low * Math.min(shortest, TYPICAL_SCENE));
+  const greatest = Math.round(high * Math.min(longest, TYPICAL_SCENE));
+  const share = s => Math.min(100, Math.round(100 * s / TYPICAL_VIDEO));
+  const span = (a, b) => a === b ? `${a}` : `${a}–${b}`;
+  $('avatarMix').innerHTML = `<b>About ${span(share(least), share(greatest))}% presenter</b>, the rest stock footage.`;
+}
+for (const id of ['clipsRange', 'secondsRange']) {
+  $(id).addEventListener('input', e => syncSliders(e.target));
+}
+
+// --- Videos ---
+function esc(s) { return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+const CAN_UPLOAD = {{ can_upload | tojson }};
+const NO_KEYS = 'Set the YouTube keys in .env first (run scripts/authorize_youtube.py once).';
+let busy = false;  // An upload is in progress or queued, or a run is uploading its own video: a new one waits.
+let uploadingNow = new Set(), uploadQueued = new Set();  // Videos an upload has already claimed.
+
+function slides() { return [...$('videos').querySelectorAll('.vid')]; }
+function currentSlide() {
+  const c = $('videos');
+  let best = 0, bestDist = Infinity;
+  slides().forEach((el, i) => {
+    const dist = Math.abs(el.offsetLeft - c.scrollLeft - (c.clientWidth - el.clientWidth) / 2);
+    if (dist < bestDist) { best = i; bestDist = dist; }
+  });
+  return best;
+}
+function goToSlide(i, smooth = true) {
+  const el = slides()[i];
+  if (!el) return;
+  slides().forEach(s => s.querySelector('video').pause());
+  const c = $('videos');
+  c.scrollTo({ left: el.offsetLeft - (c.clientWidth - el.clientWidth) / 2, behavior: smooth ? 'smooth' : 'auto' });
+}
+function updateNav() {
+  const n = slides().length;
+  $('cnav').hidden = n < 2;
+  const i = currentSlide();
+  $('vidPos').textContent = `${i + 1} / ${n}`;
+  $('prevVid').disabled = i === 0;
+  $('nextVid').disabled = i >= n - 1;
+}
+
+function unclaimedVideos() {
+  return lastVideos.output.filter(v => !uploadingNow.has(v.name) && !uploadQueued.has(v.name));
+}
+
+function renderVideos() {
+  const videos = lastVideos[folder] || [];
+  $('countOutput').textContent = lastVideos.output.length;
+  $('jumpCount').textContent = (pipeline === 'video' ? lastVideos.video : lastVideos.output).length;
+  $('countUploaded').textContent = lastVideos.uploaded.length;
+  $('uploadAll').hidden = folder !== 'output';
+  $('uploadAll').disabled = !CAN_UPLOAD || !unclaimedVideos().length;
+  $('uploadAll').textContent = busy ? 'Queue upload all' : 'Upload all';
+
+  const key = folder + '|' + videos.map(v => v.name + v.mtime + (v.topic || v.title || '')).join(',');
+  // Keep players that already exist so a poll does not interrupt playback.
+  if ($('videos').dataset.key !== key) {
+    const was = (slides()[currentSlide()] || {}).dataset;
+    $('videos').innerHTML = videos.length && folder === 'video' ? videos.map(filmHtml).join('') : videos.length ? videos.map(v => {
+      const name = esc(v.name), url = encodeURIComponent(v.name);
+      const main = folder === 'output'
+        ? `<button type="button" data-up="${name}" data-topic="${esc(v.topic || '')}">Upload</button>`
+        : `<a href="/download/${folder}/${url}">Download</a>`;
+      return `
+      <div class="vid" data-name="${name}">
+        <video controls preload="metadata" playsinline src="/videos/${folder}/${url}#t=0.1"></video>
+        <h3>${v.topic ? esc(v.topic) : '<span style="color:var(--muted)">No topic recorded</span>'}</h3>
+        <div class="meta" title="${name}">${v.model ? `${esc(v.model)} · ` : ''}${name} · ${v.created} · ${v.size_mb} MB</div>
+        <div class="acts">${main}<button type="button" class="del" data-del="${name}">Delete</button></div>
+      </div>`;
+    }).join('') : `<div class="empty">${folder === 'uploaded' ? 'Nothing uploaded yet.' : 'No videos waiting. Press Generate to make one.'}</div>`;
+    $('videos').dataset.key = key;
+    const back = was && slides().findIndex(s => s.dataset.name === was.name);
+    if (back > 0) goToSlide(back, false);
+  }
+  for (const b of $('videos').querySelectorAll('[data-up]')) {
+    const now = uploadingNow.has(b.dataset.up), queued = uploadQueued.has(b.dataset.up);
+    b.disabled = now || queued || !CAN_UPLOAD;
+    b.textContent = now ? 'Uploading…' : queued ? 'Queued' : busy ? 'Queue upload' : 'Upload';
+    b.title = CAN_UPLOAD ? '' : NO_KEYS;
+  }
+  updateNav();
+}
+
+async function startUpload(fields) {
+  const body = new FormData();
+  body.append('privacy', $('privacy').value);
+  for (const [k, v] of Object.entries(fields)) body.append(k, v);
+  const res = await fetch('/publish', { method: 'POST', body });
+  const data = await res.json();
+  if (!data.ok) alert(data.error || 'Could not start the upload.');
+  poll();
+}
+function privacyNote() { return `as ${$('privacy').value} (change it under Publish)`; }
+
+$('videos').addEventListener('click', async e => {
+  const d = e.target.dataset || {};
+  if (d.del) {
+    const after = folder === 'video' ? ' Its clips and prompts go too, so its shots can\'t be redone.'
+      : folder === 'output' ? ' Its topic can be used again.' : ' Its topic stays used, as it is on YouTube.';
+    if (!confirm('Delete ' + d.del + '?' + after)) return;
+    const body = await (await fetch(`/delete/${folder}/` + encodeURIComponent(d.del), { method: 'POST' })).json();
+    if (body.warning) alert(body.warning);
+    if (!body.ok) alert(body.error || 'Could not delete it.');
+    poll();
+  } else if (d.shots) {
+    openShots(d.shots);
+  } else if (d.up) {
+    let topic = '';
+    if (!d.topic) {
+      topic = (prompt(`No topic was recorded for ${d.up}. What is it about? Gemini writes the title and description from this.`) || '').trim();
+      if (!topic) return;
+    }
+    const when = busy ? ' when the current upload is done' : '';
+    if (!confirm(`Upload ${d.up} to YouTube ${privacyNote()}${when}?`)) return;
+    startUpload(topic ? { video: d.up, topic } : { video: d.up });
+  }
+});
+$('uploadAll').addEventListener('click', () => {
+  const videos = unclaimedVideos();
+  const missing = videos.filter(v => !v.topic).length;
+  const skip = missing ? `\n\n${missing} without a recorded topic will be skipped; upload those on their own.` : '';
+  const when = busy ? ' when the current upload is done' : '';
+  if (!confirm(`Upload ${videos.length} video(s) to YouTube ${privacyNote()}${when}?${skip}`)) return;
+  startUpload({});
+});
+$('openFolder').onclick = async () => {
+  const data = await (await fetch(`/folders/${folder}/open`, { method: 'POST' })).json();
+  if (!data.ok) alert(data.error || 'Could not open the folder.');
+};
+$('prevVid').onclick = () => goToSlide(currentSlide() - 1);
+$('nextVid').onclick = () => goToSlide(currentSlide() + 1);
+let navFrame = 0;
+$('videos').addEventListener('scroll', () => {
+  cancelAnimationFrame(navFrame);
+  navFrame = requestAnimationFrame(updateNav);
+});
+window.addEventListener('resize', () => goToSlide(currentSlide(), false));
+
+function setTab(f) {
+  folder = f;
+  $('tabOutput').classList.toggle('active', f === 'output');
+  $('tabUploaded').classList.toggle('active', f === 'uploaded');
+  $('videos').dataset.key = '';
+  $('videos').scrollLeft = 0;
+  renderVideos();
+}
+$('tabOutput').onclick = () => setTab('output');
+$('tabUploaded').onclick = () => setTab('uploaded');
+
+// --- Video: an image, a prompt, and prompts you can read before rendering ---
+const VIDEO_STORE_KEY = 'comfyui-auto-gen.video.v1';
+const VIDEO_DEFAULTS = { llm: {{ default_llm | tojson }}, review: true, duration: {{ film_limits[2] | tojson }}, privacy: 'private', start: 'chain' };
+// What belongs to one film rather than being the way you like to work.
+const NOT_REMEMBERED = ['prompt', 'size', 'image_2_role', 'narration'];
+// A file input also throws if you set its value.
+function remembered(el) { return el.name && el.type !== 'file' && !NOT_REMEMBERED.includes(el.name); }
+
+// --- Remember the last options (per browser) ---
+function saveVideoForm() {
+  const data = {};
+  for (const el of $('formVideo').elements) {
+    if (!remembered(el)) continue;
+    data[el.name] = el.type === 'checkbox' ? el.checked : el.value;
+  }
+  try { localStorage.setItem(VIDEO_STORE_KEY, JSON.stringify(data)); } catch (e) {}
+}
+function loadVideoForm() {
+  let data = {};
+  try { data = JSON.parse(localStorage.getItem(VIDEO_STORE_KEY)); } catch (e) {}
+  data = { ...VIDEO_DEFAULTS, ...data };
+  for (const el of $('formVideo').elements) {
+    if (!remembered(el) || !(el.name in data)) continue;
+    if (el.type === 'checkbox') { if (!el.disabled) el.checked = !!data[el.name]; }
+    else if (!el.options || [...el.options].some(o => o.value === String(data[el.name]) && !o.disabled)) el.value = data[el.name];
+  }
+}
+// --- Workflows saved in ComfyUI ---
+const VIDEO_WORKFLOW_HINT = $('videoWorkflowHint').textContent;
+const BUILT_IN_TAKES = { min_images: 1, max_images: 1 };
+let workflowTakes = {};
+function rememberedVideoWorkflow() {
+  try { return (JSON.parse(localStorage.getItem(VIDEO_STORE_KEY)) || {}).workflow || ''; } catch (e) { return ''; }
+}
+async function loadVideoWorkflows() {
+  let data;
+  try { data = await (await fetch('/api/workflows?pipeline=video')).json(); } catch (e) { return; }
+  const select = $('videoWorkflow');
+  const key = JSON.stringify(data);
+  // Writing the options closes the list, and this also runs as it opens.
+  if (select.dataset.key === key) return;
+  const wanted = select.dataset.key ? select.value : rememberedVideoWorkflow();
+  select.dataset.key = key;
+  select.innerHTML = '<option value="">Built-in LTX</option>' + data.workflows.map(w =>
+    `<option value="${esc(w.name)}">${esc(w.label)}</option>`).join('');
+  if (data.workflows.some(w => w.name === wanted)) select.value = wanted;
+  workflowTakes = Object.fromEntries(data.workflows.map(w => [w.name, w.takes]));
+  syncImageInput();
+  $('videoWorkflowHint').textContent = VIDEO_WORKFLOW_HINT + (data.online ? '' : ' ComfyUI is off: this is the last list.');
+}
+$('videoWorkflow').addEventListener('focus', loadVideoWorkflows);
+function imageBoxes() { return [...$('imageBoxes').querySelectorAll('.image-box')]; }
+// Clips with room for one image still leave image 2 for the LLM to put into words.
+function imageBoxCount(high) { return high === 1 ? 2 : high; }
+function imageLabel(number, low, high) {
+  const optional = number > low ? ' (optional)' : '';
+  if (number === 1 && high === 1) return low ? 'Image 1: first frame' : 'Image 1: first frame (optional: without one it starts from text)';
+  if (number === 1) return `Image 1: main subject${optional}`;
+  return number === 2 ? `Image 2: extra context${optional}` : `Image ${number}: another reference${optional}`;
+}
+function imageBoxHtml(number) {
+  const name = number === 1 ? 'image' : `image_${number}`;
+  return `
+  <div class="image-box">
+    <label for="${name}"></label>
+    <input id="${name}" name="${name}" type="file" accept="image/*">
+    <img class="preview hidden" alt="Image ${number}">
+    <button type="button" class="hidden" data-clear="1">Remove</button>
+  </div>`;
+}
+function showImage(box) {
+  const file = box.querySelector('input').files[0], preview = box.querySelector('img');
+  if (preview.src) URL.revokeObjectURL(preview.src);
+  preview.classList.toggle('hidden', !file);
+  box.querySelector('button').classList.toggle('hidden', !file);
+  if (file) preview.src = URL.createObjectURL(file);
+}
+function clearImage(box) {
+  box.querySelector('input').value = '';
+  showImage(box);
+}
+function syncImageInput() {
+  const { min_images: low, max_images: high } = workflowTakes[$('videoWorkflow').value] || BUILT_IN_TAKES;
+  const shown = imageBoxCount(high);
+  for (let number = imageBoxes().length + 1; number <= shown; number++) $('imageBoxes').insertAdjacentHTML('beforeend', imageBoxHtml(number));
+  imageBoxes().forEach((box, i) => {
+    const input = box.querySelector('input');
+    box.hidden = i >= shown;
+    // Not sent, and what a workflow can't take doesn't wait there for the next one.
+    input.disabled = box.hidden;
+    if (box.hidden && input.value) clearImage(box);
+    box.querySelector('label').textContent = imageLabel(i + 1, low, high);
+  });
+  const second = imageBoxes()[1];
+  $('secondImage').hidden = !(second && !second.hidden && second.querySelector('input').files.length);
+  $('secondImageHint').textContent = high === 1
+    ? 'This workflow gives its clips one image, so the video model never sees this one. The LLM looks at it and puts what matters into the prompts in words.'
+    : 'Every clip gets this image too, and the LLM is told what it is for.';
+  // Starting on the last frame only works when one image is all a clip takes.
+  $('start').disabled = high !== 1;
+}
+
+const AVERAGE_SHOT_SECONDS = 8;
+function clipCount(n) { return `${n} ${n === 1 ? 'clip' : 'clips'}`; }
+function syncSize() {
+  const preset = $('sizePreset').value;
+  $('size').hidden = preset !== 'custom';
+  if (preset !== 'custom') $('size').value = preset;
+}
+function syncAudio() {
+  const mode = $('audioMode').value;
+  $('audioFileBox').classList.toggle('hidden', mode !== 'file');
+  $('narrationBox').classList.toggle('hidden', mode !== 'text');
+  $('audioHint').hidden = mode === 'none';
+  // The audio sets the length, so the slider has nothing to say.
+  $('durationBox').classList.toggle('hidden', mode !== 'none');
+}
+function syncVideoForm() {
+  syncImageInput();
+  syncSize();
+  syncAudio();
+  const seconds = +$('duration').value;
+  $('durationText').textContent = `${fmt(seconds)} · about ${clipCount(Math.max(1, Math.round(seconds / AVERAGE_SHOT_SECONDS)))}`;
+}
+$('formVideo').addEventListener('change', () => { syncVideoForm(); saveVideoForm(); });
+$('duration').addEventListener('input', syncVideoForm);
+$('imageBoxes').addEventListener('change', e => showImage(e.target.closest('.image-box')));
+$('imageBoxes').addEventListener('click', e => {
+  if (!e.target.dataset.clear) return;
+  clearImage(e.target.closest('.image-box'));
+  syncImageInput();
+});
+
+
+// preload="none": a browser allows about 6 connections per site, and films loading
+// their metadata can hold them all, which freezes the status poll.
+function filmHtml(v) {
+  const name = esc(v.name), url = encodeURIComponent(v.name);
+  const shots = v.run ? `<button type="button" class="plain" data-shots="${esc(v.run)}">Shots</button>` : '';
+  const poster = v.run ? ` poster="/runs/${encodeURIComponent(v.run)}/image"` : '';
+  return `
+  <div class="vid" data-name="${name}">
+    <video controls preload="none" playsinline${poster} src="/videos/${folder}/${url}"></video>
+    <h3>${v.title ? esc(v.title) : esc(v.name)}</h3>
+    <div class="meta" title="${name}">${name} · ${v.created} · ${v.size_mb} MB</div>
+    <div class="acts"><a href="/download/${folder}/${url}">Download</a>${shots}<button type="button" class="del" data-del="${name}">Delete</button></div>
+  </div>`;
+}
+
+
+// --- A film's shots ---
+let shotsRun = null, shotsDirty = false;
+function shotHtml(run, shot, i) {
+  const number = i + 1;
+  const clip = shot.rendered ? `<video controls preload="none" playsinline src="/runs/${esc(run.id)}/clips/${number}"></video>` : '';
+  const redo = shot.rendered && !run.busy ? `<button type="button" data-redo="${number}">Render again</button>` : '';
+  return `
+  <div class="shot">
+    <div class="shot-title"><b>${number}. ${esc(shot.title)}</b><span>${shot.seconds}s · ${shot.rendered ? 'rendered' : 'not rendered yet'}</span></div>
+    ${clip}
+    <textarea aria-label="Prompt for shot ${number}" ${run.busy ? 'readonly' : ''}>${esc(shot.prompt)}</textarea>
+    ${redo}
+  </div>`;
+}
+function shotsHtml(run) {
+  const left = run.shots.filter(shot => !shot.rendered).length;
+  const note = run.busy ? 'This run is going or queued, so its prompts can\'t change right now.'
+    : run.start === 'chain' ? 'A continuous take: rendering a shot again also renders every shot after it, because they start from it.'
+    : 'Separate moments: rendering a shot again leaves the others as they are.';
+  const go = run.finished || run.busy ? '' : `<button type="button" data-render="1">${left === run.shots.length ? 'Render the film' : left ? `Render the ${left} left` : 'Stitch the film'}</button>`;
+  const save = run.busy ? '' : '<button type="button" class="plain" data-save="1">Save prompts</button>';
+  return `
+  <div class="shots-head">
+    <h2>${esc(run.title)}</h2>
+    <div class="hint">"${esc(run.brief)}" · written by ${esc(run.llm)}</div>
+    <div class="hint">${note}</div>
+  </div>
+  <div class="shots-list">${run.shots.map((shot, i) => shotHtml(run, shot, i)).join('')}</div>
+  <div class="shots-foot">${go}${save}<button type="button" class="plain" data-close="1">Close</button></div>`;
+}
+async function openShots(id) {
+  let data;
+  try {
+    data = await (await fetch(`/runs/${id}`)).json();
+  } catch (e) {
+    data = { error: 'Could not reach the panel. Try again.' };
+  }
+  if (!data.ok) { alert(data.error || 'Could not open that run.'); return; }
+  shotsRun = data;
+  shotsDirty = false;
+  $('shotsBody').innerHTML = shotsHtml(data);
+  if (!$('shotsDialog').open) $('shotsDialog').showModal();
+}
+async function saveShots() {
+  if (!shotsDirty) return true;
+  const prompts = [...$('shotsBody').querySelectorAll('textarea')].map(t => t.value);
+  const data = await (await fetch(`/runs/${shotsRun.id}/shots`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompts }),
+  })).json();
+  if (!data.ok) { alert(data.error || 'Could not save the prompts.'); return false; }
+  shotsDirty = false;
+  return true;
+}
+function closeShots() {
+  if (shotsDirty && !confirm('Close without saving your changes to the prompts?')) return;
+  shotsDirty = false;
+  $('shotsBody').querySelectorAll('video').forEach(v => v.pause());
+  $('shotsDialog').close();
+}
+async function runSaved(url) {
+  const data = await (await fetch(url, { method: 'POST' })).json();
+  if (!data.ok) { alert(data.error || 'Could not start it.'); return; }
+  closeShots();
+  autoScroll = true;
+  poll();
+}
+$('shotsBody').addEventListener('input', () => { shotsDirty = true; });
+$('shotsBody').addEventListener('click', async e => {
+  const d = e.target.dataset || {};
+  if (d.close) closeShots();
+  else if (d.save) await saveShots();
+  else if (d.render) {
+    if (await saveShots()) runSaved(`/runs/${shotsRun.id}/continue`);
+  } else if (d.redo) {
+    const after = shotsRun.start === 'chain' ? shotsRun.shots.length - d.redo : 0;
+    const also = after ? ` and the ${after} after it` : '';
+    if (!confirm(`Render shot ${d.redo}${also} again, then join the film anew? The film replaces the one already finished.`)) return;
+    if (await saveShots()) runSaved(`/runs/${shotsRun.id}/redo/${d.redo}`);
+  }
+});
+// Esc would otherwise close it without asking about unsaved changes.
+$('shotsDialog').addEventListener('cancel', e => { e.preventDefault(); closeShots(); });
+
+// --- What is happening right now ---
+const STAGES = { shorts: ['Topic & script', 'Voice', 'Stock footage', 'Avatar clips', 'Rendering scenes', 'Stitching', 'Upload'], video: {{ stages | tojson }} };
+const STAGE_HINTS = {
+  'Plan': 'The LLM is writing each shot.',
+  'Clips': 'ComfyUI is rendering each clip.',
+  'Topic & script': 'Gemini is writing the scenes.',
+  'Voice': 'Gemini is reading the script.',
+  'Stock footage': 'Downloading stock clips.',
+  'Avatar clips': 'Picking her scenes, then ComfyUI renders each clip.',
+  'Rendering scenes': 'Combining footage and voice.',
+  'Stitching': 'Joining the scenes.',
+  'Upload': 'Uploading to YouTube.',
+};
+const SHORT_STAGES = { 'Topic & script': 'Script', 'Stock footage': 'Footage', 'Avatar clips': 'Clips', 'Rendering scenes': 'Scenes' };
+function fmt(sec) {
+  sec = Math.max(0, sec | 0);
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}:${String(s).padStart(2, '0')}`;
+}
+// An estimate, so rounded: exact seconds would promise more than it knows.
+function fmtEta(sec) {
+  if (sec < 60) return `~${Math.max(5, Math.round(sec / 5) * 5)}s`;
+  const m = Math.round(sec / 60);
+  return m >= 60 ? `~${Math.floor(m / 60)}h ${m % 60}m` : `~${m} min`;
+}
+function stepEta(step) {
+  if (!step) return '';
+  if (step.state === 'kept') return 'kept';
+  if (step.state === 'done') return fmt(step.seconds);
+  if (step.state === 'next') return fmtEta(step.seconds);
+  return step.seconds > 0 ? `${fmtEta(step.seconds)} left` : 'any moment';
+}
+function clockIn(sec) {
+  return new Date(Date.now() + sec * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+}
+function totalEta(eta, waitingWork) {
+  const left = eta.total_left + waitingWork;
+  return `${fmtEta(left)} left${waitingWork ? ' with the queue' : ''}, done around ${clockIn(left)}`;
+}
+// What moved the ETA, with its effect: '+6 min', or nothing for a change that costs no time.
+function etaChange(change) {
+  const sign = change.seconds > 0 ? '+' : '-';
+  const effect = change.seconds ? `${sign}${fmtEta(Math.abs(change.seconds)).slice(1)} · ` : '';
+  return `<div>${effect}${esc(change.text)}</div>`;
+}
+function renderEtaDetail(eta, queued) {
+  const box = $('etaDetail');
+  box.hidden = !eta;
+  if (!eta) return;
+  const added = queued.map(item => ({ text: `Queued: ${item.label}`, seconds: item.estimate || 0 }));
+  const changes = eta.changes.concat(added);
+  const waitingWork = added.reduce((sum, change) => sum + change.seconds, 0);
+  const original = `Original ETA: <b>${fmtEta(eta.original_total)}</b>, done around ${clockIn(eta.original_left)}`;
+  box.innerHTML = changes.length
+    ? `${original}<br>Adjusted ETA: <b>${fmtEta(eta.adjusted_total + waitingWork)}</b>, done around ${clockIn(eta.total_left + waitingWork)}`
+      + `<div class="changes">${changes.map(etaChange).join('')}</div>`
+    : `${original} · on track`;
+}
+
+// --- Estimate before a run, from the form's current options ---
+let plan = null, planRequest = 0, planTimer = 0;
+// Seconds of work ahead of a new run; null while the queue is on hold, when nobody can say.
+let queueAhead = 0;
+function renderPlan() {
+  if (!plan) return;
+  if (!plan.ok) {
+    $('estimateTotal').innerHTML = `<span class="err">${esc(plan.error)}</span>`;
+    $('estimateDetail').textContent = '';
+    return;
+  }
+  const review = pipeline === 'video' && $('review').checked;
+  $('estimateContinues').hidden = !plan.continues;
+  if (plan.continues) $('estimateContinues').textContent = `Generate continues this stopped video, so nothing is paid for twice: ${plan.continues}`;
+  const when = queueAhead === null || review ? ''
+    : ` · ${queueAhead ? 'after the jobs ahead, ' : ''}done around ${clockIn(queueAhead + plan.total)}`;
+  $('estimateTotal').innerHTML = `Estimated time: <b>${fmtEta(plan.total)}</b>${when}`;
+  if (pipeline === 'video') {
+    const clips = `${clipCount(plan.clips)}, ${fmtEta(plan.clip_render)} each.`;
+    $('estimateDetail').textContent = review ? `${clips} Only the prompts are written now.` : clips;
+    $('estimateDetail').title = plan.steps.map(s => `${s.name}: ${fmtEta(s.seconds)}`).join('\n');
+    return;
+  }
+  const parts = [];
+  if (plan.videos > 1) parts.push(`${plan.videos} videos, ${fmtEta(plan.video)} each`);
+  parts.push(plan.clips
+    ? `${plan.clips} ${plan.clips === 1 ? 'clip' : 'clips'} per video, ${fmtEta(plan.clip_render)} each${plan.model ? ` on ${plan.model}` : ''}${plan.model && !plan.model_timed ? ' (not timed yet)' : ''}`
+    : 'No avatar clips');
+  $('estimateDetail').textContent = parts.join(' · ') + '.';
+  $('estimateDetail').title = plan.steps.map(s => `${s.name}: ${fmtEta(s.seconds)}`).join('\n');
+}
+function withoutImages(form) {
+  for (const box of imageBoxes()) form.delete(box.querySelector('input').name);
+  form.delete('audio_file');
+  return form;
+}
+function optionsOnly() {
+  // The estimate only needs the options, so it doesn't send the whole images on every change.
+  const body = withoutImages(new FormData($('formVideo')));
+  body.delete('prompt');
+  body.delete('audio_file');
+  return body;
+}
+async function refreshPlan() {
+  const request = ++planRequest;
+  let data;
+  try {
+    data = await (await fetch(`/api/estimate/${pipeline}`, { method: 'POST', body: pipeline === 'video' ? optionsOnly() : new FormData($('formShorts')) })).json();
+  } catch (e) {
+    return; // transient; the next change retries
+  }
+  if (request !== planRequest) return;  // A newer answer is on its way
+  plan = data;
+  renderPlan();
+}
+function queuePlan() {
+  clearTimeout(planTimer);
+  planTimer = setTimeout(refreshPlan, 150);
+}
+for (const id of ['formShorts', 'formVideo']) {
+  $(id).addEventListener('input', queuePlan);
+  $(id).addEventListener('change', queuePlan);
+  $(id).addEventListener('submit', e => { e.preventDefault(); $('go').click(); });
+}
+function renderNow(data) {
+  const p = data.progress || {};
+  const c = data.comfyui || {};
+  const show = data.running && p.stage;
+  $('now').classList.toggle('hidden', !show);
+  if (show) {
+    const [n, total, name] = p.stage;
+    const names = STAGES[data.pipeline || pipeline].slice(0, total);
+    const steps = p.eta ? p.eta.steps : [];
+    $('stepper').innerHTML = names.map((s, i) =>
+      `<div class="step ${i + 1 < n ? 'done' : i + 1 === n ? 'now' : ''}">${esc(s)}<span class="eta">${stepEta(steps[i])}</span></div>`).join('');
+    $('stageName').textContent = `Step ${n} of ${total}: ${name}`;
+    $('stageTime').textContent = fmt(p.stage_elapsed) + (steps[n - 1] ? ` · ${stepEta(steps[n - 1])}` : '');
+    $('stageDetail').textContent = p.detail || STAGE_HINTS[name] || '';
+  }
+
+  // ComfyUI's own progress: which part of the workflow, and sampling steps.
+  const comfyBusy = c.active && c.connected;
+  $('comfyNow').classList.toggle('hidden', !comfyBusy);
+  if (comfyBusy) {
+    $('comfyLabel').textContent = c.label || 'Working';
+    const hasSteps = c.max && c.value != null;
+    $('comfySteps').textContent = hasSteps ? `step ${c.value} of ${c.max}` : '';
+    $('comfyBar').style.width = hasSteps ? `${Math.round(100 * c.value / c.max)}%` : '0';
+    const queued = c.queue > 1 ? ` · ${c.queue - 1} more queued` : '';
+    $('comfyMeta').textContent = `This clip: ${fmt(c.elapsed || 0)}${queued}`;
+  }
+
+  const g = data.gpu;
+  $('gpuLine').textContent = g
+    ? `GPU ${g.util}% · VRAM ${g.mem_used} / ${g.mem_total} GB · ${g.power} W · ${g.temp}°C`
+    : '';
+}
+
+// --- Quota ---
+function quotaRow(r) {
+  const share = r.limit ? Math.min(r.used / r.limit, 1) : 0;
+  const state = r.out ? 'out' : share >= .8 ? 'low' : '';
+  const period = r.period ? ` ${r.period}` : '';
+  const value = r.limit ? `${r.used.toLocaleString()} / ${r.limit.toLocaleString()}${period}`
+    : r.out ? 'limit hit' : `${r.used.toLocaleString()} used${period}`;
+  const bar = r.limit ? `<div class="q-bar"><div style="width:${Math.round(share * 100)}%"></div></div>` : '';
+  return `<div class="q-row ${state}"><span class="q-name" title="${esc(r.name)}">${esc(r.name)}</span>
+    <span class="q-val">${value}${r.out && r.limit ? ' · limit hit' : ''}</span>${bar}</div>`;
+}
+let lastQuota = '';
+function renderQuota(q) {
+  const key = JSON.stringify(q.groups);
+  if (key !== lastQuota) {
+    $('quota').innerHTML = q.groups.map(g =>
+      `<div class="q-group">${esc(g.title)}</div>${g.rows.map(quotaRow).join('')}`).join('');
+    lastQuota = key;
+  }
+  const at = new Date(Date.now() + q.resets_in * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+  $('quotaReset').textContent = `Resets in ${fmtEta(q.resets_in)} (${at}).`;
+}
+
+// --- Log ---
+function lineKind(text) {
+  const s = text.trim();
+  if (/^▶ Stage|^=====/.test(s)) return 'stage';
+  if (/^❌|^🚨|Error\b|Traceback/.test(s)) return 'err';
+  if (/^⚠️|^🛑/.test(s)) return 'warn';
+  if (/^✅|^✨|^📦/.test(s)) return 'ok';
+  if (/^Deleted:|^🧹/.test(s)) return 'dim';
+  return '';
+}
+function logWriter(el, follow) {
+  let first = null, last = 0;
+  const row = l => `<div class="ln ${lineKind(l.text)}"><span class="t">${l.t}</span><span class="x">${esc(l.text)}</span></div>`;
+  return lines => {
+    // A new run, or old lines trimmed off the top: redraw. Otherwise append what is new.
+    if (lines[0].n !== first) {
+      el.innerHTML = lines.map(row).join('');
+      first = lines[0].n;
+    } else {
+      const fresh = lines.filter(l => l.n > last);
+      if (fresh.length) el.insertAdjacentHTML('beforeend', fresh.map(row).join(''));
+    }
+    last = lines[lines.length - 1].n;
+    if (follow()) el.scrollTop = el.scrollHeight;
+  };
+}
+const renderLog = logWriter($('log'), () => autoScroll);
+const renderUploadLog = logWriter($('uploadLog'), () => true);
+
+function renderUpload(up) {
+  $('uploadBox').hidden = !up.lines.length && !up.queue.items.length;
+  $('uploadDot').className = 'dot' + (up.running ? ' on' : up.stopped ? '' : (up.returncode ? ' fail' : up.started_at ? ' ok' : ''));
+  $('stopUpload').hidden = !up.running;
+  $('uploadStatus').textContent = up.running ? `Uploading · ${fmt(up.elapsed)} so far`
+    : up.queue.items.length && !up.queue.held ? 'Waiting to upload'
+    : !up.started_at ? ''
+    : up.stopped ? 'Upload stopped'
+    : up.returncode === 0 ? 'Upload finished ✔' : `Upload failed (exit ${up.returncode})`;
+  renderQueue($('uploadQueue'), up.queue, 0);
+  if (up.lines.length) renderUploadLog(up.lines);
+}
+
+// --- Queues ---
+const RESULT_MARKS = { done: '✔', failed: '✖ failed', stopped: '■ stopped', skipped: '– skipped' };
+function renderQueue(el, q, doneIn) {
+  // One finished job and nothing waiting says nothing the status line doesn't.
+  el.hidden = !q.items.length && q.results.length < 2;
+  if (el.hidden) return;
+  const head = !q.items.length ? `<b>${el.dataset.title} finished</b>` : `<b>${el.dataset.title} (${q.items.length})</b>` + (q.held
+    ? `<span class="when">On hold until you press Resume</span><button type="button" data-resume="1">Resume</button>`
+    : doneIn ? `<span class="when">All done around ${clockIn(doneIn)}</span>` : '');
+  const now = q.current && q.items.length ? `<div class="queue-item"><div class="what">Now: ${esc(q.current.label)}</div></div>` : '';
+  const items = q.items.map((item, i) => `
+    <div class="queue-item">
+      <div class="what">${i + 1}. ${esc(item.label)}<div class="hint">${item.pipeline === 'video' ? 'Video · ' : el.dataset.lane === 'run' ? 'Shorts · ' : ''}${esc(item.detail)}</div></div>
+      ${item.estimate ? `<span class="when">${fmtEta(item.estimate)}</span>` : ''}
+      <button type="button" data-remove="${item.id}" aria-label="Remove from the queue" title="Remove from the queue">✕</button>
+    </div>`).join('');
+  const results = q.results.length ? `<div class="hint results">${q.results.map(r =>
+    `<div class="${r.outcome === 'failed' ? 'failed' : ''}">${r.at} ${RESULT_MARKS[r.outcome]}: ${esc(r.label)}${r.note ? ` (${esc(r.note)})` : ''}</div>`).join('')}</div>` : '';
+  const html = `<div class="queue-head">${head}</div>${now}${items}${results}`;
+  // Only when it changed, so a poll can't swallow a click on a button it just replaced.
+  if (el.dataset.html !== html) {
+    el.innerHTML = html;
+    el.dataset.html = html;
+  }
+}
+function renderStopped(runs) {
+  const el = $('stoppedRuns');
+  el.hidden = !runs.length;
+  const html = !runs.length ? '' : `<div class="queue-head"><b>Stopped runs (${runs.length})</b></div>` + runs.map(run => `
+    <div class="queue-item">
+      <div class="what">${esc(run.label)}<div class="hint">${run.pipeline === 'video' ? 'Video' : 'Shorts'} · ${esc(run.detail)}</div></div>
+      <span class="when">${fmtEta(run.estimate)}</span>
+      ${run.pipeline === 'video' ? `<button type="button" data-shots="${esc(run.id)}">Prompts</button>` : ''}
+      <button type="button" data-continue="${esc(run.id)}">${run.pipeline === 'video' && !run.clips ? 'Render' : 'Continue'}</button>
+      <button type="button" data-discard="${esc(run.id)}" data-pipeline="${esc(run.pipeline)}" data-clips="${run.clips}" aria-label="Discard this run" title="Discard this run">✕</button>
+    </div>`).join('');
+  // Only when it changed, so a poll can't swallow a click on a button it just replaced.
+  if (el.dataset.html !== html) {
+    el.innerHTML = html;
+    el.dataset.html = html;
+  }
+}
+$('stoppedRuns').addEventListener('click', async e => {
+  const d = e.target.dataset || {};
+  let url;
+  if (d.shots) {
+    openShots(d.shots);
+    return;
+  } else if (d.continue) {
+    url = `/runs/${d.continue}/continue`;
+  } else if (d.discard) {
+    const clips = +d.clips ? ` and ${d.clips} ${+d.clips === 1 ? 'clip' : 'clips'}` : '';
+    const what = d.pipeline === 'video' ? 'prompts' : 'script, voice';
+    if (!confirm(`Discard this run? Its ${what}${clips} are deleted and can't be continued, and the tokens they cost are gone. Generate would otherwise pick it up again.`)) return;
+    url = `/runs/${d.discard}/discard`;
+  } else {
+    return;
+  }
+  await stopJob(url);
+});
+for (const id of ['runQueue', 'uploadQueue']) {
+  $(id).addEventListener('click', async e => {
+    const d = e.target.dataset || {}, lane = $(id).dataset.lane;
+    if (d.remove) await fetch(`/queue/${lane}/remove/${d.remove}`, { method: 'POST' });
+    else if (d.resume) await fetch(`/queue/${lane}/resume`, { method: 'POST' });
+    else return;
+    poll();
+  });
+}
+
+// --- Header: the short status on Run, and a bar under it per job ---
+function runShort(data, nextUp) {
+  if (data.running) {
+    const p = data.progress || {};
+    if (!p.stage) return 'Starting';
+    const clip = /^Clip (\d+) of (\d+)/.exec(p.detail || '');
+    return clip ? `Clip ${clip[1]}/${clip[2]}` : SHORT_STAGES[p.stage[2]] || p.stage[2];
+  }
+  if (nextUp) return 'Next job';
+  if (data.stopped) return 'Stopped';
+  if (data.returncode === 0) return 'Done';
+  return data.returncode === null ? 'Idle' : 'Failed';
+}
+// share is how much is done, 0 to 1, or null when that can't be told.
+function inView(id) {
+  const box = $(id).getBoundingClientRect();
+  return box.top < window.innerHeight - $('stick').offsetHeight && box.bottom > 0;
+}
+const STRIP_SECTIONS = { run: ['runCard', 'queueCard', 'logCard'], upload: ['queueCard', 'logCard', 'videosCard'] };
+const stripActive = { run: false, upload: false };
+function syncStrips() {
+  for (const job of Object.keys(STRIP_SECTIONS)) {
+    $(`${job}Strip`).hidden = !(stripActive[job] && STRIP_SECTIONS[job].some(inView));
+  }
+  document.documentElement.style.setProperty('--head', `${$('stick').offsetHeight}px`);
+}
+function setStrip(job, show, text, right, share, hint) {
+  stripActive[job] = show;
+  if (!show) return;
+  $(`${job}StripText`).textContent = text;
+  $(`${job}StripRight`).textContent = right;
+  $(`${job}StripHint`).textContent = hint;
+  const bar = $(`${job}StripBar`);
+  bar.parentElement.classList.toggle('busy', share === null);
+  bar.style.width = `${share === null ? 30 : Math.round(share * 100)}%`;
+}
+function renderStrips(data) {
+  const p = data.progress || {}, stage = p.stage || [], eta = p.eta;
+  const video = p.run && p.run[1] > 1 ? `Video ${p.run[0]}/${p.run[1]} · ` : '';
+  setStrip('run', data.running, video + (stage[2] || 'Starting'),
+    eta ? `${fmtEta(eta.total_left)} left` : fmt(data.elapsed),
+    eta && eta.adjusted_total ? 1 - eta.total_left / eta.adjusted_total : null,
+    p.detail || STAGE_HINTS[stage[2]] || '');
+  const up = data.upload, at = (up.progress || {}).upload;
+  setStrip('upload', up.running, at ? `Uploading ${at[0]}/${at[1]}` : 'Uploading', fmt(up.elapsed),
+    at && at[1] > 1 ? (at[0] - 1) / at[1] : null, at ? at[2] : 'Writing the title and description.');
+  syncStrips();
+}
+
+// --- Status polling ---
+let stoppedCount = 0, wasRunning = false, uploadRunning = false, runsQueued = 0, uploadsQueued = 0, submitting = false;
+async function poll() {
+  let data;
+  try {
+    data = await (await fetch('/api/status')).json();
+  } catch (e) {
+    return; // transient; the next tick retries
+  }
+
+  const running = data.running;
+  if (wasRunning && !running) {
+    refreshPlan();  // That run just improved the timings
+    // The prompts you asked to read before rendering are ready.
+    const planned = data.pipeline === 'video' && data.returncode === 0 && (data.command || '').includes('--plan-only') && data.progress.run_id;
+    if (planned && !$('shotsDialog').open) openShots(data.progress.run_id);
+  }
+  wasRunning = running;
+  const queue = data.queue, upq = data.upload.queue;
+  runsQueued = queue.items.length;
+  uploadsQueued = upq.items.length;
+  // Between two jobs for a moment: the next is about to start, so this isn't "Finished".
+  const nextUp = !running && runsQueued > 0 && !queue.held;
+  // On hold they won't start by themselves, so they aren't part of when this all ends.
+  const queuedNext = queue.held ? [] : queue.items;
+  const waitingWork = queuedNext.reduce((sum, item) => sum + (item.estimate || 0), 0);
+  const runningLeft = running && data.progress.eta ? data.progress.eta.total_left : 0;
+  queueAhead = queue.held ? null : runningLeft + waitingWork;
+  $('estimate').hidden = false;
+  renderPlan();  // The clock has moved on
+  uploadingNow = new Set(upq.current ? upq.current.videos : []);
+  uploadQueued = new Set(upq.items.flatMap(item => item.videos));
+  uploadRunning = data.upload.running;
+  busy = uploadRunning || uploadsQueued > 0 || (running && (data.progress.stage || [])[2] === 'Upload');
+  renderUpload(data.upload);
+  renderQueue($('runQueue'), queue, queue.held ? 0 : queueAhead);
+  renderStopped(data.stopped_runs);
+  $('dot').className = 'dot' + (running || nextUp ? ' on' : (data.returncode && !data.stopped ? ' fail' : ''));
+  $('jumpDot').className = $('dot').className;
+  $('jumpRun').textContent = runShort(data, nextUp);
+  $('jumpQueue').textContent = runsQueued + uploadsQueued + data.stopped_runs.length;
+  $('queueEmpty').hidden = !$('runQueue').hidden || !$('stoppedRuns').hidden || !$('uploadQueue').hidden;
+  renderStrips(data);
+  $('go').disabled = submitting;
+  $('check').hidden = running;
+  $('check').disabled = submitting;
+  $('currentWork').hidden = !running;
+  if (running) $('currentWork').textContent = `${data.pipeline === 'video' ? 'Video' : 'Shorts'}: ${(queue.current || {}).label || 'Starting'}`;
+  // A job on the other side still has the GPU, so the switch says so.
+  for (const [id, side] of [['switchShorts', 'shorts'], ['switchVideo', 'video']]) {
+    $(id).querySelector('.dot').classList.toggle('hidden', !(running && data.pipeline === side && side !== pipeline));
+  }
+  if (data.stopped_runs.length !== stoppedCount) { stoppedCount = data.stopped_runs.length; refreshPlan(); }
+  $('stop').hidden = !running;
+
+  renderNow(data);
+  renderEtaDetail(running ? (data.progress || {}).eta : null, queuedNext);
+
+  if (running) {
+    const p = data.progress || {};
+    const run = p.run ? ` · video ${p.run[0]} of ${p.run[1]}` : '';
+    const eta = p.eta ? ` · ${totalEta(p.eta, waitingWork)}` : '';
+    $('statusText').textContent = `Running${run} · ${fmt(data.elapsed)} so far (started ${data.started_at})${eta}`;
+  } else if (nextUp) {
+    $('statusText').textContent = 'Starting the next job in the queue…';
+  } else if (data.stopped) {
+    $('statusText').textContent = 'Stopped';
+  } else if (data.returncode === 0) {
+    $('statusText').textContent = 'Finished ✔';
+  } else if (data.returncode !== null) {
+    $('statusText').textContent = `Failed (exit ${data.returncode}), see the log`;
+  } else {
+    $('statusText').textContent = 'Idle';
+  }
+
+  if (data.lines.length) renderLog(data.lines);
+
+  const c = data.comfyui;
+  if (c.online !== workflowsFor) { workflowsFor = c.online; loadWorkflows(); loadVideoWorkflows(); }
+  $('comfyStart').hidden = c.online || c.starting || !c.can_start;
+  $('comfyDot').className = 'dot ' + (c.online ? 'ok' : 'fail');
+  $('comfyText').textContent = 'ComfyUI: ' + (c.online ? 'running'
+    : c.starting ? 'starting… (loading models)'
+    : c.can_start ? 'not running (Generate starts it)' : 'not running');
+
+  renderQuota(data.quota);
+
+  lastVideos = data.videos;
+  renderVideos();
+}
+
+$('log').addEventListener('scroll', () => {
+  const el = $('log');
+  autoScroll = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+});
+
+async function startJob(url) {
+  $('formError').hidden = true;
+  submitting = true;
+  $('go').disabled = true;
+  $('check').disabled = true;
+  let body;
+  try {
+    const form = new FormData($(pipeline === 'video' ? 'formVideo' : 'formShorts'));
+    // A setup check makes nothing, so it has no use for the images.
+    if (url.startsWith('/check') && pipeline === 'video') withoutImages(form);
+    body = await (await fetch(url, { method: 'POST', body: form })).json();
+  } catch (e) {
+    body = { error: 'Could not reach the panel. Try again.' };
+  }
+  submitting = false;
+  $('formNote').hidden = !body.continued;
+  if (body.continued) $('formNote').textContent = `Continuing what was already paid for: ${body.continued}`;
+  if (!body.ok) {
+    $('formError').textContent = body.error || 'Could not start.';
+    $('formError').hidden = false;
+  } else if (url.startsWith('/generate/video')) {
+    // The options stay for the next film, but the images and prompt belong to this one.
+    autoScroll = true;
+    $('prompt').value = '';
+    $('narration').value = '';
+    $('audioFile').value = '';
+    imageBoxes().forEach(clearImage);
+    $('secondImageRole').value = 'context';
+    syncImageInput();
+    queuePlan();
+    if (body.shots) openShots(body.shots);
+  } else if (body.queued) {
+    // The options stay for the next job, but a topic and file name belong to this one.
+    $('topic').value = '';
+    $('output').value = '';
+    queuePlan();
+  } else {
+    autoScroll = true;
+  }
+  poll();
+}
+$('go').addEventListener('click', () => {
+  if (pipeline === 'video') saveVideoForm(); else saveForm();
+  startJob(`/generate/${pipeline}`);
+});
+$('check').addEventListener('click', () => startJob(`/check/${pipeline}`));
+
+function setPipeline(side, remember = true) {
+  pipeline = side;
+  document.body.classList.toggle('on-shorts', side === 'shorts');
+  document.body.classList.toggle('on-video', side === 'video');
+  $('switchShorts').classList.toggle('active', side === 'shorts');
+  $('switchVideo').classList.toggle('active', side === 'video');
+  $('switchShorts').setAttribute('aria-selected', side === 'shorts');
+  $('switchVideo').setAttribute('aria-selected', side === 'video');
+  $('formNote').hidden = true;
+  $(side === 'video' ? 'formVideo' : 'formShorts').appendChild($('formActions'));
+  folder = side === 'video' ? 'video' : 'output';
+  $('tabOutput').classList.add('active');
+  $('tabUploaded').classList.remove('active');
+  $('videos').dataset.key = '';
+  $('videos').scrollLeft = 0;
+  if (remember) {
+    try { localStorage.setItem(PIPELINE_KEY, side); } catch (e) {}
+    if (window.history && history.replaceState) history.replaceState(null, '', `/${side}`);
+  }
+  renderVideos();
+  refreshPlan();
+}
+for (const id of ['switchShorts', 'switchVideo']) $(id).addEventListener('click', () => setPipeline($(id).dataset.pipeline));
+async function stopJob(url) {
+  const body = await (await fetch(url, { method: 'POST' })).json();
+  if (body.error) alert(body.error);
+  poll();
+}
+$('stop').addEventListener('click', async () => {
+  const held = runsQueued ? ` The ${runsQueued} queued after it will wait until you press Resume.` : '';
+  if (!confirm(`Stop the current run? This kills it and its ffmpeg renders, and cancels its ComfyUI clips. You can continue it later under Stopped runs, without the clip being rendered now.${held}`)) return;
+  await stopJob('/stop');
+});
+
+$('stopUpload').addEventListener('click', async () => {
+  const held = uploadsQueued ? ` The ${uploadsQueued} queued after it will wait until you press Resume.` : '';
+  if (!confirm(`Stop the upload? A video that has not finished sending stays in Ready.${held}`)) return;
+  await stopJob('/publish/stop');
+});
+
+$('shutdown').addEventListener('click', async e => {
+  e.preventDefault();
+  const queued = runsQueued + uploadsQueued;
+  const work = [wasRunning && 'force-stops the run in progress, which you can continue later', uploadRunning && 'force-stops the upload in progress',
+    queued && `keeps ${queued} queued ${queued === 1 ? 'job' : 'jobs'} on hold for next time`, 'closes ComfyUI if the panel started it'].filter(Boolean);
+  if (!confirm(`Shut down the control panel? This ${work.join(', ')}. Start it again with start_webapp.pyw or the ComfyUI auto-gen shortcut.`)) return;
+  const body = await (await fetch('/shutdown', { method: 'POST' })).json();
+  if (!body.ok) { alert(body.error || 'Could not shut down.'); return; }
+  document.body.innerHTML = '<div class="wrap"><h1>ComfyUI auto-gen</h1><p class="sub">The control panel has shut down. Start it again with <b>start_webapp.pyw</b> or the <b>ComfyUI auto-gen</b> shortcut.</p></div>';
+});
+
+// The section under the header, lit up in it.
+const JUMPS = [...$('jump').querySelectorAll('a')];
+function markJump() {
+  const line = 16;
+  const here = JUMPS.filter(a => $(a.hash.slice(1)).getBoundingClientRect().top <= line).pop() || JUMPS[0];
+  JUMPS.forEach(a => a.classList.toggle('active', a === here));
+  syncStrips();
+}
+window.addEventListener('scroll', markJump, { passive: true });
+
+loadForm();
+syncForm();
+loadVideoForm();
+syncVideoForm();
+{
+  let side = {{ initial_pipeline | tojson }};
+  if (!side) try { side = localStorage.getItem(PIPELINE_KEY); } catch (e) {}
+  setPipeline(side === 'video' ? 'video' : 'shorts', false);
+}
+markJump();
+poll();
+setInterval(poll, 2000);
+</script>
+{% endblock %}

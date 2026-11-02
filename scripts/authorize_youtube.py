@@ -17,10 +17,10 @@ import sys
 
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-# Runs from scripts/, so the project root has to be added for modules/.
+# Runs from scripts/, so the project root has to be added for pipelines/.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from modules.publisher import SCOPES
+from pipelines.shorts.publisher import SCOPES
 
 
 def main():

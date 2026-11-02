@@ -1,5 +1,5 @@
 """
-Double-click to open the Auto YT Shorts control panel.
+Double-click to open the ComfyUI auto-gen panel.
 
 Starts the web UI in the background if it isn't already running (no console
 window; its output goes to logs/webapp.log) and opens it in your default
@@ -35,9 +35,13 @@ def server_running():
 
 def code_changed_at():
     """Newest modification time of the code the server holds in memory."""
-    templates = os.path.join(ROOT, "templates")
-    files = [os.path.join(ROOT, "webapp.py")] + [os.path.join(templates, f) for f in os.listdir(templates)]
-    return max(os.path.getmtime(f) for f in files)
+    newest = 0
+    for folder in ("panel", "core", "pipelines"):
+        for path, _, names in os.walk(os.path.join(ROOT, folder)):
+            for name in names:
+                if name.endswith((".py", ".html")):
+                    newest = max(newest, os.path.getmtime(os.path.join(path, name)))
+    return newest
 
 
 def stop_if_stale():
