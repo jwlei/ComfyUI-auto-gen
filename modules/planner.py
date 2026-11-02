@@ -46,6 +46,8 @@ AVERAGE_SHOT_SECONDS = 8
 # Too few clips to tell a story with: they show one moment instead.
 MIN_SHOTS_FOR_A_STORY = 3
 PLAN_ATTEMPTS = 3
+# What the second image is: more of the subject or the place to put them in, which the LLM can tell by looking, or someone new.
+EXTRA_CONTEXT, ANOTHER_CHARACTER = IMAGE_2_ROLES = ("context", "character")
 
 CONTINUITY = {
     "chain": """Each clip starts on the exact last frame of the clip before it, so this is one
@@ -157,10 +159,53 @@ def _how_it_looks(images):
       instead of describing them again in full."""
 
 
-def _instructions(brief, seconds, start, images=1, video_model=None):
+def _second_image(images, role, in_words, start, video_model):
+    """What the second image is for, if there is one. in_words: only the LLM sees it, so it reaches the video model as text."""
+    if images < 2 and not in_words:
+        return ""
+    is_h3 = video_model == h3_prompt.MODEL
+    # Wan takes no labels, and a label would mean nothing for an image the video model doesn't get.
+    labels = not in_words and video_model != wan_prompt.MODEL
+    first, second = ("<Picture 1>", "<Picture 2>") if labels else ("the first image", "the second image")
+    opening = first[0].upper() + first[1:]
+    alone = """A second image is attached for you alone. The video model never sees it, so all it can get from
+    that image is what your prompts say. """ if in_words else ""
+    if role == ANOTHER_CHARACTER:
+        if in_words:
+            enter = "Describe" if is_h3 else "They aren't in the opening frame, so bring them on screen as part of the action, and describe"
+            how = f"{enter} how they look in full, in the same words, in every prompt they appear in."
+        else:
+            how = "" if is_h3 else "Call them <Picture 2> in every clip they appear in." if labels else "Call them by the same few words in every clip they appear in."
+        return f"""{alone}{opening} shows the film's subject and {second} shows another character, who counts
+    as asked for. Give them a real part in the film, alongside the subject. {how}"""
+    same = "Name those details in your prompts whenever they would be in view." if in_words else "Both pictures show one subject."
+    place = ""
+    if in_words:
+        arrive = "early in each clip" if start == "image" else "early in the film"
+        reach = "Describe" if is_h3 else f"""The opening frame still shows the subject where {first} was taken, so get them there on screen
+      {arrive}, and from then on describe"""
+        place = f"""{reach} that place in the same words in every prompt. What this image adds isn't in anything the
+      video model can see, so it does get described, whatever the rules below say about not describing things."""
+    return f"""{alone}{opening} shows the film's subject, and {second} adds to it. If the brief says how to use it, do
+    that. Otherwise look at it: it is one of these two, and it brings in nobody new.
+    - It shows the same subject: it is more of how they look, such as another angle, the rest of an outfit or
+      details {first} hides. {same}
+    - It shows a place: that is where the film happens, so put the subject from {first} there and leave
+      the place in {first} behind. {place}"""
+
+
+def _instructions(brief, seconds, start, images=1, video_model=None, image_2_role=EXTRA_CONTEXT, image_2_in_words=False):
+    second_image = _second_image(images, image_2_role, image_2_in_words, start, video_model)
+    guide = _guide(brief, seconds, start, images, video_model, image_2_role, second_image)
+    # Every guide speaks of one attached image, and now there are two.
+    return guide.replace("attached image", "first attached image") if image_2_in_words else guide
+
+
+def _guide(brief, seconds, start, images, video_model, image_2_role, second_image):
     count = shot_count(seconds)
     if video_model == h3_prompt.MODEL:
-        return h3_prompt.instructions(brief, seconds, count, images, MIN_SHOT_SECONDS, MAX_SHOT_SECONDS)
+        return h3_prompt.instructions(brief, seconds, count, images, MIN_SHOT_SECONDS, MAX_SHOT_SECONDS,
+                                      second_image, image_2_role == ANOTHER_CHARACTER)
     clips = "one clip" if count == 1 else f"{count} consecutive clips"
     shots = "one shot" if count == 1 else f"{count} shots in order"
     shape = (f"Give the film a beginning, a development and a real ending, rather than {count} versions of the same moment."
@@ -168,7 +213,7 @@ def _instructions(brief, seconds, start, images=1, video_model=None):
     together = f"Use {seconds}." if count == 1 else f"All of them together add up to {seconds}."
     continuity = "" if count == 1 else SEPARATE_CLIPS if start == "image" and images != 1 else CONTINUITY[start]
     if video_model == wan_prompt.MODEL:
-        return wan_prompt.instructions(brief, seconds, count, images, continuity, MIN_SHOT_SECONDS, MAX_SHOT_SECONDS)
+        return wan_prompt.instructions(brief, seconds, count, images, continuity, MIN_SHOT_SECONDS, MAX_SHOT_SECONDS, second_image)
     in_keeping = "the brief and\n    the image, and never contradicting them" if images else "the brief, and never contradicting it"
     sees = "one prompt and one start frame" if images == 1 else "one prompt and its images" if images else "one prompt"
     return f"""
@@ -179,6 +224,8 @@ def _instructions(brief, seconds, start, images=1, video_model=None):
 
     The brief is short on purpose. Invent the detail the film needs, in keeping with {in_keeping}. {shape} Bring in no new main characters unless
     the brief asks for them.
+
+    {second_image}
 
     {continuity}
 
@@ -355,21 +402,24 @@ def _ask(llm, prompt, model, schema, image_jpeg=None):
 
 # --- What the pipeline asks for ---
 
-def plan_film(image_jpeg, brief, seconds, start, llm="gemini", video_model=None):
+def plan_film(image_jpeg, brief, seconds, start, llm="gemini", video_model=None, image_2_role=EXTRA_CONTEXT, image_2_in_words=None):
     """
     Turns the image (several in a list, or none) and the short brief into a film's shot list. One request for the
     whole film rather than one per clip: the prompts have to know each other, and a
     long film would otherwise spend more than a free model's whole daily quota.
+    image_2_in_words: a second image the clips have no room for, which only the LLM sees.
     """
     images = len(_image_list(image_jpeg))
-    instructions = _instructions(brief, seconds, start, images, video_model)
+    instructions = _instructions(brief, seconds, start, images, video_model, image_2_role, bool(image_2_in_words))
+    attached = _image_list(image_jpeg) + _image_list(image_2_in_words)
+    another_character = image_2_role == ANOTHER_CHARACTER
     is_h3 = video_model == h3_prompt.MODEL
 
     problem = None
     for attempt in range(1, PLAN_ATTEMPTS + 1):
         # H3's rules are strict enough that saying what went wrong is worth it.
         correction = f"\n\n    Your last reply came back with {problem}. Fix that." if is_h3 and problem else ""
-        reply = _ask(llm, instructions + correction, Plan, PLAN_SCHEMA, image_jpeg)
+        reply = _ask(llm, instructions + correction, Plan, PLAN_SCHEMA, attached)
         try:
             plan = Plan.model_validate_json(reply)
         except ValidationError as e:
@@ -378,7 +428,7 @@ def plan_film(image_jpeg, brief, seconds, start, llm="gemini", video_model=None)
             shots = [shot for shot in plan.shots if shot.prompt.strip()]
             # Too few or too many shots can't be fixed by changing their lengths.
             if is_h3:
-                for shot, prompt in zip(shots, h3_prompt.tidy([shot.prompt for shot in shots], images)):
+                for shot, prompt in zip(shots, h3_prompt.tidy([shot.prompt for shot in shots], images, another_character)):
                     shot.prompt = prompt
             wrong_prompts = is_h3 and shots and h3_prompt.film_problem([shot.prompt for shot in shots], images)
             thin = is_h3 and shots and not wrong_prompts and h3_prompt.too_thin([shot.prompt for shot in shots], images)

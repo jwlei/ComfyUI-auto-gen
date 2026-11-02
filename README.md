@@ -51,6 +51,18 @@ python webapp.py
 the prompts are written and opens them for you. Change any of them, then press **Render the film**. Untick
 "Let me read the prompts" to go straight through.
 
+**Image 1 and image 2** have a box each. Image 1 is the first frame, or the main subject in a reference workflow.
+Image 2 is optional, and you say what it is:
+
+| Image 2 is | What the LLM does with it |
+|---|---|
+| **Extra context** (default) | It looks at it. More of the same subject gives it more details to get right. A place is where it puts the subject from image 1. If your prompt says how to use it, that wins. |
+| **Another character** | It gives them a real part in the film, alongside the subject. |
+
+A workflow with one image input, like Built-in LTX, renders from image 1 alone. Only the LLM sees image 2 there, so
+it reaches the clips as words in the prompts: expect a description of that place or person, not a copy of it.
+A reference workflow gives image 2 to every clip.
+
 **While it runs:** you see each step with its ETA, which clip is rendering, ComfyUI's own progress, GPU use and the
 log. Generate adds more films to a queue, and each keeps the options it was queued with.
 
@@ -98,6 +110,8 @@ python main.py harbour.jpg "a storm rolls in over the harbour" --duration 3m --l
 | `--duration` | Film length: `90`, `3m` or `2m30`. From 5 seconds to 10 minutes, default `2m`. |
 | `--llm` | `gemini` or `claude`. Default: `LLM_PROVIDER`, else `gemini`. |
 | `--start` | `chain` for one continuous take (default), `image` for separate moments. |
+| `--reference IMAGE` | Another image, repeatable. The first one is image 2. |
+| `--image-2-role` | What image 2 is: `context` for more of the subject or the place to put them in (default), `character` for another character. |
 | `--size 1280x736` | Render size. By default it takes the image's shape at the workflow's pixel count. |
 | `--plan-only` | Writes the prompts and stops, so you can read them before spending the GPU time. |
 | `--upload`, `--privacy` | Uploads when the film is done. Private by default. |
@@ -121,11 +135,11 @@ The form asks for what the chosen workflow can take:
 
 | Workflow | Images | Without one |
 | --- | --- | --- |
-| I2V | 1, required | Can't run |
-| I2V/T2V with a switch titled "text to video" | 0-1 | The switch goes to text |
-| TI2V, where the image plugs into an optional input | 0-1 | The image comes out of the workflow |
+| I2V | 1, required, plus image 2 for the LLM | Can't run |
+| I2V/T2V with a switch titled "text to video" | 0-1, plus image 2 for the LLM | The switch goes to text |
+| TI2V, where the image plugs into an optional input | 0-1, plus image 2 for the LLM | The image comes out of the workflow |
 | T2V, with no Load Image | None | Always from text |
-| R2V, with several Load Image nodes | Up to that many | The empty ones come out, if they're optional |
+| R2V, with several Load Image nodes | Up to that many, one box each | The empty ones come out, if they're optional |
 
 Without an image, the LLM describes everything in full in every prompt and the film is 1280x736, unless you set
 a size. With references, every clip gets all of them and the LLM calls them `<Picture 1>`, `<Picture 2>`. A T2V or

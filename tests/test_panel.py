@@ -414,8 +414,8 @@ class PanelTest(unittest.TestCase):
     def test_a_reference_workflow_gets_every_clip_all_its_images(self):
         self.save_workflows()
         image = lambda: (io.BytesIO(png_bytes()), "ref.png")
-        self.assertEqual(self.generate(workflow="r2v.json", image=[image(), image(), image()]).status_code, 400)
-        self.assertTrue(self.generate(workflow="r2v.json", image=[image(), image()]).get_json()["ok"])
+        self.assertEqual(self.generate(workflow="r2v.json", image_2=image(), image_3=image()).status_code, 400)
+        self.assertTrue(self.generate(workflow="r2v.json", image_2=image()).get_json()["ok"])
         self.wait_idle()
         run = self.only_run()
         self.assertTrue(run.final, [l["text"] for l in webapp.job.lines][-15:])
@@ -425,10 +425,58 @@ class PanelTest(unittest.TestCase):
             self.assertEqual(sent["6"]["inputs"]["width"], 64, "the size picker's link is replaced")
             self.assertEqual(sent["3"]["inputs"]["value"][:6], "Prompt")
         self.assertTrue(os.path.exists(run.image_paths[1]))
+        guide = self.claude.requests[0]["body"]["messages"][0]["content"][-1]["text"]
+        self.assertIn("<Picture 2> adds to it", guide, "extra context, by default")
+        self.assertNotIn("for you alone", guide, "the video model sees this one")
 
     def test_the_built_in_workflow_still_needs_its_image(self):
         self.assertEqual(self.generate(image=None).status_code, 400)
-        self.assertEqual(self.generate(image=[(io.BytesIO(png_bytes()), "a.png"), (io.BytesIO(png_bytes()), "b.png")]).status_code, 400)
+        image = lambda: (io.BytesIO(png_bytes()), "b.png")
+        self.assertEqual(self.generate(image_2=image(), image_3=image()).status_code, 400)
+
+    def test_image_2_needs_an_image_1_to_add_to(self):
+        self.save_workflows()
+        image = lambda: (io.BytesIO(png_bytes()), "b.png")
+        for workflow in ("", "wan.json", "r2v.json"):
+            reply = self.generate(workflow=workflow, image=None, image_2=image())
+            self.assertEqual(reply.status_code, 400, workflow)
+            self.assertIn("in order", reply.get_json()["error"])
+        self.assertEqual(self.generate(workflow="t2v.json", image_2=image()).status_code, 400)
+        self.assertEqual(self.claude.requests, [])
+
+    def test_an_unknown_role_for_image_2_is_refused(self):
+        reply = self.generate(image_2_role="villain")
+        self.assertEqual(reply.status_code, 400)
+        self.assertIn("image 2", reply.get_json()["error"])
+
+    def test_with_one_input_image_2_reaches_the_clips_through_the_prompts(self):
+        first, second = png_bytes((200, 10, 30)), png_bytes((10, 30, 200))
+        self.assertTrue(self.generate(image=(io.BytesIO(first), "a.png"), image_2=(io.BytesIO(second), "b.png")).get_json()["ok"])
+        self.wait_idle()
+        run = self.only_run()
+        self.assertTrue(run.final, [l["text"] for l in webapp.job.lines][-15:])
+        self.assertEqual((run.image_count, run.start), (1, "chain"), "still a continuous take from image 1")
+        self.assertEqual(len(run.image_paths), 1)
+
+        content = self.claude.requests[0]["body"]["messages"][0]["content"]
+        self.assertEqual([part["type"] for part in content], ["image", "image", "text"], "the LLM sees both")
+        self.assertIn("for you alone", content[-1]["text"])
+        self.assertIn("It shows a place", content[-1]["text"], "extra context, by default")
+        # Every clip after the first starts on the last frame, and none of them starts on image 2.
+        with Image.open(run.image_path) as kept:
+            self.assertEqual(kept.getpixel((0, 0)), (200, 10, 30), "the run keeps image 1 as its first frame")
+        with open(run.image_path, "rb") as f:
+            self.assertTrue(self.comfy.uploads[0].startswith(f.read()))
+        self.assertEqual(len(self.comfy.uploads), len(self.comfy.prompts))
+        self.assertTrue(any("only reaches them through" in l["text"] for l in webapp.job.lines))
+
+    def test_image_2_can_be_another_character(self):
+        self.assertTrue(self.generate(image_2=(io.BytesIO(png_bytes()), "b.png"), image_2_role="character").get_json()["ok"])
+        self.wait_idle()
+        guide = self.claude.requests[0]["body"]["messages"][0]["content"][-1]["text"]
+        self.assertIn("another character", guide)
+        self.assertIn("describe how they look in full", guide)
+        self.assertNotIn("It shows a place", guide)
 
     def test_saved_workflows_stay_listed_with_comfyui_off(self):
         self.save_workflows()

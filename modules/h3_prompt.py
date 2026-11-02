@@ -70,7 +70,15 @@ def _what_to_describe(low, high):
     settled by the end."""
 
 
-def _format(images, low, high):
+def _second_picture(another_character):
+    if another_character:
+        return """- <Picture 1> and <Picture 2> are two different subjects: <Subject 1> comes from <Picture 1> and <Subject 2>
+      from <Picture 2>. Define both, and keep their details apart."""
+    return """- If <Picture 2> shows the same subject as <Picture 1>, <Subject 1> comes from both. If it shows a place, that
+      place is <Subject 2>, and <Subject 1> comes from <Picture 1> alone."""
+
+
+def _format(images, low, high, another_character=False):
     if not images:
         return f"""Every prompt is these three fields, in this order, in English. Replace the words in capitals:
 
@@ -86,11 +94,12 @@ def _format(images, low, high):
 
     {_what_to_describe(low, high)}"""
     pictures = _picture_labels(images)
+    comes_from = pictures if images == 1 else "THE PICTURES THAT SHOW IT"
     return f"""Every prompt is these six fields, in this order, in English. Replace the words in capitals with what
     this film needs:
 
     subject_definitions:
-    <Subject 1> is WHO OR WHAT IT IS, whose appearance comes from {pictures}: THE DETAILS THE IMAGES SHOW.
+    <Subject 1> is WHO OR WHAT IT IS, whose appearance comes from {comes_from}: THE DETAILS THE IMAGES SHOW.
 
     summary:
     [reference generation] WHAT HAPPENS IN THIS CLIP.
@@ -112,6 +121,7 @@ def _format(images, low, high):
     - subject_definitions: state what each subject is and which pictures it comes from, and mention {pictures} here.
       The identity belongs in a <Subject N>. Don't give an image an entry of its own as <Picture N> when it only
       shows what a subject looks like.
+    {_second_picture(another_character) if images > 1 else ""}
     - Whatever isn't named here comes back generic, and small details are the first to go. Look for three to eight
       things that can be checked by looking, such as tattoos, freckles, scars, moles, piercings, hair length, nail
       colour and clothes. Fix each one to a body landmark and a side ("on the right cheekbone"), and measure rather
@@ -131,7 +141,7 @@ def _format(images, low, high):
     {_what_to_describe(low, high)}"""
 
 
-def instructions(brief, seconds, count, images, shortest, longest):
+def instructions(brief, seconds, count, images, shortest, longest, second_image="", another_character=False):
     clips = "one clip" if count == 1 else f"{count} clips"
     shots = "one shot" if count == 1 else f"{count} shots in order"
     together = f"Use {seconds}." if count == 1 else f"All of them together add up to {seconds}."
@@ -149,6 +159,8 @@ def instructions(brief, seconds, count, images, shortest, longest):
 
     {_what_you_get(images)}
 
+    {second_image}
+
     The brief, in the words of the person making it: "{brief}"
 
     The brief is short on purpose. Invent the detail the film needs, in keeping with the brief, and never
@@ -164,7 +176,7 @@ def instructions(brief, seconds, count, images, shortest, longest):
     - prompt: the complete H3 prompt, as below, with at least {low} words describing the shot. Nothing else goes in it: no
       notes, headers or placeholders.
 
-    {_format(images, low, high)}
+    {_format(images, low, high, another_character)}
 
     Each prompt is exactly one continuous shot, [Shot 1], with no cuts inside it. Change the distance or angle with a
     camera move, and keep new places for other clips.
@@ -227,7 +239,7 @@ def _description(prompt, images):
     return prompt.split(opening, 1)[-1].split("overall_soundscape:", 1)[0]
 
 
-def tidy(prompts, images):
+def tidy(prompts, images, another_character=False):
     """
     Gives every clip the fullest subject_definitions, word for word and naming every
     picture. Done here rather than by asking again: in a long film some clip would
@@ -242,6 +254,9 @@ def tidy(prompts, images):
         return prompts
     fullest = max(definitions, key=lambda text: ("<Subject 1>" in text, sum(label in text for label in labels), len(text)))
     missing = [label for label in labels if label not in fullest]
+    if another_character and "<Picture 2>" in missing:
+        missing.remove("<Picture 2>")
+        fullest = f"{fullest.rstrip()}\n<Subject 2> comes from <Picture 2>.\n\n"
     if missing:
         fullest = f"{fullest.rstrip()}\n<Subject 1> also draws on {' and '.join(missing)}.\n\n"
     return [fullest + prompt[prompt.index("summary:"):] if "subject_definitions:" in prompt and "summary:" in prompt else prompt

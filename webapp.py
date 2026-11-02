@@ -922,6 +922,11 @@ def build_options(form):
         return None, "Unknown start mode."
     flags += ["--start", start]
 
+    image_2_role = form.get("image_2_role") or planner.EXTRA_CONTEXT
+    if image_2_role not in planner.IMAGE_2_ROLES:
+        return None, "Unknown role for image 2."
+    flags += ["--image-2-role", image_2_role]
+
     llm = form.get("llm") or planner.default_llm()
     if llm not in dict(planner.LLMS):
         return None, "Unknown LLM."
@@ -960,6 +965,23 @@ def queue_label(text):
     return text if len(text) <= 80 else text[:77] + "..."
 
 
+def form_uploads(files, takes):
+    """The images chosen in the form's boxes (image, image_2...), in order. Returns (uploads, error)."""
+    field = lambda number: "image" if number == 1 else f"image_{number}"
+    filled = {name for name, upload in files.items() if upload.filename}
+    uploads = [files[field(number)] for number in range(1, len(filled) + 1) if field(number) in filled]
+    if len(uploads) < len(filled):
+        return None, "Fill the image boxes in order: each one adds to those before it."
+    low, high = takes["min_images"], takes["max_images"]
+    # Clips with room for one image still leave image 2 for the LLM.
+    room = 2 if high == 1 else high
+    if len(uploads) < low:
+        return None, "Choose the image the film opens on." if low == 1 else f"This workflow needs {low} images."
+    if len(uploads) > room:
+        return None, "This workflow makes its clips from text alone: leave the image out." if not room else f"This workflow takes at most {room} images."
+    return uploads, None
+
+
 @app.route("/generate", methods=["POST"])
 @password_required
 def generate():
@@ -977,12 +999,9 @@ def generate():
     if not planner.llm_configured(llm):
         return {"ok": False, "error": f"{llm} has no credentials. See .env.example."}, 400
 
-    uploads = [upload for upload in request.files.getlist("image") if upload.filename]
-    if len(uploads) < takes["min_images"]:
-        return {"ok": False, "error": "Choose the image the film opens on."}, 400
-    if len(uploads) > takes["max_images"]:
-        return {"ok": False, "error": ("This workflow makes its clips from text alone: leave the image out." if not takes["max_images"]
-                                       else f"This workflow takes at most {takes['max_images']} images.")}, 400
+    uploads, error = form_uploads(request.files, takes)
+    if error:
+        return {"ok": False, "error": error}, 400
     try:
         images = [media.load_image(upload.stream) for upload in uploads]
     except RuntimeError:

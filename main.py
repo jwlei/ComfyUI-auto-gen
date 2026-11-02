@@ -39,7 +39,10 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Turns one image and a short prompt into a film of up to 10 minutes, made of ComfyUI clips.")
     parser.add_argument("image", nargs="?", help="The image the film opens on.")
     parser.add_argument("--no-image", action="store_true", help="Make the film from text alone, if the workflow can: give only the prompt.")
-    parser.add_argument("--reference", action="append", default=[], metavar="IMAGE", help="Another image, for a workflow that takes several.")
+    parser.add_argument("--reference", action="append", default=[], metavar="IMAGE",
+                        help="Another image. The first is image 2: if the clips only take one image, it goes to the LLM alone.")
+    parser.add_argument("--image-2-role", choices=planner.IMAGE_2_ROLES, default=planner.EXTRA_CONTEXT,
+                        help="What image 2 is: more of the subject or the place to put them in (context, default), or another character.")
     parser.add_argument("prompt", nargs="?", help="What should happen, in a sentence or two.")
     parser.add_argument("--duration", type=parse_duration, default="2m", help="Film length: 90, 3m or 2m30 (default 2m, from 5 seconds to 10 minutes).")
     parser.add_argument("--start", choices=("chain", "image"), default="chain",
@@ -60,6 +63,8 @@ def parse_args(argv=None):
         parser.error("--redo needs --resume.")
     if args.plan_only and args.resume:
         parser.error("--plan-only writes a new plan: --resume already has one.")
+    if args.no_image and args.reference:
+        parser.error("--reference adds to an image, and --no-image has none.")
     if args.no_image:
         args.image, args.prompt = None, args.image
     if not (args.resume or args.list or args.check or (args.prompt and (args.image or args.no_image))):
@@ -124,6 +129,8 @@ def plan_run(args, stages):
     images = [media.load_image(path) for path in ([args.image] if args.image else []) + args.reference]
     comfy = ComfyClient()
     takes = comfy.takes()
+    # Clips with room for one image can't show the video model a second, so the LLM puts it into words.
+    image_2_in_words = images.pop(1) if len(images) == 2 and takes["max_images"] == 1 else None
     if not takes["min_images"] <= len(images) <= takes["max_images"]:
         raise RuntimeError(f"This workflow takes {takes['min_images']}-{takes['max_images']} images, not {len(images)}.")
     # A clip can only start on the last one's final frame if an image is all it takes.
@@ -138,8 +145,10 @@ def plan_run(args, stages):
 
     print_stage("Plan", stages)
     print(f"🧠 {llm} is writing {planner.shot_count(state.seconds)} prompts for a {state.seconds}s film at {width}x{height}...")
+    if image_2_in_words:
+        print("🖼️ This workflow's clips take one image, so image 2 only reaches them through what the prompts say.")
     title, shots = planner.plan_film([media.preview_jpeg(image) for image in images], args.prompt, state.seconds, state.start, llm,
-                                     comfy.video_model())
+                                     comfy.video_model(), args.image_2_role, media.preview_jpeg(image_2_in_words) if image_2_in_words else None)
     for image, path in zip(images, state.image_paths):
         media.save_input(image, path)
     state.update(title=title, shots=shots)

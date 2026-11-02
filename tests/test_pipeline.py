@@ -461,6 +461,85 @@ class PlanTest(unittest.TestCase):
         self.assertNotIn("attached image", none)
         self.assertNotIn("exact last frame", planner._instructions("x", 5, "chain", 1, wan_prompt.MODEL), "there is no clip before")
 
+    # --- Image 2 ---
+
+    def test_image_2_as_extra_context_is_the_subject_or_the_place(self):
+        guide = planner._instructions("x", 60, "image", 2)
+        self.assertIn("<Picture 1> shows the film's subject, and <Picture 2> adds to it", guide)
+        self.assertIn("It shows the same subject", guide)
+        self.assertIn("It shows a place", guide)
+        self.assertIn("If the brief says how to use it", guide)
+        self.assertNotIn("for you alone", guide)
+
+    def test_image_2_only_the_llm_sees_is_put_into_words(self):
+        guide = planner._instructions("x", 60, "chain", 1, None, planner.EXTRA_CONTEXT, True)
+        self.assertIn("The first attached image is the film's opening frame", guide)
+        self.assertIn("for you alone", guide)
+        self.assertIn("early in the film", guide)
+        self.assertIn("one prompt and one start frame", guide, "the video model still gets only the one")
+        self.assertNotIn("<Picture", guide, "no label for an image the video model doesn't have")
+        separate = planner._instructions("x", 60, "image", 1, None, planner.EXTRA_CONTEXT, True)
+        self.assertIn("starts again from the first attached image", separate)
+        self.assertIn("early in each clip", separate)
+
+    def test_image_2_as_another_character(self):
+        words = planner._instructions("x", 60, "chain", 1, None, planner.ANOTHER_CHARACTER, True)
+        self.assertIn("the second image shows another character", words)
+        self.assertIn("as asked for", words, "not ruled out by 'no new main characters'")
+        self.assertIn("aren't in the opening frame", words)
+        self.assertNotIn("It shows a place", words)
+        references = planner._instructions("x", 60, "image", 2, None, planner.ANOTHER_CHARACTER)
+        self.assertIn("<Picture 2> shows another character", references)
+        self.assertNotIn("for you alone", references)
+
+    def test_without_image_2_no_guide_mentions_one(self):
+        for model in (None, h3_prompt.MODEL, wan_prompt.MODEL):
+            for images in (0, 1):
+                guide = planner._instructions("x", 60, "chain", images, model)
+                self.assertNotRegex(guide, "second image|another character|It shows a place|<Picture 2>", model)
+
+    def test_h3_defines_image_2_by_what_it_is(self):
+        context = planner._instructions("x", 60, "image", 2, h3_prompt.MODEL)
+        self.assertIn("<Picture 1> and <Picture 2>", context)
+        self.assertIn("place is <Subject 2>", context)
+        self.assertNotIn("comes from <Picture 1> and <Picture 2>:", context, "a place isn't part of what the subject looks like")
+        character = planner._instructions("x", 60, "image", 2, h3_prompt.MODEL, planner.ANOTHER_CHARACTER)
+        self.assertIn("two different subjects", character)
+        self.assertNotIn("It shows a place", character)
+        self.assertNotIn("Call them <Picture 2>", character, "H3 calls a subject by its own label")
+
+    def test_h3_never_says_a_reference_is_a_frame(self):
+        for role in planner.IMAGE_2_ROLES:
+            guide = planner._instructions("x", 60, "image", 1, h3_prompt.MODEL, role, True)
+            self.assertIn("for you alone", guide)
+            self.assertNotIn("opening frame", guide, "no clip starts on it")
+
+    def test_h3_tidying_keeps_another_character_apart(self):
+        text = self.h3_prompt_text()
+        merged = h3_prompt.tidy([text], 2)[0]
+        self.assertIn("<Subject 1> also draws on <Picture 2>", merged)
+        apart = h3_prompt.tidy([text], 2, True)[0]
+        self.assertIn("<Subject 2> comes from <Picture 2>", apart)
+        self.assertNotIn("<Subject 1> also draws on", apart)
+
+    def test_wan_has_no_labels_for_image_2(self):
+        for images, in_words in ((1, True), (2, False)):
+            for role in planner.IMAGE_2_ROLES:
+                guide = planner._instructions("x", 60, "chain", images, wan_prompt.MODEL, role, in_words)
+                self.assertIn("the second image", guide)
+                self.assertNotIn("<Picture", guide, "it takes plain prose")
+
+    def test_plan_film_attaches_image_2_after_the_others(self):
+        reply = self.reply([{"title": f"S{i}", "seconds": 8, "prompt": "A walk."} for i in range(8)])
+        with mock.patch.object(planner, "_ask", return_value=reply) as call:
+            planner.plan_film([b"one"], "brief", 60, "chain", "gemini", None, planner.EXTRA_CONTEXT, b"two")
+        self.assertEqual(call.call_args.args[4], [b"one", b"two"])
+        self.assertIn("for you alone", call.call_args.args[1])
+
+    def test_an_image_2_needs_an_image_1(self):
+        with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
+            main.parse_args(["--no-image", "--reference", "b.png", "a prompt"])
+
     def test_wan_prompts_arent_held_to_h3s_shape(self):
         reply = self.reply([{"title": f"S{i}", "seconds": 8, "prompt": "A woman walks into the rain."} for i in range(8)])
         with mock.patch.object(planner, "_ask", return_value=reply) as call:

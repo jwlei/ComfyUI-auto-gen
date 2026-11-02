@@ -35,8 +35,56 @@ vm.createContext(context);
 vm.runInContext(script, context);
 const run = code => vm.runInContext(code, context);
 
-// Remembered options never touch the file input, which throws if you set its value.
-assert(run('NOT_REMEMBERED').includes('image'));
+// Remembered options never touch a file input, which throws if you set its value.
+for (const name of ['image', 'image_2', 'image_3']) assert(!run(`remembered({ name: '${name}', type: 'file' })`), name);
+assert(run(`remembered({ name: 'llm', type: 'select-one' })`));
+assert(!run(`remembered({ name: 'image_2_role', type: 'select-one' })`), 'each film starts from the default role');
+
+// One box per image, built as a workflow needs them. The page's boxes, without a browser to parse them.
+function imageBox(number) {
+  const hiddenClass = () => ({ toggle(name, on) { this.on = on; } });
+  const input = { name: number === 1 ? 'image' : `image_${number}`, value: '', files: [], disabled: false };
+  const parts = { input, img: { src: '', classList: hiddenClass() }, button: { classList: hiddenClass() }, label: { textContent: '' } };
+  return { hidden: false, parts, querySelector: tag => parts[tag] };
+}
+const boxes = [];
+const holder = context.document.getElementById('imageBoxes');
+holder.querySelectorAll = () => boxes;
+holder.insertAdjacentHTML = (_, html) => {
+  assert(/type="file"/.test(html) && /<img class="preview hidden"/.test(html) && /data-clear/.test(html));
+  boxes.push(imageBox(boxes.length + 1));
+};
+const labels = () => boxes.filter(box => !box.hidden).map(box => box.parts.label.textContent);
+
+run('syncImageInput()');
+assert.deepStrictEqual(labels(), ['Image 1: first frame', 'Image 2: extra context (optional)'], 'the built-in workflow');
+assert(els.secondImage.hidden, 'nothing to say about an image 2 nobody chose');
+boxes[1].parts.input.files = [{}];
+boxes[1].parts.input.value = 'two.png';
+run('syncImageInput()');
+assert(!els.secondImage.hidden, 'image 2 chosen: say what it is');
+assert(els.secondImageHint.textContent.includes('never sees'), 'one input to fill: the LLM alone sees image 2');
+
+run(`workflowTakes = { r2v: { min_images: 0, max_images: 3 }, t2v: { min_images: 0, max_images: 0 }, ti2v: { min_images: 0, max_images: 1 } }`);
+els.workflow.value = 'r2v';
+run('syncImageInput()');
+assert.deepStrictEqual(labels(), ['Image 1: main subject (optional)', 'Image 2: extra context (optional)', 'Image 3: another reference (optional)']);
+assert(els.secondImageHint.textContent.includes('Every clip'));
+assert.strictEqual(boxes[1].parts.input.value, 'two.png', 'a workflow with room for it keeps the image');
+
+els.workflow.value = 'ti2v';
+run('syncImageInput()');
+assert.deepStrictEqual(labels(), ['Image 1: first frame (optional: without one it starts from text)', 'Image 2: extra context (optional)']);
+assert(boxes[2].parts.input.disabled, 'a hidden box sends nothing');
+
+els.workflow.value = 't2v';
+boxes[1].parts.input.files = [];
+run('syncImageInput()');
+assert.deepStrictEqual(labels(), [], 'text alone has no image to ask for');
+assert.strictEqual(boxes[1].parts.input.value, '', 'and no image waiting in a hidden box');
+assert(els.secondImage.hidden);
+els.workflow.value = '';
+run('workflowTakes = {}; syncImageInput()');
 
 // The film length range comes from the server, and goes down to one clip.
 assert(/id="duration"[^>]*min="5"[^>]*max="600"[^>]*step="5"/.test(html));

@@ -29,7 +29,7 @@ def _what_to_write(images):
       the place. Describe the subject, the place and the light in the same words every time, or the clips won't match."""
 
 
-def instructions(brief, seconds, count, images, continuity, shortest, longest):
+def instructions(brief, seconds, count, images, continuity, shortest, longest, second_image=""):
     clips = "one clip" if count == 1 else f"{count} consecutive clips"
     shots = "one shot" if count == 1 else f"{count} shots in order"
     together = f"Use {seconds}." if count == 1 else f"All of them together add up to {seconds}."
@@ -43,6 +43,8 @@ def instructions(brief, seconds, count, images, continuity, shortest, longest):
     The brief is short on purpose. Invent the detail the film needs, in keeping with the brief, and never contradicting
     it. {shape} Bring in no new main characters unless the brief asks for them. Whatever language the brief is in, write
     the prompts in English.
+
+    {second_image}
 
     {continuity}
 
