@@ -88,7 +88,11 @@
   .run-sep { border-top: 1px solid var(--line); margin: 14px 0 12px; }
   .sys { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: .85rem; }
   .sys .item { display: flex; align-items: center; gap: 8px; }
-  .phone { font-size: .82rem; color: var(--muted); margin-top: 10px; }
+  .phone { font-size: .82rem; color: var(--muted); margin-top: 6px; }
+  .finished, .misc { margin-top: 10px; font-size: .85rem; }
+  .finished summary, .misc summary { font-size: .8rem; font-weight: 500; color: var(--muted); }
+  .finished .results div { padding: 2px 0; }
+  .finished .failed, .finished summary .failed { color: var(--err); }
   .phone code { color: var(--text); background: var(--panel-2); padding: 2px 6px; border-radius: 6px; user-select: all; }
   .vhead { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
   .tabs { display: flex; gap: 6px; flex: 1 1 auto; }
@@ -161,6 +165,7 @@
   }
   .switch button.active { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 800; box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
   /* Each mode has its own colour across the page, so you can tell which you're in at a glance. */
+  body.on-shorts { --accent: #ff0033; }
   body.on-video { --accent: #4c8dff; }
   .pipeline-form textarea { min-height: 84px; resize: vertical; }
   .pipeline-form input[type=file] { padding: 9px; font-size: .9rem; }
@@ -256,8 +261,8 @@
       display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 340px); grid-auto-flow: row dense; gap: 0 24px;
     }
     .run-card > * { grid-column: 1; }
-    .run-card > .sys, .run-card > .gpu, .run-card > #uploadBox, .run-card > .phone { grid-column: 2; }
-    .run-card > .log-box, .run-card > .status-queue { grid-column: 1 / -1; }
+    .run-card > .sys, .run-card > .gpu, .run-card > #uploadBox { grid-column: 2; }
+    .run-card > .log-box, .run-card > .status-queue, .run-card > .finished, .run-card > .misc { grid-column: 1 / -1; }
     .run-card > .sys { margin-top: 18px; }
     .run-card > .gpu { margin: 6px 0; }
     .options-col > .card { margin-bottom: 0; }
@@ -397,7 +402,14 @@
     <div class="q-group only-shorts">Upload</div>
     <div class="log only-shorts" id="uploadLog"><span class="empty-log">No upload yet.</span></div>
   </details>
-  <div class="phone">📱 Phone (same Wi-Fi): <code>{{ phone_url }}</code></div>
+  <details class="finished" id="finished" hidden>
+    <summary id="finishedTitle"></summary>
+    <div class="hint results" id="finishedList"></div>
+  </details>
+  <details class="misc" id="misc">
+    <summary>More</summary>
+    <div class="phone">📱 Phone (same Wi-Fi): <code>{{ phone_url }}</code></div>
+  </details>
 </div>
 
 <div class="options-col" id="optionsCard">
@@ -431,7 +443,6 @@
       <select id="voice" name="voice">
         {% for value, label in voices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
       </select>
-      <div class="hint">If both Gemini voice models fail, the run stops.</div>
     </details>
   </div>
 
@@ -1355,14 +1366,12 @@ const renderLog = logWriter($('log'), () => autoScroll);
 const renderUploadLog = logWriter($('uploadLog'), () => true);
 
 function renderUpload(up) {
-  $('uploadBox').hidden = !up.lines.length && !up.queue.items.length;
-  $('uploadDot').className = 'dot' + (up.running ? ' on' : up.stopped ? '' : (up.returncode ? ' fail' : up.started_at ? ' ok' : ''));
+  // How each one ended is under Finished, so this only shows while one is going or waiting.
+  $('uploadBox').hidden = !up.running && !up.queue.items.length;
+  $('uploadDot').className = 'dot' + (up.running ? ' on' : '');
   $('stopUpload').hidden = !up.running;
   $('uploadStatus').textContent = up.running ? `Uploading · ${fmt(up.elapsed)} so far`
-    : up.queue.items.length && !up.queue.held ? 'Waiting to upload'
-    : !up.started_at ? ''
-    : up.stopped ? 'Upload stopped'
-    : up.returncode === 0 ? 'Upload finished ✔' : `Upload failed (exit ${up.returncode})`;
+    : up.queue.held ? 'Uploads on hold' : 'Waiting to upload';
   renderQueue($('uploadQueue'), up.queue, 0);
   if (up.lines.length) renderUploadLog(up.lines);
 }
@@ -1370,10 +1379,10 @@ function renderUpload(up) {
 // --- Queues ---
 const RESULT_MARKS = { done: '✔', failed: '✖ failed', stopped: '■ stopped', skipped: '– skipped' };
 function renderQueue(el, q, doneIn) {
-  // One finished job and nothing waiting says nothing the status line doesn't.
-  el.hidden = !q.items.length && q.results.length < 2;
+  // What has finished is under Finished: this is what's waiting.
+  el.hidden = !q.items.length;
   if (el.hidden) return;
-  const head = !q.items.length ? `<b>${el.dataset.title} finished</b>` : `<b>${el.dataset.title} (${q.items.length})</b>` + (q.held
+  const head = `<b>${el.dataset.title} (${q.items.length})</b>` + (q.held
     ? `<span class="when">On hold until you press Resume</span><button type="button" data-resume="1">Resume</button>`
     : doneIn ? `<span class="when">All done around ${clockIn(doneIn)}</span>` : '');
   const now = q.current && q.items.length ? `<div class="queue-item"><div class="what">Now: ${esc(q.current.label)}</div></div>` : '';
@@ -1383,14 +1392,24 @@ function renderQueue(el, q, doneIn) {
       ${item.estimate ? `<span class="when">${fmtEta(item.estimate)}</span>` : ''}
       <button type="button" data-remove="${item.id}" aria-label="Remove from the queue" title="Remove from the queue">✕</button>
     </div>`).join('');
-  const results = q.results.length ? `<div class="hint results">${q.results.map(r =>
-    `<div class="${r.outcome === 'failed' ? 'failed' : ''}">${r.at} ${RESULT_MARKS[r.outcome]}: ${esc(r.label)}${r.note ? ` (${esc(r.note)})` : ''}</div>`).join('')}</div>` : '';
-  const html = `<div class="queue-head">${head}</div>${now}${items}${results}`;
+  const html = `<div class="queue-head">${head}</div>${now}${items}`;
   // Only when it changed, so a poll can't swallow a click on a button it just replaced.
   if (el.dataset.html !== html) {
     el.innerHTML = html;
     el.dataset.html = html;
   }
+}
+// Every run and upload that has ended, in one list, newest first.
+function renderFinished(runs, uploads) {
+  const all = [...runs.map(r => ({ ...r, kind: '' })), ...uploads.map(r => ({ ...r, kind: 'Upload: ' }))]
+    .sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+  $('finished').hidden = !all.length;
+  if (!all.length) return;
+  const failed = all.filter(r => r.outcome === 'failed').length;
+  const title = `Finished (${all.length})${failed ? ` · <span class="failed">${failed} failed</span>` : ''}`;
+  const list = all.map(r => `<div class="${r.outcome === 'failed' ? 'failed' : ''}">${r.at} ${RESULT_MARKS[r.outcome]}: ${r.kind}${esc(r.label)}${r.note ? ` (${esc(r.note)})` : ''}</div>`).join('');
+  if ($('finishedTitle').innerHTML !== title) $('finishedTitle').innerHTML = title;
+  if ($('finishedList').dataset.html !== list) { $('finishedList').innerHTML = list; $('finishedList').dataset.html = list; }
 }
 function renderStopped(runs) {
   const el = $('stoppedRuns');
@@ -1445,10 +1464,7 @@ function runShort(data, nextUp) {
     const clip = /^Clip (\d+) of (\d+)/.exec(p.detail || '');
     return clip ? `Clip ${clip[1]}/${clip[2]}` : SHORT_STAGES[p.stage[2]] || p.stage[2];
   }
-  if (nextUp) return 'Next job';
-  if (data.stopped) return 'Stopped';
-  if (data.returncode === 0) return 'Done';
-  return data.returncode === null ? 'Idle' : 'Failed';
+  return nextUp ? 'Next job' : 'Idle';
 }
 // share is how much is done, 0 to 1, or null when that can't be told.
 function inView(id) {
@@ -1531,6 +1547,8 @@ async function poll() {
     // The prompts you asked to read before rendering are ready.
     const planned = data.pipeline === 'video' && data.returncode === 0 && (data.command || '').includes('--plan-only') && data.progress.run_id;
     if (planned && !$('shotsDialog').open) openShots(data.progress.run_id);
+    // A setup check's answer is in the log.
+    if ((data.command || '').includes('--check')) $('logBox').open = true;
   }
   wasRunning = running;
   const queue = data.queue, upq = data.upload.queue;
@@ -1552,7 +1570,8 @@ async function poll() {
   renderUpload(data.upload);
   renderQueue($('runQueue'), queue, queue.held ? 0 : queueAhead);
   renderStopped(data.stopped_runs);
-  $('dot').className = 'dot' + (running || nextUp ? ' on' : (data.returncode && !data.stopped ? ' fail' : ''));
+  renderFinished(queue.results, upq.results);
+  $('dot').className = 'dot' + (running || nextUp ? ' on' : '');
   $('jumpDot').className = $('dot').className;
   $('jumpRun').textContent = runShort(data, nextUp);
   renderStrips(data);
@@ -1577,13 +1596,8 @@ async function poll() {
     $('statusText').textContent = `Running · started ${data.started_at}, ${fmt(data.elapsed)} so far`;
   } else if (nextUp) {
     $('statusText').textContent = 'Starting the next job in the queue…';
-  } else if (data.stopped) {
-    $('statusText').textContent = 'Stopped';
-  } else if (data.returncode === 0) {
-    $('statusText').textContent = 'Finished ✔';
-  } else if (data.returncode !== null) {
-    $('statusText').textContent = `Failed (exit ${data.returncode}), see the log`;
   } else {
+    // How it ended is under Finished.
     $('statusText').textContent = 'Idle';
   }
 

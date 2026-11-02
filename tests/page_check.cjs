@@ -9,6 +9,7 @@ const html = fs.readFileSync(process.argv[2], 'utf8');
 const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).find(s => s.includes('async function poll'));
 assert(script, 'the page has its script');
 
+const status0 = () => html.slice(html.indexOf('id="runCard"'), html.indexOf('id="optionsCard"'));
 // Every id the script reaches for has to be on the page.
 const ids = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map(m => m[1]));
 for (const [, id] of script.matchAll(/\$\('([A-Za-z]+)'\)/g)) assert(ids.has(id), `#${id} is on the page`);
@@ -120,6 +121,11 @@ assert.strictEqual(els.etaDetail.hidden, true, 'on track: nothing to explain');
 run(`renderEtaDetail({ changes: [{ text: 'Clip <b>3</b> was slow', seconds: 120 }], original_total: 600, adjusted_total: 720 })`);
 assert(!els.etaDetail.hidden && els.etaDetail.innerHTML.includes('<details') && els.etaDetail.innerHTML.includes('+2 min') && !els.etaDetail.innerHTML.includes('<b>3'));
 
+// Shorts in YouTube red; the phone address is folded under More, at the bottom of Status; no voice hint.
+assert(/body\.on-shorts \{ --accent: #ff0033; \}/.test(html));
+assert(/<details class="misc" id="misc">\s*<summary>More<\/summary>\s*<div class="phone">/.test(status0()));
+assert(!html.includes('If both Gemini voice models fail'));
+
 // Times.
 assert.strictEqual(run('stepEta({state:"kept",seconds:0})'), 'kept');
 assert.strictEqual(run('stepEta({state:"done",seconds:65})'), '1:05');
@@ -185,19 +191,25 @@ assert(box.innerHTML.includes('>Continue<'));
 run('renderStopped([])');
 assert.strictEqual(box.hidden, true);
 
-// A stopped run must not read as failed, and an upload's status says what happened.
-assert(script.indexOf('data.stopped)') < script.indexOf('Failed (exit'));
-run(`renderUpload({ lines: [], running: false, started_at: '17:00', elapsed: 1, returncode: 1, stopped: true, queue: { items: [], held: false, results: [] } })`);
-assert.strictEqual(els.uploadStatus.textContent, 'Upload stopped');
-assert.strictEqual(els.uploadDot.className, 'dot');
+// How a run or upload ended is said once, under Finished, newest first; the status itself goes back to Idle.
+run(`renderUpload({ lines: [{ n: 1, t: '17:00', text: 'x' }], running: false, started_at: '17:00', elapsed: 1, returncode: 1, stopped: true, queue: { items: [], held: false, results: [] } })`);
+assert.strictEqual(els.uploadBox.hidden, true, 'an upload that ended has nothing to show here');
+run(`renderFinished([{ label: 'A <b>run', outcome: 'done', at: '17:05' }, { label: 'B', outcome: 'failed', note: 'exit 1', at: '17:10' }],
+  [{ label: 'C', outcome: 'stopped', at: '17:20' }])`);
+assert.strictEqual(els.finished.hidden, false);
+assert(els.finishedTitle.innerHTML.startsWith('Finished (3)') && els.finishedTitle.innerHTML.includes('1 failed'));
+const order = ['Upload: C', 'B', 'A &lt;b&gt;run'].map(text => els.finishedList.innerHTML.indexOf(text));
+assert(order.every(i => i >= 0) && order[0] < order[1] && order[1] < order[2], 'newest first, escaped');
+run('renderFinished([], [])');
+assert.strictEqual(els.finished.hidden, true);
+assert(!script.includes("'Finished ✔'") && !script.includes('Upload finished') && !script.includes('Failed (exit'));
 
 // The header: a short status on Run, and a bar under it per job.
 const idle = { running: false, stopped: false, returncode: null, elapsed: 0, progress: {}, upload: { running: false, elapsed: 0 } };
 context.idle = idle;
 assert.strictEqual(run('runShort(idle, false)'), 'Idle');
-assert.strictEqual(run('runShort({ ...idle, returncode: 0 }, false)'), 'Done');
-assert.strictEqual(run('runShort({ ...idle, returncode: 1 }, false)'), 'Failed');
-assert.strictEqual(run('runShort({ ...idle, returncode: 1, stopped: true }, false)'), 'Stopped');
+assert.strictEqual(run('runShort({ ...idle, returncode: 0 }, false)'), 'Idle', 'finished is idle');
+assert.strictEqual(run('runShort({ ...idle, returncode: 1 }, false)'), 'Idle');
 assert.strictEqual(run('runShort(idle, true)'), 'Next job');
 const rendering = { ...idle, running: true, elapsed: 400, progress: { stage: [2, 4, 'Clips'], detail: 'Clip 2 of 75: The harbour, 8s',
   eta: { total_left: 600, adjusted_total: 1000 } } };
@@ -313,6 +325,8 @@ queue.dataset.title = 'Runs';
 context.queue = queue;
 run(`renderQueue(queue, { items: [{ id: 3, label: 'a <film>', detail: 'd', estimate: 600 }], results: [], held: true, current: null }, 0)`);
 assert(queue.innerHTML.includes('<b>Runs (1)</b>'));
+run(`renderQueue(queue, { items: [], results: [{ label: 'x', outcome: 'done', at: '17:00' }, { label: 'y', outcome: 'done', at: '17:01' }], held: false, current: null }, 0)`);
+assert.strictEqual(queue.hidden, true, 'what finished is under Finished, not in the queue');
 assert(queue.innerHTML.includes('data-resume') && queue.innerHTML.includes('data-remove="3"') && queue.innerHTML.includes('a &lt;film&gt;'));
 
 // The status recovers by itself.
@@ -328,7 +342,8 @@ assert(queue.innerHTML.includes('data-resume') && queue.innerHTML.includes('data
   context.setTimeout = () => 0;
   context.fetch = answer({ ...quiet, server_started: 1, returncode: 0 });
   await run('poll()');
-  assert.strictEqual(els.jumpRun.textContent, 'Done', 'it works again straight after a stuck one');
+  assert.strictEqual(els.jumpRun.textContent, 'Idle', 'it works again straight after a stuck one');
+  assert.strictEqual(els.statusText.textContent, 'Idle', 'a finished run leaves the status idle');
   assert.strictEqual(els.go.textContent, 'Generate');
   context.fetch = answer({ ...quiet, server_started: 1, queue: { ...quiet.queue, items: [{ id: 1, label: 'x', estimate: 60 }] } });
   await run('poll()');
