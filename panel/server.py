@@ -839,8 +839,8 @@ def run_pipeline(run_id):
     return PIPELINES["shorts" if re.fullmatch(r"run_\d{8}_\d{6}_\d+", run_id) else "video"]
 
 
-def stop_run():
-    """Kills the run with its ffmpeg renders and ComfyUI clips. What is queued waits for Resume."""
+def stop_run(start_next=False):
+    """Kills the run with its ffmpeg renders and ComfyUI clips. What is queued waits for Resume, unless start_next."""
     # Before the kill, or the next job could start as soon as this one dies.
     if job.running:
         run_queue.hold()
@@ -849,6 +849,9 @@ def stop_run():
         cancel_pipeline_clips()
         remove_partial_videos()
         _runs_cache["at"] = 0.0
+        # Only now: the clean-up above would take the next job's clips and files with it.
+        if start_next:
+            run_queue.resume()
     return stopped
 
 
@@ -948,6 +951,19 @@ def discard_run(run_id):
 @password_required
 def stop():
     return {"ok": stop_run(), "error": STOP_FAILED if job.running else None}
+
+
+@app.route("/skip", methods=["POST"])
+@password_required
+def skip():
+    """Stops the run so the next in the queue can start. It waits under Stopped runs until you continue it."""
+    # A film's plan is saved once written: stopped before that, there would be nothing to continue.
+    _runs_cache["at"] = 0.0
+    if job.progress.get("run_id") not in {run["id"] for run in saved_runs()}:
+        return {"ok": False, "error": "This run has nothing saved to continue from yet. Try again once its plan is written."}, 409
+    stopped = stop_run(start_next=True)
+    # Once stopped, what's running is the next job.
+    return {"ok": stopped, "error": STOP_FAILED if job.running and not stopped else None}
 
 
 @app.route("/publish/stop", methods=["POST"])

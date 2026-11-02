@@ -80,8 +80,9 @@ its edges. The ETA scales with the pixel count.
 **While it runs:** you see each step with its ETA, which clip is rendering, ComfyUI's own progress, GPU use and the
 log. Generate adds more films to a queue, and each keeps the options it was queued with.
 
-**Stop** kills the run and cancels its clip in ComfyUI, leaving anything else you've queued there alone. What's
-queued in the panel waits for you to press Resume.
+**Stop all** kills the run and cancels its clip in ComfyUI, leaving anything else you've queued there alone. What's
+queued in the panel waits for you to press Resume. **Skip, resume later** does the same but starts the next film in
+the queue straight away. **Continue** brings the skipped one back, behind whatever is queued by then.
 
 **Waiting to be rendered** lists plans not rendered yet and runs that were stopped, failed or cut off by a crash.
 **Continue** picks up from the last finished clip, and only the clip that was cut off starts again.

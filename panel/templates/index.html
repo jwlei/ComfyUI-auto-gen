@@ -86,8 +86,6 @@
   .btns .ghost { flex: 0 0 34%; }
   .btns .danger { background: var(--err); }
   .run-sep { border-top: 1px solid var(--line); margin: 14px 0 12px; }
-  .sys { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: .85rem; }
-  .sys .item { display: flex; align-items: center; gap: 8px; }
   .phone { font-size: .82rem; color: var(--muted); margin-top: 6px; }
   .finished, .misc { margin-top: 10px; font-size: .85rem; }
   .finished summary, .misc summary { font-size: .8rem; font-weight: 500; color: var(--muted); }
@@ -234,7 +232,12 @@
   .log-box summary { color: var(--muted); }
   .current-work { font-size: .95rem; font-weight: 600; margin-bottom: 8px; overflow-wrap: anywhere; }
   .run-card .btns:empty { display: none; }
-  #stop { margin: 0 0 12px; }
+  .status-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .status-head .section-title { margin: 0; }
+  .comfy-status { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: .72rem; color: var(--muted); }
+  .run-actions { display: flex; gap: 8px; margin: 8px 0 12px; }
+  .run-actions[hidden] { display: none; }
+  .run-actions button { flex: 1; width: auto; margin: 0; }
   .card > .section-title:first-child { margin-top: 0; }
   /* Each heading folds what's under it away. */
   summary.section-title { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; user-select: none; }
@@ -267,9 +270,8 @@
       display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 340px); grid-auto-flow: row dense; gap: 0 24px;
     }
     .run-card > * { grid-column: 1; }
-    .run-card > .sys, .run-card > .gpu, .run-card > #uploadBox { grid-column: 2; }
-    .run-card > .log-box, .run-card > .status-queue, .run-card > .finished, .run-card > .misc { grid-column: 1 / -1; }
-    .run-card > .sys { margin-top: 18px; }
+    .run-card > .gpu, .run-card > #uploadBox { grid-column: 2; }
+    .run-card > .status-head, .run-card > .log-box, .run-card > .status-queue, .run-card > .finished, .run-card > .misc { grid-column: 1 / -1; }
     .run-card > .gpu { margin: 6px 0; }
     .options-col > .card { margin-bottom: 0; }
     /* However far down the options go, Generate stays in reach. */
@@ -279,7 +281,7 @@
       background: var(--panel); border-top: 1px solid var(--line); border-radius: 0 0 14px 14px;
     }
     .form-actions #formNote, .form-actions .err { margin-top: 8px; }
-    #stop { width: auto; padding: 8px 18px; justify-self: start; }
+    .run-actions button { flex: none; padding: 8px 18px; }
     #formVideo { display: block; }
     .wrap { max-width: 1880px; padding: 14px 20px 20px; }
     .dashboard {
@@ -357,8 +359,14 @@
 
 <div class="dashboard">
 <div class="card run-card" id="runCard">
-  <div class="section-title">Status</div>
-  <button type="button" class="danger" id="stop" hidden>Stop</button>
+  <div class="status-head">
+    <div class="section-title">Status</div>
+    <div class="comfy-status" title="Generate starts it when the run needs avatar clips and COMFYUI_LAUNCHER is set in .env."><span class="dot" id="comfyDot"></span><span id="comfyText">ComfyUI: checking…</span></div>
+  </div>
+  <div class="run-actions" id="runActions" hidden>
+    <button type="button" id="skip">Skip, resume later</button>
+    <button type="button" class="danger" id="stop">Stop all</button>
+  </div>
   <div class="current-work" id="currentWork" hidden></div>
   <div class="status">
     <span class="dot" id="dot"></span>
@@ -380,9 +388,6 @@
     </div>
   </div>
   <div class="hint gpu" id="gpuLine"></div>
-  <div class="sys" title="Generate starts it when the run needs avatar clips and COMFYUI_LAUNCHER is set in .env.">
-    <div class="item"><span class="dot" id="comfyDot"></span><span id="comfyText">ComfyUI: checking…</span></div>
-  </div>
 
   <div id="uploadBox" class="only-shorts" hidden>
     <div class="status">
@@ -425,6 +430,14 @@
   <div class="form-col">
     <details class="section" id="formTopic" open>
       <summary class="section-title">Generation</summary>
+
+      <div id="workflowBox">
+        <label for="workflow">ComfyUI workflow</label>
+        <select id="workflow" name="workflow">
+          <option value="">LTX-2.3</option>
+        </select>
+        <button type="button" class="ghost" id="comfyStart" title="Only ComfyUI can list what's saved in it." hidden>Start ComfyUI</button>
+      </div>
 
       <label for="topic">Topic</label>
       <input id="topic" name="topic" placeholder="e.g. Why the Sahara was once green" autocomplete="off">
@@ -500,12 +513,6 @@
             </select>
           </div>
         </div>
-        <label for="workflow">ComfyUI workflow</label>
-        <select id="workflow" name="workflow">
-          <option value="">LTX-2.3</option>
-        </select>
-        <button type="button" class="ghost" id="comfyStart" title="Only ComfyUI can list what's saved in it." hidden>Start ComfyUI</button>
-        <div class="hint" id="workflowHint">Replaces Style. Each needs a Load Audio node feeding the video.</div>
       </div>
     </details>
 
@@ -549,6 +556,12 @@
 <form class="card pipeline-form only-video" id="formVideo">
   <details class="section" id="videoGeneration" open>
     <summary class="section-title">Generation</summary>
+    <label for="videoWorkflow">ComfyUI workflow</label>
+    <select id="videoWorkflow" name="workflow">
+      <option value="">Built-in LTX</option>
+    </select>
+    <div class="hint" id="videoWorkflowHint">The image boxes below change to what it takes.</div>
+
     <div class="image-boxes" id="imageBoxes"></div>
     <div class="hint" id="imagesHint" hidden></div>
 
@@ -602,12 +615,6 @@
     <select id="llm" name="llm">
       {% for llm in llms %}<option value="{{ llm.name }}" {% if not llm.ready %}disabled{% endif %}>{{ llm.label }}{% if not llm.ready %} (no key in .env){% endif %}</option>{% endfor %}
     </select>
-
-    <label for="videoWorkflow">ComfyUI workflow</label>
-    <select id="videoWorkflow" name="workflow">
-      <option value="">Built-in LTX</option>
-    </select>
-    <div class="hint" id="videoWorkflowHint">The image boxes above change to what it takes.</div>
 
     <label for="start">How clips connect</label>
     <select id="start" name="start">
@@ -713,7 +720,6 @@ function loadForm() {
   }
 }
 // --- Workflows saved in ComfyUI ---
-const WORKFLOW_HINT = $('workflowHint').textContent;
 let workflowsFor = null;
 function rememberedWorkflow() {
   try { return (JSON.parse(localStorage.getItem(STORE_KEY)) || {}).workflow || ''; } catch (e) { return ''; }
@@ -732,8 +738,6 @@ async function loadWorkflows() {
     `<option value="${esc(w.name)}">${esc(w.label)}</option>`).join('')
     + (none ? '<option disabled>Yours appear once ComfyUI is on</option>' : '');
   if (data.workflows.some(w => w.name === wanted)) select.value = wanted;
-  const off = data.online ? '' : none ? ' Start ComfyUI once to list yours.' : ' ComfyUI is off: this is the last list.';
-  $('workflowHint').textContent = WORKFLOW_HINT + off;
   syncForm();
 }
 $('workflow').addEventListener('focus', loadWorkflows);
@@ -745,6 +749,7 @@ $('comfyStart').addEventListener('click', async () => {
 
 function syncForm() {
   $('avatarOpts').classList.toggle('hidden', $('avatar_clips').value === '0');
+  $('workflowBox').classList.toggle('hidden', $('avatar_clips').value === '0');
   $('clipsSlider').classList.toggle('hidden', $('avatar_clips').value !== 'auto');
   $('workflow').disabled = $('avatar_source').value !== 'comfyui';
   $('avatar_style').disabled = $('avatar_source').value !== 'comfyui' || !!$('workflow').value;
@@ -1601,7 +1606,9 @@ async function poll() {
     $(id).querySelector('.dot').classList.toggle('hidden', !(running && data.pipeline === side && side !== pipeline));
   }
   if (data.stopped_runs.length !== stoppedCount) { stoppedCount = data.stopped_runs.length; refreshPlan(); }
-  $('stop').hidden = !running;
+  $('runActions').hidden = !running;
+  // A setup check has nothing to come back to.
+  $('skip').hidden = (data.command || '').includes('--check');
 
   renderNow(data);
   renderEtaDetail(running ? (data.progress || {}).eta : null);
@@ -1720,8 +1727,13 @@ async function stopJob(url) {
 }
 $('stop').addEventListener('click', async () => {
   const held = runsQueued ? ` The ${runsQueued} queued after it will wait until you press Resume.` : '';
-  if (!confirm(`Stop the current run? This kills it and its ffmpeg renders, and cancels its ComfyUI clips. You can continue it later under Stopped runs, without the clip being rendered now.${held}`)) return;
+  if (!confirm(`Stop all? This kills the current run and its ffmpeg renders, and cancels its ComfyUI clips. You can continue it later under Stopped runs, without the clip being rendered now.${held}`)) return;
   await stopJob('/stop');
+});
+$('skip').addEventListener('click', async () => {
+  const next = runsQueued ? 'The next in the queue starts now.' : 'Nothing else is queued, so nothing starts after it.';
+  if (!confirm(`Skip this run and resume it later? ${next} Finished clips are kept, but the clip rendering now starts over when you continue. It waits under Stopped runs until you press Continue.`)) return;
+  await stopJob('/skip');
 });
 
 $('stopUpload').addEventListener('click', async () => {

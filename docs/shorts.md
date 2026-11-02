@@ -270,8 +270,9 @@ each, so uploads still go during a render. A queued job keeps the options it was
 queued with, whatever you change on the form afterwards, and **Upload all** means the
 videos in Ready when you pressed it. Jobs start in order; one that fails doesn't stop
 the rest, and the queue lists how each one ended. A video deleted or uploaded while
-waiting is skipped. **Stop** puts what is queued on hold until you press **Resume**, and
-✕ takes a job out of the queue. Adding or removing a job moves the running ETA, which
+waiting is skipped. **Stop all** (**Stop** on an upload) puts what is queued on hold until you
+press **Resume**, **Skip, resume later** stops the run but starts the next job straight away, leaving
+the run under **Stopped runs** to continue later, and ✕ takes a job out of the queue. Adding or removing a job moves the running ETA, which
 lists each queued job among what moved it; jobs on hold don't count. What is queued is saved
 in `logs/`, so after Shut down or a crash it comes back on hold until you press **Resume**.
 
@@ -323,7 +324,7 @@ ComfyUI automatically if `COMFYUI_LAUNCHER` (e.g.
 `C:\ComfyUI\run_nvidia_gpu.bat`) is set in `.env`, and the avatar stage waits up
 to 3 minutes for it to finish loading. It runs the script's `main.py` command
 with `--disable-auto-launch`, so no ComfyUI browser tab opens, in a minimised
-console window you can close to stop it. **Stop** (next to Add to queue while a
+console window you can close to stop it. **Stop all** (in Status while a
 run is going) kills the run and its ffmpeg renders, cancels its ComfyUI clips and
 removes a half-stitched video; the panel and ComfyUI keep running, and renders you
 started in ComfyUI yourself carry on. Without a launcher, start ComfyUI

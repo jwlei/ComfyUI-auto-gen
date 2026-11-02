@@ -374,6 +374,41 @@ class PanelTest(unittest.TestCase):
         results = self.status()["queue"]["results"]
         self.assertEqual([result["outcome"] for result in results], ["done", "done"])
 
+    def test_skip_starts_the_next_film_and_continues_later(self):
+        self.comfy.script = ["ok", "hang"]
+        self.assertTrue(self.generate().get_json()["ok"])
+        self.wait_until(lambda: self.comfy.hanging, "the second clip to start")
+        self.wait_until(lambda: webapp.job.progress.get("detail", "").startswith("Clip 2"), "the panel to see it")
+        skipped = webapp.job.progress["run_id"]
+        self.assertTrue(self.generate(prompt="next film", review="1").get_json()["queued"])
+
+        self.assertEqual(self.client.post("/skip").get_json(), {"ok": True, "error": None})
+        self.assertIn(("/interrupt", {"prompt_id": "p2"}), self.comfy.cancels)
+        self.wait_until(lambda: len(self.claude.requests) == 2, "the next film to start by itself")
+        self.wait_idle()
+        status = self.status()
+        self.assertFalse(status["queue"]["held"])
+        self.assertEqual([result["outcome"] for result in status["queue"]["results"]], ["stopped", "done"])
+        waiting = next(run for run in status["stopped_runs"] if run["id"] == skipped)
+        self.assertIn("1 of 8 clips kept", waiting["detail"])
+
+        self.assertTrue(self.client.post(f"/runs/{skipped}/continue").get_json()["ok"])
+        self.wait_idle()
+        self.assertEqual(self.status()["returncode"], 0)
+        self.assertEqual(len(self.comfy.prompts), 9, "only the cut-off clip and those after it were rendered")
+
+    def test_skip_refuses_a_run_with_nothing_saved_yet(self):
+        self.comfy.script = ["hang"]
+        self.assertTrue(self.generate().get_json()["ok"])
+        self.wait_until(lambda: self.comfy.hanging, "the clip to start")
+        self.wait_until(lambda: webapp.job.progress.get("run_id"), "the panel to see the run")
+        self.assertTrue(self.generate(prompt="next film", review="1").get_json()["queued"])
+        with mock.patch.object(webapp, "saved_runs", return_value=[]):
+            reply = self.client.post("/skip")
+        self.assertEqual(reply.status_code, 409)
+        self.assertTrue(webapp.job.running, "stopping it now would lose it")
+        self.assertFalse(self.status()["queue"]["held"])
+
     def test_discard(self):
         self.assertTrue(self.generate(review="1").get_json()["ok"])
         self.wait_idle()
