@@ -1,0 +1,9 @@
+{
+  "_comment": "Which inputs of video_workflow.json (ComfyUI 'Export (API)') the pipeline fills, as \"<node id>.<input>\". 'prompt' and 'image' are required.",
+  "prompt": "121.text",
+  "image": "167.image",
+  "text_to_video": "290.value",
+  "seconds": "291.value",
+  "width": "292.value",
+  "height": "293.value"
+}
