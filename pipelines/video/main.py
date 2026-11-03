@@ -7,11 +7,12 @@ import sys
 import time
 
 import ffmpeg
+import requests
 from dotenv import load_dotenv
 
 from core.audio import AudioEngine
 from core.paths import LOGS_DIR
-from pipelines.video import media, paths, planner
+from pipelines.video import media, paths, planner, roles
 from pipelines.video.comfy import ComfyClient
 from pipelines.video.run_state import STAGES, RunState, list_runs
 
@@ -47,8 +48,20 @@ def parse_args(argv=None):
     parser.add_argument("--image-role", "--image-2-role", dest="image_roles", action="append", choices=planner.IMAGE_ROLES, default=[],
                         help="What an image after the first is, once per image from image 2: view (more of the subject), "
                              "character (someone else), place (where it happens), or context (the LLM tells by looking, the default)."),
+    parser.add_argument("--ref-video", action="append", default=[], metavar="FILE",
+                        help="A reference video every clip gets (2-15 s), on a workflow that takes them such as MiniMax H3. Repeatable.")
+    parser.add_argument("--ref-video-role", action="append", choices=roles.VIDEO_ROLES, default=[],
+                        help="What a reference video is for, once per video in order: motion (movement and camera, the default), "
+                             "character or place.")
+    parser.add_argument("--ref-audio", action="append", default=[], metavar="FILE",
+                        help="A reference audio clip every clip gets (2-15 s), on a workflow that takes them such as MiniMax H3. Repeatable.")
+    parser.add_argument("--ref-audio-role", action="append", choices=roles.AUDIO_ROLES, default=[],
+                        help="What a reference audio clip is for, once per clip in order: voice (the main character's), music, "
+                             "or sound (ambience, the default).")
     parser.add_argument("prompt", nargs="?", help="What should happen, in a sentence or two.")
-    parser.add_argument("--duration", type=parse_duration, default="2m", help="Film length: 90, 3m or 2m30 (default 2m, from 5 seconds to 10 minutes).")
+    parser.add_argument("--duration", type=parse_duration, default="2m",
+                        help="Film length: 90, 3m or 2m30 (default 2m, from 5 seconds to 10 minutes). Each clip is as long as "
+                             "the video model makes them: 5-10 s on LTX, 5-15 s on MiniMax H3, 3-5 s on Wan.")
     parser.add_argument("--start", choices=("chain", "image"), default="chain",
                         help="Start each clip on the last frame of the one before (chain, default), or on the input image.")
     parser.add_argument("--llm", choices=[name for name, _ in planner.LLMS], default=None,
@@ -70,6 +83,8 @@ def parse_args(argv=None):
         parser.error("--plan-only writes a new plan: --resume already has one.")
     if args.audio and args.narration:
         parser.error("--audio and --narration both give the film its audio: choose one.")
+    if len(args.ref_video_role) > len(args.ref_video) or len(args.ref_audio_role) > len(args.ref_audio):
+        parser.error("--ref-video-role and --ref-audio-role go with a --ref-video or --ref-audio each.")
     if args.no_image and args.reference:
         parser.error("--reference adds to an image, and --no-image has none.")
     if args.no_image:
@@ -141,16 +156,52 @@ def voiced_narration(args):
     return AudioEngine(voice=args.voice, output_dir=os.path.dirname(path)).voice_text(args.narration, path)
 
 
+def reference_roles(args):
+    """(path, role) for each reference video, then each reference audio clip. One without a role gets the first."""
+    videos = [(path, (args.ref_video_role + [roles.MOTION] * len(args.ref_video))[number])
+              for number, path in enumerate(args.ref_video)]
+    audios = [(path, (args.ref_audio_role + [roles.SOUND] * len(args.ref_audio))[number])
+              for number, path in enumerate(args.ref_audio)]
+    return videos, audios
+
+
+def check_references(takes, images, videos, audios):
+    """Raises if the workflow can't take this many reference videos, audio clips or references of every kind."""
+    if len(videos) > takes.get("max_videos", 0):
+        raise RuntimeError(f"This workflow takes {takes.get('max_videos', 0) or 'no'} reference videos, not {len(videos)}.")
+    if len(audios) > takes.get("max_audios", 0):
+        raise RuntimeError(f"This workflow takes {takes.get('max_audios', 0) or 'no'} reference audio clips, not {len(audios)}.")
+    most = takes.get("max_references", takes["max_images"])
+    if images + len(videos) + len(audios) > most:
+        raise RuntimeError(f"This workflow takes {most} references at most, of every kind together, not {images + len(videos) + len(audios)}.")
+
+
+def keep_references(state, videos, audios):
+    """Copies the reference videos and audio clips into the run's folder, in the shape the clips take them."""
+    for number, (path, role) in enumerate(videos, 1):
+        name = f"ref_video_{number}.mp4"
+        sound = media.reference_video(path, os.path.join(state.folder, name))
+        state.ref_videos.append({"file": name, "role": role, "sound": sound})
+    for number, (path, role) in enumerate(audios, 1):
+        name = f"ref_audio_{number}.wav"
+        media.reference_audio(path, os.path.join(state.folder, name))
+        state.ref_audios.append({"file": name, "role": role})
+
+
 def plan_run(args, stages):
     images = [media.load_image(path) for path in ([args.image] if args.image else []) + args.reference]
+    videos, audios = reference_roles(args)
     inputs = media.inputs_fingerprint(images, args.image_roles,
-                                      media.audio_fingerprint(path=args.audio, text=args.narration, voice=args.voice))
+                                      media.audio_fingerprint(path=args.audio, text=args.narration, voice=args.voice),
+                                      videos + audios)
     comfy = ComfyClient()
     takes = comfy.takes()
     # Clips with room for one image can't show the video model a second, so the LLM puts it into words.
     image_2_in_words = images.pop(1) if len(images) == 2 and takes["max_images"] == 1 else None
     if not takes["min_images"] <= len(images) <= takes["max_images"]:
         raise RuntimeError(f"This workflow takes {takes['min_images']}-{takes['max_images']} images, not {len(images)}.")
+    check_references(takes, len(images), videos, audios)
+    video_model = comfy.video_model()
     # A clip can only start on the last one's final frame if an image is all it takes.
     start = args.start if takes["max_images"] == 1 else "image"
     width, height = args.size or media.render_size(*(images[0].size if images else media.DEFAULT_SHAPE))
@@ -161,6 +212,7 @@ def plan_run(args, stages):
                          os.getenv("COMFYUI_WORKFLOW") or None, len(images))
     state.inputs = inputs
     print_stage("Plan", stages)
+    keep_references(state, videos, audios)
     audio = args.audio or (voiced_narration(args) if args.narration else None)
     if audio:
         media.to_wav(audio, state.audio_path)
@@ -172,11 +224,14 @@ def plan_run(args, stages):
     brief = args.prompt + (f"\n\nThe film is narrated, and the shots follow this narration in order: {args.narration}" if args.narration else "")
     print(f"🗂️ Run folder: {state.id}")
 
-    print(f"🧠 {llm} is writing {planner.shot_count(state.seconds)} prompts for a {state.seconds}s film at {width}x{height}...")
+    shortest, longest, _ = planner.clip_seconds(video_model)
+    print(f"🧠 {llm} is writing {planner.shot_count(state.seconds, video_model)} prompts for a {state.seconds}s film at "
+          f"{width}x{height}, {shortest}-{longest}s a clip...")
     if image_2_in_words:
         print("🖼️ This workflow's clips take one image, so image 2 only reaches them through what the prompts say.")
     title, shots = planner.plan_film([media.preview_jpeg(image) for image in images], brief, state.seconds, state.start, llm,
-                                     comfy.video_model(), args.image_roles, media.preview_jpeg(image_2_in_words) if image_2_in_words else None)
+                                     video_model, args.image_roles, media.preview_jpeg(image_2_in_words) if image_2_in_words else None,
+                                     state.references())
     for image, path in zip(images, state.image_paths):
         media.save_input(image, path)
     state.update(title=title, shots=shots)
@@ -203,13 +258,19 @@ def clip_audio(state, comfy, index):
     return comfy.upload(part, f"autogen_{state.id}_audio.wav")
 
 
-def render_shot(state, comfy, index, images, audio=None):
+def upload_references(state, comfy):
+    """The run's reference videos and audio clips, uploaded: (videos, audio clips)."""
+    return ([comfy.upload(state.reference_path(video), f"autogen_{state.id}_{video['file']}") for video in state.ref_videos],
+            [comfy.upload(state.reference_path(audio), f"autogen_{state.id}_{audio['file']}") for audio in state.ref_audios])
+
+
+def render_shot(state, comfy, index, images, audio=None, references=((), ())):
     """Renders until the file holds up, on a new seed each time. Returns its path, or None."""
     shot = state.shots[index]
     save_as = os.path.join(state.clips_dir, f"shot_{index + 1:03d}")
     for attempt in range(1, CLIP_ATTEMPTS + 1):
         try:
-            clip = comfy.render(shot["prompt"], images, shot["seconds"], state.width, state.height, save_as, audio)
+            clip = comfy.render(shot["prompt"], images, shot["seconds"], state.width, state.height, save_as, audio, *references)
         except (RuntimeError, OSError, ValueError) as e:
             print(f"      ❌ {e} (attempt {attempt}/{CLIP_ATTEMPTS}).")
             continue
@@ -224,6 +285,7 @@ def render_clips(state, comfy):
     """Returns True once every shot has an accepted clip."""
     total = len(state.shots)
     time_spent = film_rendered = 0
+    references = None
     for index, shot in enumerate(state.shots):
         if index in state.clips:
             print(f"   ♻️ Clip {index + 1}/{total} kept from earlier.")
@@ -234,10 +296,12 @@ def render_clips(state, comfy):
         try:
             images = [comfy.upload(path, f"autocomfyui_{state.id}{'' if number == 1 else f'_{number}'}.png")
                       for number, path in enumerate(clip_images(state, index), 1)]
-        except (OSError, ffmpeg.Error) as e:
-            print(f"   ❌ Could not give ComfyUI the start frame: {e}")
+            # Once a run: they're the same for every clip.
+            references = references or upload_references(state, comfy)
+        except (OSError, ffmpeg.Error, requests.RequestException) as e:
+            print(f"   ❌ Could not give ComfyUI the start frame or references: {e}")
             return False
-        clip = render_shot(state, comfy, index, images, clip_audio(state, comfy, index))
+        clip = render_shot(state, comfy, index, images, clip_audio(state, comfy, index), references)
         if not clip:
             print(f"   ❌ Clip {index + 1} failed.")
             return False

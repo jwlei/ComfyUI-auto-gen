@@ -4,7 +4,8 @@ import re
 import time
 
 from pipelines.video.media import RENDER_AREA
-from pipelines.video.planner import AVERAGE_SHOT_SECONDS, shot_count
+from pipelines.video.comfy import workflow_model
+from pipelines.video.planner import clip_seconds, shot_count
 from pipelines.video.run_state import STAGES, RunState
 
 # Used until a finished step has been timed.
@@ -49,15 +50,17 @@ class RunEta:
     what that run still has to do counts.
     """
 
-    def __init__(self, argv, path):
+    def __init__(self, argv, path, env=None):
+        """env: the run's environment, whose COMFYUI_WORKFLOW says how long the video model makes a clip."""
         self.path = path
+        self.video_model = workflow_model((env or {}).get("COMFYUI_WORKFLOW"))
         self.timings = _load_timings(path)
         self.plan_only = "--plan-only" in argv
         try:
             self.film_seconds = int(_option(argv, "--duration", 0))
         except ValueError:
             self.film_seconds = 0
-        self.shots = shot_count(self.film_seconds)
+        self.shots = shot_count(self.film_seconds, self.video_model)
         self.size_share = _size_share(argv)
         self.kept_stages = ()
         self.kept_seconds = 0
@@ -197,7 +200,7 @@ class RunEta:
         steps = [{"name": name, "seconds": round(self._stage_seconds(name))} for name in self.names]
         return {"steps": steps, "total": sum(step["seconds"] for step in steps),
                 "clips": self.shots,
-                "clip_seconds": round(self.film_seconds / self.shots) if self.film_seconds else AVERAGE_SHOT_SECONDS,
+                "clip_seconds": round(self.film_seconds / self.shots) if self.film_seconds else clip_seconds(self.video_model)[2],
                 "clip_render": round(self._render_seconds(self.film_seconds / self.shots)) if self.film_seconds else 0}
 
     def estimate(self):

@@ -10,15 +10,18 @@ from flask import abort, request, send_file
 from panel.server import (PIPELINES, VIDEO_TIMINGS, _runs_cache, app, busy_runs, item_images, job,
                           password_required, saved_at, run_queue, saved_runs, saved_workflows)
 from panel.shorts import VOICES
-from pipelines.video import media, paths, planner
+from pipelines.video import media, paths, planner, roles
+from pipelines.video.comfy import workflow_model
 from pipelines.video.run_eta import RunEta
 from pipelines.video.run_state import STAGES, RunState, folder_size, list_runs, run_id_in
 
 COMMAND = [sys.executable, "-m", "pipelines.video.main"]
 DEFAULT_FILM_SECONDS = 120
-BUILT_IN_TAKES = {"min_images": 1, "max_images": 1}
+BUILT_IN_TAKES = {"min_images": 1, "max_images": 1, "max_videos": 0, "max_audios": 0, "max_references": 1}
 # The most the form offers, however many a workflow could take.
 MOST_IMAGES = 20
+# The most reference video and audio boxes it offers: MiniMax H3 takes 3 of each.
+MOST_MEDIA = 6
 
 
 def option(flags, name, default=None):
@@ -124,8 +127,9 @@ def estimate():
     flags, error = build_options(request.form)
     if error:
         return {"ok": False, "error": error}
+    env, _, _ = chosen_workflow(request.form)
     # Reviewing first only writes the prompts now, but what you're deciding on is the whole film.
-    return {"ok": True, **RunEta([arg for arg in flags if arg != "--plan-only"], VIDEO_TIMINGS).plan()}
+    return {"ok": True, **RunEta([arg for arg in flags if arg != "--plan-only"], VIDEO_TIMINGS, env).plan()}
 
 
 def queue_label(text):
@@ -148,6 +152,43 @@ def form_uploads(files, takes):
     if len(uploads) > room:
         return None, "This workflow makes its clips from text alone: leave the image out." if not room else f"This workflow takes at most {room} images."
     return uploads, None
+
+
+def form_references(files, form, takes, images):
+    """
+    The reference videos and audio clips chosen in the form's boxes (ref_media, ref_media_2...), saved
+    to the inputs folder and sorted by what they are. Returns ([(path, role)] videos, [(path, role)] audio clips, error).
+    """
+    field = lambda number: "ref_media" if number == 1 else f"ref_media_{number}"
+    chosen = [number for number in range(1, MOST_MEDIA + 1) if files.get(field(number)) and files[field(number)].filename]
+    videos, audios = [], []
+    for number in chosen:
+        upload = files[field(number)]
+        extension = os.path.splitext(upload.filename)[1].lower()
+        path = os.path.join(paths.INPUTS_DIR, f"{secrets.token_hex(8)}{extension if re.fullmatch(r'[.][a-z0-9]{1,5}', extension) else ''}")
+        os.makedirs(paths.INPUTS_DIR, exist_ok=True)
+        upload.save(path)
+        kind = media.media_kind(path)
+        if not kind:
+            os.remove(path)
+            return None, None, f"Reference {number} isn't a video or audio file this can read."
+        role = form.get(f"{field(number)}_role")
+        if kind == "video":
+            videos.append((path, role if role in roles.VIDEO_ROLES else roles.MOTION))
+        else:
+            audios.append((path, role if role in roles.AUDIO_ROLES else roles.SOUND))
+    error = None
+    if len(videos) > takes.get("max_videos", 0):
+        error = f"This workflow takes {takes.get('max_videos', 0) or 'no'} reference videos."
+    elif len(audios) > takes.get("max_audios", 0):
+        error = f"This workflow takes {takes.get('max_audios', 0) or 'no'} reference audio clips."
+    elif images + len(videos) + len(audios) > takes.get("max_references", takes["max_images"]):
+        error = f"This workflow takes {takes['max_references']} references at most, images, videos and audio together."
+    if error:
+        for path, _ in videos + audios:
+            os.remove(path)
+        return None, None, error
+    return videos, audios, None
 
 
 @app.route("/generate/video", methods=["POST"], endpoint="video_generate")
@@ -187,6 +228,13 @@ def generate():
     except RuntimeError:
         return {"ok": False, "error": "That file isn't an image this can read."}, 400
 
+    # One box for image 2 is the LLM's alone when the clips take one image, and doesn't count.
+    references = len(images) if takes["max_images"] != 1 else min(len(images), 1)
+    ref_videos, ref_audios, error = form_references(request.files, request.form, takes, references)
+    if error:
+        return {"ok": False, "error": error}, 400
+    media_paths = [path for path, _ in ref_videos + ref_audios]
+
     audio_path = None
     if audio_upload:
         extension = os.path.splitext(audio_upload.filename)[1].lower()
@@ -195,10 +243,10 @@ def generate():
         audio_upload.save(audio_path)
     audio = media.audio_fingerprint(path=audio_path, text=narration or None, voice=voice or None)
 
-    state = run_to_continue(prompt, flags, env, takes, images, audio)
+    state = run_to_continue(prompt, flags, env, takes, images, audio, ref_videos + ref_audios)
     if state:
-        if audio_path:
-            os.remove(audio_path)
+        for path in ([audio_path] if audio_path else []) + media_paths:
+            os.remove(path)
         if "--plan-only" in flags:
             return {"ok": True, "queued": False, "shots": state.id, "continued": state.title}
         state.adopt(flags)
@@ -206,14 +254,16 @@ def generate():
         return reply if isinstance(reply, tuple) else {**reply, "continued": state.title}
 
     # Kept in a folder of its own, under a name of our own: queued, it may wait for hours.
-    clean_inputs(keep=[audio_path] if audio_path else [])
+    clean_inputs(keep=([audio_path] if audio_path else []) + media_paths)
     image_paths = [os.path.join(paths.INPUTS_DIR, f"{secrets.token_hex(8)}.png") for _ in images]
     for image, path in zip(images, image_paths):
         media.save_input(image, path)
 
     references = [flag for path in image_paths[1:] for flag in ("--reference", path)]
     audio_flags = ["--audio", audio_path] if audio_path else ["--narration", narration, *(["--voice", voice] if voice else [])] if narration else []
-    argv = [*COMMAND, *flags, *references, *audio_flags, *([] if images else ["--no-image"]), "--", *image_paths[:1], prompt]
+    media_flags = [flag for path, role in ref_videos for flag in ("--ref-video", path, "--ref-video-role", role)]
+    media_flags += [flag for path, role in ref_audios for flag in ("--ref-audio", path, "--ref-audio-role", role)]
+    argv = [*COMMAND, *flags, *references, *audio_flags, *media_flags, *([] if images else ["--no-image"]), "--", *image_paths[:1], prompt]
     plan_only = "--plan-only" in flags
     seconds = int(flags[flags.index("--duration") + 1])
     length = f"{seconds}s" if seconds < 60 else f"{seconds // 60}:{seconds % 60:02d}"
@@ -221,20 +271,21 @@ def generate():
     if env:
         detail.append(request.form["workflow"].removesuffix(".json"))
     item = {"pipeline": "video", "label": queue_label(prompt), "detail": " · ".join(detail), "argv": argv, "env": env,
-            "image": image_paths[0] if image_paths else None, "references": image_paths[1:] + ([audio_path] if audio_path else []), "plan_only": plan_only, "estimate": RunEta(argv, VIDEO_TIMINGS).plan()["total"]}
+            "image": image_paths[0] if image_paths else None, "references": image_paths[1:] + ([audio_path] if audio_path else []) + media_paths, "plan_only": plan_only,
+            "estimate": RunEta(argv, VIDEO_TIMINGS, env).plan()["total"]}
     queued = run_queue.add(item)
     if item.get("error"):
         return {"ok": False, "error": item["error"]}, 500
     return {"ok": True, "queued": queued}
 
 
-def run_to_continue(prompt, flags, env, takes, images, audio=None):
+def run_to_continue(prompt, flags, env, takes, images, audio=None, references=()):
     """
     The stopped run Generate should finish rather than pay for the same plan again:
-    the same brief, images, audio, length and workflow. Anything else changes the prompts.
+    the same brief, images, references, audio, length and workflow. Anything else changes the prompts.
     """
     busy = busy_runs()
-    inputs = media.inputs_fingerprint(images, [flags[i + 1] for i, flag in enumerate(flags) if flag == "--image-role"], audio)
+    inputs = media.inputs_fingerprint(images, [flags[i + 1] for i, flag in enumerate(flags) if flag == "--image-role"], audio, references)
     seconds, start = int(option(flags, "--duration")), option(flags, "--start")
     for state in reversed(list_runs()):
         if (state.id not in busy and state.shots and not state.final and state.inputs == inputs and state.brief == prompt
@@ -388,6 +439,10 @@ def context():
         "default_llm": planner.default_llm(),
         "film_limits": [planner.MIN_FILM_SECONDS, planner.MAX_FILM_SECONDS, DEFAULT_FILM_SECONDS],
         "most_images": MOST_IMAGES,
+        "most_media": MOST_MEDIA,
+        "video_roles": [[role, roles.VIDEO_LABELS[role]] for role in roles.VIDEO_ROLES],
+        "audio_roles": [[role, roles.AUDIO_LABELS[role]] for role in roles.AUDIO_ROLES],
+        "clip_seconds": planner.clip_seconds(workflow_model()),
         "size_presets": media.SIZE_PRESETS[::-1],
     }
 

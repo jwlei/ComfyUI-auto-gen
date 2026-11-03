@@ -9,7 +9,7 @@ command line.
 ```
 image + "a storm rolls in over the harbour"
   → Gemini or Claude writes the shot list (one request for the whole film)
-  → ComfyUI renders each shot (LTX-2.3, 5-10 seconds a clip)
+  → ComfyUI renders each shot (LTX-2.3: 5-10 seconds a clip, MiniMax H3: 5-15, Wan: 3-5)
   → ffmpeg joins the clips into output/<title>_<run>.mp4
   → optionally, YouTube
 ```
@@ -70,6 +70,37 @@ whose inputs grow is different: wire one or two references in ComfyUI and the pi
 or the node's own limit if that's lower, which is 9 on MiniMax H3. The boxes you leave empty come out of the workflow
 again.
 
+**Reference video and audio.** On MiniMax H3 the form also has boxes for reference videos and audio clips. Every clip
+gets them, as it gets the images. H3 takes up to 3 videos and 3 audio clips, and 12 references in all, images
+included: with 9 images there is room for 3 more of any kind. Each one is 2-15 seconds. A longer one is cut to its
+first 15 seconds, and a video is turned to 24 fps, the rate H3 reads it at. Choose what each one is for:
+
+| A video is | What the LLM does with it |
+|---|---|
+| **Movement and camera** (default) | The action and the camera follow it. |
+| **A character** | Someone in the film, the next `<Subject>`. |
+| **A place** | Where the film happens. |
+
+| An audio clip is | What the LLM does with it |
+|---|---|
+| **Voice of the main character** | `<Subject 1>` speaks in that voice. |
+| **Music** | The film's music, in `non_diegetic_music`. |
+| **Sound and ambience** (default) | The soundscape follows it. |
+
+The LLM can't watch or hear them, so it only knows what you chose and what your prompt says. It calls them
+`<Video 1>` and `<Audio 1>`, as H3 does. A video with sound of its own brings that too, as an `<Audio>` of its own,
+numbered before the audio clips. Every prompt has to name each one, or the missing ones are added.
+
+**How long a clip is** depends on the video model, and the LLM is held to it:
+
+| Video model | A clip | Why |
+|---|---|---|
+| LTX-2.3 (Built-in LTX, and any other) | 5-10 s | About as long as it holds up. |
+| MiniMax H3 | 5-15 s | It was trained on 124-362 frames at 24 fps. |
+| Wan 2.2 | 3-5 s | It was trained on 81 frames at 16 fps. |
+
+The film length under the prompt says how many clips that comes to on the workflow you chose.
+
 A workflow with one image input, like Built-in LTX, renders from image 1 alone. Only the LLM sees image 2 there, so
 it reaches the clips as words in the prompts: expect a description of that place or person, not a copy of it.
 A reference workflow gives image 2 to every clip.
@@ -124,10 +155,12 @@ python -m pipelines.video.main harbour.jpg "a storm rolls in over the harbour" -
 
 | Option | What it does |
 |---|---|
-| `--duration` | Film length: `90`, `3m` or `2m30`. From 5 seconds to 10 minutes, default `2m`. |
+| `--duration` | Film length: `90`, `3m` or `2m30`. From 5 seconds to 10 minutes, default `2m`. It's split into clips as long as the video model makes them. |
 | `--llm` | `gemini` or `claude`. Default: `LLM_PROVIDER`, else `gemini`. |
 | `--start` | `chain` for one continuous take (default), `image` for separate moments. |
 | `--reference IMAGE` | Another image, repeatable. The first one is image 2. |
+| `--ref-video FILE`, `--ref-audio FILE` | A reference video or audio clip every clip gets, repeatable, on a workflow that takes them such as MiniMax H3. |
+| `--ref-video-role`, `--ref-audio-role` | What each one is for, in order: `motion`, `character` or `place` for a video, `voice`, `music` or `sound` for audio. |
 | `--image-role` | What an image after the first is, once per image in order from image 2: `view` (more of the subject), `character`, `place`, or `context` to let the LLM tell by looking (the default). `--image-2-role` still works. |
 | `--size 1280x736` | Render size, rounded to multiples of 32. By default it takes the image's shape at the workflow's pixel count. |
 | `--plan-only` | Writes the prompts and stops, so you can read them before spending the GPU time. |
@@ -157,6 +190,7 @@ The form asks for what the chosen workflow can take:
 | TI2V, where the image plugs into an optional input | 0-1, plus image 2 for the LLM | The image comes out of the workflow |
 | T2V, with no Load Image | None | Always from text |
 | R2V, with several Load Image nodes | Up to that many, one box each | The empty ones come out, if they're optional |
+| MiniMax H3 | Up to 9 images, 3 videos and 3 audio clips, 12 in all | The empty ones come out |
 
 Without an image, the LLM describes everything in full in every prompt and the film is 1280x736, unless you set
 a size. With references, every clip gets all of them and the LLM calls them `<Picture 1>`, `<Picture 2>`. A T2V or
@@ -164,7 +198,8 @@ R2V workflow can't start a clip on the last frame of the one before, so its clip
 
 A workflow using MiniMax H3's reference-to-video node gets prompts written for H3 instead: its six labelled
 fields, the subjects' details named and repeated word for word in every clip, actions sized to how long they really
-take. `modules/h3_prompt.py` holds those instructions, rewritten from
+take. The pipeline adds a Load Video (split into frames and sound) and a Load Audio for each of the node's
+`ref_videos` and `ref_audios` that nothing in the saved workflow is wired to. `modules/h3_prompt.py` holds those instructions, rewritten from
 [minimax-h3-skill](https://github.com/teskor-hub/minimax-h3-skill) (MIT). A reply without those fields is asked
 for again rather than rendered.
 

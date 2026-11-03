@@ -6,7 +6,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 
-from pipelines.video import paths
+from pipelines.video import paths, roles
 from pipelines.video.media import on_grid
 
 STAGES = ("Plan", "Clips", "Stitching")
@@ -39,6 +39,9 @@ class RunState:
     image_count: int = 1  # 0 for a film from text alone, several for a workflow that takes references
     inputs: str = None  # Fingerprint of the images and audio it was planned from, for Generate to recognise them
     has_audio: bool = False  # The film has an audio track of its own, in the run's folder
+    # Reference videos and audio clips every clip gets, in the run's folder: [{file, role, sound}] and [{file, role}]
+    ref_videos: list = field(default_factory=list)
+    ref_audios: list = field(default_factory=list)
 
     @classmethod
     def new(cls, brief, seconds, start, width, height, llm="gemini", workflow=None, image_count=1):
@@ -79,6 +82,14 @@ class RunState:
     def image_paths(self):
         return [self.image_path if number == 1 else os.path.join(self.folder, f"input_{number}.png")
                 for number in range(1, self.image_count + 1)]
+
+    def reference_path(self, reference):
+        return os.path.join(self.folder, reference["file"])
+
+    def references(self):
+        """The reference videos and audio clips as the planner and H3 label them."""
+        return roles.references([(video["role"], video.get("sound")) for video in self.ref_videos],
+                                [audio["role"] for audio in self.ref_audios])
 
     @property
     def audio_path(self):

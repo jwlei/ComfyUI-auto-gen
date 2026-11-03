@@ -28,11 +28,17 @@ PLAN_TIMEOUT = 360
 # How long a whole film can be, in seconds: one shortest clip, up to 10 minutes.
 MIN_FILM_SECONDS = 5
 MAX_FILM_SECONDS = 600
-# How long the video model can make a clip, in seconds. Shorter clips can't hold an
-# action; longer ones run out of the workflow's memory.
-MIN_SHOT_SECONDS = 5
-MAX_SHOT_SECONDS = 10
-AVERAGE_SHOT_SECONDS = 8
+# How long the video model can make a clip, in seconds: (shortest, longest, usual). Shorter clips
+# can't hold an action; longer ones go beyond what the model was trained on, or the workflow's memory.
+# - LTX-2.3 (the built-in workflow, and any model without a line of its own): about 10 s holds up.
+# - MiniMax H3: trained on 124-362 frames at 24 fps, so about 5-15 s.
+# - Wan 2.2: trained on 81 frames at 16 fps, so 5 s at most.
+CLIP_SECONDS = {
+    None: (5, 10, 8),
+    h3_prompt.MODEL: (5, 15, 12),
+    wan_prompt.MODEL: (3, 5, 5),
+}
+MIN_SHOT_SECONDS, MAX_SHOT_SECONDS, AVERAGE_SHOT_SECONDS = CLIP_SECONDS[None]
 # Too few clips to tell a story with: they show one moment instead.
 MIN_SHOTS_FOR_A_STORY = 3
 PLAN_ATTEMPTS = 3
@@ -113,17 +119,26 @@ def llm_configured(llm):
                 or os.path.isdir(os.path.expanduser(os.path.join("~", ".config", "anthropic"))))
 
 
-def shot_count(seconds):
-    """The ceiling matters at 11s, which rounds to one clip that couldn't be long enough."""
-    return max(math.ceil(seconds / MAX_SHOT_SECONDS), round(seconds / AVERAGE_SHOT_SECONDS), 1)
+def clip_seconds(video_model=None):
+    """(shortest, longest, usual) clip on this video model, in seconds."""
+    return CLIP_SECONDS.get(video_model, CLIP_SECONDS[None])
 
 
-def fit_durations(lengths, target):
+def shot_count(seconds, video_model=None):
+    """The ceiling matters just past the longest clip, which rounds to one clip that couldn't be long enough."""
+    shortest, longest, usual = clip_seconds(video_model)
+    count = max(math.ceil(seconds / longest), round(seconds / usual), 1)
+    # Never so many that even the shortest clips add up to more than the film.
+    return max(1, min(count, seconds // shortest)) if seconds >= shortest else 1
+
+
+def fit_durations(lengths, target, video_model=None):
     """The model's lengths within the clip limits, nudged a second at a time until they add up to the film's."""
-    fitted = [min(MAX_SHOT_SECONDS, max(MIN_SHOT_SECONDS, length)) for length in lengths]
+    shortest, longest, _ = clip_seconds(video_model)
+    fitted = [min(longest, max(shortest, length)) for length in lengths]
     while sum(fitted) != target:
         longer = sum(fitted) < target
-        room = [(MAX_SHOT_SECONDS - length) if longer else (length - MIN_SHOT_SECONDS) for length in fitted]
+        room = [(longest - length) if longer else (length - shortest) for length in fitted]
         if not any(room):
             break
         fitted[room.index(max(room))] += 1 if longer else -1
@@ -225,18 +240,21 @@ def _more_images(image_roles, video_model):
             + "\n    ".join(lines) + moves)
 
 
-def _instructions(brief, seconds, start, images=1, video_model=None, image_2_role=EXTRA_CONTEXT, image_2_in_words=False):
+def _instructions(brief, seconds, start, images=1, video_model=None, image_2_role=EXTRA_CONTEXT, image_2_in_words=False,
+                  references=None):
+    """references: the reference videos and audio the clips get, as h3_prompt.References."""
     second_image = _second_image(images, image_2_role, image_2_in_words, start, video_model)
-    guide = _guide(brief, seconds, start, images, video_model, image_2_role, second_image)
+    guide = _guide(brief, seconds, start, images, video_model, image_2_role, second_image, references)
     # Every guide speaks of one attached image, and now there are two.
     return guide.replace("attached image", "first attached image") if image_2_in_words else guide
 
 
-def _guide(brief, seconds, start, images, video_model, image_2_role, second_image):
-    count = shot_count(seconds)
+def _guide(brief, seconds, start, images, video_model, image_2_role, second_image, references=None):
+    count = shot_count(seconds, video_model)
+    shortest, longest, _ = clip_seconds(video_model)
     if video_model == h3_prompt.MODEL:
-        return h3_prompt.instructions(brief, seconds, count, images, MIN_SHOT_SECONDS, MAX_SHOT_SECONDS,
-                                      second_image, roles.image_roles(image_2_role, images))
+        return h3_prompt.instructions(brief, seconds, count, images, shortest, longest,
+                                      second_image, roles.image_roles(image_2_role, images), references)
     clips = "one clip" if count == 1 else f"{count} consecutive clips"
     shots = "one shot" if count == 1 else f"{count} shots in order"
     shape = (f"Give the film a beginning, a development and a real ending, rather than {count} versions of the same moment."
@@ -244,7 +262,7 @@ def _guide(brief, seconds, start, images, video_model, image_2_role, second_imag
     together = f"Use {seconds}." if count == 1 else f"All of them together add up to {seconds}."
     continuity = "" if count == 1 else SEPARATE_CLIPS if start == "image" and images != 1 else CONTINUITY[start]
     if video_model == wan_prompt.MODEL:
-        return wan_prompt.instructions(brief, seconds, count, images, continuity, MIN_SHOT_SECONDS, MAX_SHOT_SECONDS, second_image)
+        return wan_prompt.instructions(brief, seconds, count, images, continuity, shortest, longest, second_image)
     in_keeping = "the brief and\n    the image, and never contradicting them" if images else "the brief, and never contradicting it"
     sees = "one prompt and one start frame" if images == 1 else "one prompt and its images" if images else "one prompt"
     return f"""
@@ -262,7 +280,7 @@ def _guide(brief, seconds, start, images, video_model, image_2_role, second_imag
 
     Return a title for the film, and exactly {shots}. For each shot:
     - title: 2-5 words.
-    - seconds: a whole number from {MIN_SHOT_SECONDS} to {MAX_SHOT_SECONDS}. {together}
+    - seconds: a whole number from {shortest} to {longest}. {together}
     - prompt: the text the video model gets, following the rules below.
 
     The video model sees {sees} at a time, and knows nothing about the film:
@@ -340,15 +358,19 @@ def _ask(llm, prompt, model, schema, image_jpeg=None):
 
 # --- What the pipeline asks for ---
 
-def plan_film(image_jpeg, brief, seconds, start, llm="gemini", video_model=None, image_2_role=EXTRA_CONTEXT, image_2_in_words=None):
+def plan_film(image_jpeg, brief, seconds, start, llm="gemini", video_model=None, image_2_role=EXTRA_CONTEXT, image_2_in_words=None,
+              references=None):
     """
     Turns the image (several in a list, or none) and the short brief into a film's shot list. One request for the
     whole film rather than one per clip: the prompts have to know each other, and a
     long film would otherwise spend more than a free model's whole daily quota.
     image_2_in_words: a second image the clips have no room for, which only the LLM sees.
+    references: the reference videos and audio every clip gets, as h3_prompt.References. The LLM only reads what
+    they are for: it can't watch or hear them.
     """
     images = len(_image_list(image_jpeg))
-    instructions = _instructions(brief, seconds, start, images, video_model, image_2_role, bool(image_2_in_words))
+    shortest, longest, _ = clip_seconds(video_model)
+    instructions = _instructions(brief, seconds, start, images, video_model, image_2_role, bool(image_2_in_words), references)
     attached = _image_list(image_jpeg) + _image_list(image_2_in_words)
     image_roles = roles.image_roles(image_2_role, images)
     is_h3 = video_model == h3_prompt.MODEL
@@ -366,19 +388,19 @@ def plan_film(image_jpeg, brief, seconds, start, llm="gemini", video_model=None,
             shots = [shot for shot in plan.shots if shot.prompt.strip()]
             # Too few or too many shots can't be fixed by changing their lengths.
             if is_h3:
-                for shot, prompt in zip(shots, h3_prompt.tidy([shot.prompt for shot in shots], images, image_roles)):
+                for shot, prompt in zip(shots, h3_prompt.tidy([shot.prompt for shot in shots], images, image_roles, references)):
                     shot.prompt = prompt
-            wrong_prompts = is_h3 and shots and h3_prompt.film_problem([shot.prompt for shot in shots], images)
+            wrong_prompts = is_h3 and shots and h3_prompt.film_problem([shot.prompt for shot in shots], images, references)
             thin = is_h3 and shots and not wrong_prompts and h3_prompt.too_thin([shot.prompt for shot in shots], images)
             if wrong_prompts:
                 problem = wrong_prompts
             # Worth asking once. A film of short prompts is better than no film.
             elif thin and attempt == 1:
                 problem = thin
-            elif len(shots) * MIN_SHOT_SECONDS <= seconds <= len(shots) * MAX_SHOT_SECONDS:
+            elif len(shots) * shortest <= seconds <= len(shots) * longest:
                 if thin:
                     print(f"   ⚠️ Using {thin}: expect less detail in the film.")
-                lengths = fit_durations([shot.seconds for shot in shots], seconds)
+                lengths = fit_durations([shot.seconds for shot in shots], seconds, video_model)
                 return plan.title.strip() or "Untitled", [
                     {"title": shot.title.strip(), "seconds": length, "prompt": shot.prompt.strip()}
                     for shot, length in zip(shots, lengths)]

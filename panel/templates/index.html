@@ -188,7 +188,7 @@
   #duration { padding: 0; margin-top: 8px; height: 22px; background: none; border: 0; outline: 0; accent-color: var(--accent); }
   /* One row per image: its thumbnail, the file, what it is, and Remove. */
   .image-box { min-width: 0; }
-  #addImage { width: auto; margin: 8px 0 0; padding: 4px 16px; font-size: 1.1rem; }
+  #addImage, #addMedia { width: auto; margin: 8px 0 0; padding: 4px 16px; font-size: 1.1rem; }
   .image-line { display: flex; align-items: center; gap: 8px; }
   .image-line input[type=file] { flex: 1 1 0; min-width: 0; }
   .pipeline-form .image-line select { flex: 1 1 0; min-width: 0; width: auto; padding-left: 8px; padding-right: 4px; }
@@ -612,6 +612,12 @@
     <div class="image-boxes" id="imageBoxes"></div>
     <button type="button" class="ghost" id="addImage" aria-label="Add another image" title="Add another image" hidden>+</button>
     <div class="hint" id="imagesHint" hidden></div>
+
+    <div id="mediaSection" hidden>
+      <div class="image-boxes" id="mediaBoxes"></div>
+      <button type="button" class="ghost" id="addMedia" aria-label="Add another reference video or audio clip" title="Add another reference video or audio clip" hidden>+</button>
+      <div class="hint" id="mediaHint"></div>
+    </div>
 
     <label for="audioMode">Audio</label>
     <select id="audioMode" name="audio_mode">
@@ -1061,7 +1067,7 @@ const VIDEO_DEFAULTS = { llm: {{ default_llm | tojson }}, review: true, duration
 // What belongs to one film rather than being the way you like to work.
 const NOT_REMEMBERED = ['prompt', 'size', 'narration'];
 // A file input also throws if you set its value. An image's role goes with that image.
-function remembered(el) { return el.name && el.type !== 'file' && !NOT_REMEMBERED.includes(el.name) && !/^image_\d+_role$/.test(el.name); }
+function remembered(el) { return el.name && el.type !== 'file' && !NOT_REMEMBERED.includes(el.name) && !/^(image_\d+|ref_media(_\d+)?)_role$/.test(el.name); }
 
 // --- Remember the last options (per browser) ---
 function saveVideoForm() {
@@ -1084,8 +1090,10 @@ function loadVideoForm() {
 }
 // --- Workflows saved in ComfyUI ---
 const VIDEO_WORKFLOW_HINT = $('videoWorkflowHint').textContent;
-const BUILT_IN_TAKES = { min_images: 1, max_images: 1 };
-let workflowTakes = {};
+const BUILT_IN_TAKES = { min_images: 1, max_images: 1, max_videos: 0, max_audios: 0, max_references: 1 };
+// How long the built-in workflow's video model makes a clip: [shortest, longest, usual] seconds.
+const BUILT_IN_CLIPS = {{ clip_seconds | tojson }};
+let workflowTakes = {}, workflowClips = {};
 function rememberedVideoWorkflow() {
   try { return (JSON.parse(localStorage.getItem(VIDEO_STORE_KEY)) || {}).workflow || ''; } catch (e) { return ''; }
 }
@@ -1102,7 +1110,8 @@ async function loadVideoWorkflows() {
     `<option value="${esc(w.name)}">${esc(w.label)}</option>`).join('');
   if (data.workflows.some(w => w.name === wanted)) select.value = wanted;
   workflowTakes = Object.fromEntries(data.workflows.map(w => [w.name, w.takes]));
-  syncImageInput();
+  workflowClips = Object.fromEntries(data.workflows.map(w => [w.name, w.clip_seconds || BUILT_IN_CLIPS]));
+  syncVideoForm();
   $('videoWorkflowHint').textContent = VIDEO_WORKFLOW_HINT + (data.online ? '' : ' ComfyUI is off: this is the last list.');
 }
 $('videoWorkflow').addEventListener('focus', loadVideoWorkflows);
@@ -1196,8 +1205,96 @@ function syncImageInput() {
   $('start').disabled = high !== 1;
 }
 
-const AVERAGE_SHOT_SECONDS = 8;
+// --- Reference videos and audio clips, for a workflow such as MiniMax H3 that takes them ---
+const MOST_MEDIA = {{ most_media }};
+const VIDEO_ROLES = {{ video_roles | tojson }}, AUDIO_ROLES = {{ audio_roles | tojson }};
+let mediaShown = 1;
+function mediaBoxes() { return [...$('mediaBoxes').querySelectorAll('.image-box')]; }
+function mediaBoxHtml(number) {
+  const name = number === 1 ? 'ref_media' : `ref_media_${number}`;
+  return `
+  <div class="image-box">
+    <label for="${name}">Reference video or audio ${number} (optional)</label>
+    <div class="image-line">
+      <input id="${name}" name="${name}" type="file" accept="video/*,audio/*">
+      <select class="hidden" id="${name}_role" name="${name}_role" aria-label="What reference ${number} is for" title="What reference ${number} is for" disabled></select>
+      <button type="button" class="hidden" data-clear="1" aria-label="Remove reference ${number}" title="Remove">✕</button>
+    </div>
+  </div>`;
+}
+function mediaKind(file) { return file && file.type.startsWith('audio') ? 'audio' : 'video'; }
+// The role list follows what the file is: a video is for movement, a character or a place; audio for a voice, music or sound.
+function showMedia(box) {
+  const input = box.querySelector('input'), file = input.files[0], role = box.querySelector('select');
+  const kind = file ? mediaKind(file) : '';
+  if (role.dataset.kind !== kind) {
+    role.innerHTML = (kind === 'audio' ? AUDIO_ROLES : VIDEO_ROLES).map(([value, text]) => `<option value="${value}">${text}</option>`).join('');
+    role.dataset.kind = kind;
+  }
+  role.classList.toggle('hidden', !file);
+  role.disabled = !file;
+  box.querySelector('button').classList.toggle('hidden', !file);
+}
+function clearMedia(box) {
+  box.querySelector('input').value = '';
+  showMedia(box);
+}
+function removeMedia(box) {
+  const open = mediaBoxes().filter(other => !other.hidden);
+  for (let i = open.indexOf(box); i < open.length - 1; i++) {
+    const files = new DataTransfer(), file = open[i + 1].querySelector('input').files[0];
+    if (file) files.items.add(file);
+    open[i].querySelector('input').files = files.files;
+    showMedia(open[i]);
+    open[i].querySelector('select').value = open[i + 1].querySelector('select').value;
+  }
+  clearMedia(open[open.length - 1]);
+  mediaShown = Math.max(1, mediaShown - 1);
+}
+function syncMediaInput() {
+  const takes = { ...BUILT_IN_TAKES, ...(workflowTakes[$('videoWorkflow').value] || {}) };
+  const videos = takes.max_videos || 0, audios = takes.max_audios || 0;
+  const images = imageBoxes().filter(box => !box.hidden && box.querySelector('input').files.length).length;
+  const room = Math.max(0, Math.min(MOST_MEDIA, videos + audios, (takes.max_references ?? videos + audios + images) - images));
+  $('mediaSection').hidden = !(videos + audios);
+  const shown = mediaShown = Math.min(Math.max(room, 1), Math.max(mediaShown, 1));
+  for (let number = mediaBoxes().length + 1; number <= shown; number++) $('mediaBoxes').insertAdjacentHTML('beforeend', mediaBoxHtml(number));
+  mediaBoxes().forEach((box, i) => {
+    const input = box.querySelector('input');
+    box.hidden = $('mediaSection').hidden || i >= shown || !room;
+    input.disabled = box.hidden;
+    if (box.hidden && input.value) clearMedia(box);
+  });
+  const chosen = mediaBoxes().filter(box => !box.hidden && box.querySelector('input').files.length);
+  const last = mediaBoxes()[shown - 1];
+  $('addMedia').hidden = $('mediaSection').hidden || shown >= room || !last || !last.querySelector('input').files.length;
+  const count = kind => chosen.filter(box => mediaKind(box.querySelector('input').files[0]) === kind).length;
+  const over = count('video') > videos ? `This workflow takes ${videos} reference videos at most.`
+    : count('audio') > audios ? `This workflow takes ${audios} reference audio clips at most.` : '';
+  $('mediaHint').textContent = over || (room
+    ? `Every clip gets these too: up to ${videos} videos and ${audios} audio clips, 2-15 seconds each (a longer one is cut to its first 15), and ${takes.max_references} references in all with the images. Say what each is for, and your prompt can say more.`
+    : `The images take all ${takes.max_references} references this workflow has room for. Remove one to add a video or audio clip.`);
+  $('mediaHint').style.color = over ? 'var(--err)' : '';
+}
+$('mediaBoxes').addEventListener('change', e => { showMedia(e.target.closest('.image-box')); syncMediaInput(); });
+$('mediaBoxes').addEventListener('click', e => {
+  if (!e.target.dataset.clear) return;
+  removeMedia(e.target.closest('.image-box'));
+  syncMediaInput();
+});
+$('addMedia').addEventListener('click', () => {
+  mediaShown++;
+  syncMediaInput();
+});
+
 function clipCount(n) { return `${n} ${n === 1 ? 'clip' : 'clips'}`; }
+// As the planner counts them: the shortest, longest and usual clip on the workflow's video model.
+function videoClips() { return workflowClips[$('videoWorkflow').value] || BUILT_IN_CLIPS; }
+function shotCount(seconds) {
+  const [shortest, longest, usual] = videoClips();
+  const count = Math.max(Math.ceil(seconds / longest), Math.round(seconds / usual), 1);
+  return seconds >= shortest ? Math.max(1, Math.min(count, Math.floor(seconds / shortest))) : 1;
+}
 function syncSize() {
   const preset = $('sizePreset').value;
   $('size').hidden = preset !== 'custom';
@@ -1213,10 +1310,11 @@ function syncAudio() {
 }
 function syncVideoForm() {
   syncImageInput();
+  syncMediaInput();
   syncSize();
   syncAudio();
-  const seconds = +$('duration').value;
-  $('durationText').textContent = `${fmt(seconds)} · about ${clipCount(Math.max(1, Math.round(seconds / AVERAGE_SHOT_SECONDS)))}`;
+  const seconds = +$('duration').value, [shortest, longest] = videoClips();
+  $('durationText').textContent = `${fmt(seconds)} · about ${clipCount(shotCount(seconds))} of ${shortest}-${longest}s`;
 }
 $('formVideo').addEventListener('change', () => { syncVideoForm(); saveVideoForm(); });
 $('duration').addEventListener('input', syncVideoForm);
@@ -1657,7 +1755,7 @@ function showPlan() {
   $('estimateDetail').title = plan.steps.map(s => `${s.name}: ${fmtEta(s.seconds)}`).join('\n');
 }
 function withoutImages(form) {
-  for (const box of imageBoxes()) form.delete(box.querySelector('input').name);
+  for (const box of [...imageBoxes(), ...mediaBoxes()]) form.delete(box.querySelector('input').name);
   form.delete('audio_file');
   return form;
 }
@@ -2081,7 +2179,10 @@ async function startJob(url) {
     imageBoxes().forEach(clearImage);
     for (const select of $('imageBoxes').querySelectorAll('select')) select.value = 'view';
     imagesShown = 1;
+    mediaBoxes().forEach(clearMedia);
+    mediaShown = 1;
     syncImageInput();
+    syncMediaInput();
     queuePlan();
     if (body.shots) openShots(body.shots);
   } else if (url.startsWith('/generate/image')) {

@@ -498,9 +498,9 @@ class PanelTest(unittest.TestCase):
             self.assertEqual(json.load(f), {"broken": "Needs gone.safetensors, which isn't installed."})
         self.assertEqual(self.client.get("/api/workflows?pipeline=shorts").get_json()["workflows"], [], "none are tuned for Shorts")
         self.assertEqual(reply["workflows"], [
-            {"name": "r2v.json", "label": "r2v", "takes": {"min_images": 0, "max_images": 20}},
-            {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0}},
-            {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1}}])
+            {"name": "r2v.json", "label": "r2v", "takes": {"min_images": 0, "max_images": 20}, "clip_seconds": [5, 10, 8]},
+            {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0}, "clip_seconds": [5, 10, 8]},
+            {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1}, "clip_seconds": [5, 10, 8]}])
 
     def test_a_run_renders_with_the_chosen_workflow_and_keeps_it(self):
         self.save_workflows()
@@ -637,9 +637,9 @@ class PanelTest(unittest.TestCase):
             reply = self.client.get("/api/workflows").get_json()
             self.assertFalse(reply["online"])
             self.assertEqual(reply["workflows"], [
-                {"name": "r2v.json", "label": "r2v", "takes": {"min_images": 0, "max_images": 20}},
-                {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0}},
-                {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1}}])
+                {"name": "r2v.json", "label": "r2v", "takes": {"min_images": 0, "max_images": 20}, "clip_seconds": [5, 10, 8]},
+                {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0}, "clip_seconds": [5, 10, 8]},
+                {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1}, "clip_seconds": [5, 10, 8]}])
             self.assertEqual(os.path.basename(video_panel.chosen_workflow({"workflow": "wan.json"})[0]["COMFYUI_WORKFLOW"]), "wan.json")
         webapp._comfyui_cache.update(at=0.0)
 

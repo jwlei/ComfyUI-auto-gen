@@ -6,7 +6,8 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fakes import OBJECT_INFO, edit_image_workflow, reference_workflow, saved_workflow, text_only_workflow, text_to_image_workflow
+from fakes import (OBJECT_INFO, edit_image_workflow, h3_workflow, reference_workflow, saved_workflow, text_only_workflow,
+                   text_to_image_workflow)
 
 from core.saved_workflows import (Unusable, _from_comfyui, _grow_references, _from_earlier, find_fields, find_image_fields, frames_for, image_takes,
                                   is_for_image, is_for_shorts, pipeline_of, takes, to_api)
@@ -225,6 +226,33 @@ class FieldsTest(unittest.TestCase):
         before = dict(api)
         _grow_references(api, OBJECT_INFO)
         self.assertEqual(api, before, "a workflow without one is left alone")
+
+    def test_minimax_h3_takes_nine_images_and_three_videos_or_audio_clips(self):
+        api = to_api(h3_workflow(), OBJECT_INFO)
+        _grow_references(api, OBJECT_INFO)
+        fields = find_fields(api, OBJECT_INFO)
+        self.assertEqual(takes(fields), {"min_images": 0, "max_images": 9, "max_videos": 3, "max_audios": 3, "max_references": 12})
+        h3 = api["6"]["inputs"]
+        for number in range(3):
+            loader, _ = h3[f"ref_audios.ref_audio_{number}"]
+            self.assertEqual(api[loader]["class_type"], "LoadAudio")
+            split, _ = h3[f"ref_videos.ref_video_{number}"]
+            self.assertEqual(h3[f"ref_video_audios.ref_video_audio_{number}"], [split, 1], "a video's own sound goes with it")
+            self.assertEqual(api[api[split]["inputs"]["video"][0]]["class_type"], "LoadVideo")
+        self.assertEqual(fields["ref_video_2_link"], ["6", "ref_videos.ref_video_1"])
+        self.assertEqual(fields["ref_video_3_sound"], ["6", "ref_video_audios.ref_video_audio_2"])
+        self.assertEqual(fields["ref_audio"][1], "audio")
+        self.assertNotIn("audio", fields, "reference audio isn't the film's soundtrack")
+
+    def test_reference_videos_wired_in_comfyui_are_kept(self):
+        api = to_api(h3_workflow(), OBJECT_INFO)
+        api["90"] = {"class_type": "LoadVideo", "inputs": {"file": "mine.mp4"}, "_meta": {"title": "Load Video"}}
+        api["91"] = {"class_type": "GetVideoComponents", "inputs": {"video": ["90", 0]}, "_meta": {"title": "Split"}}
+        api["6"]["inputs"]["ref_videos.ref_video_0"] = ["91", 0]
+        _grow_references(api, OBJECT_INFO)
+        fields = find_fields(api, OBJECT_INFO)
+        self.assertEqual(fields["ref_video"], ["90", "file"])
+        self.assertEqual(takes(fields)["max_videos"], 1, "nothing added beside the one wired")
 
     def test_frames_stay_on_the_models_grid(self):
         self.assertEqual(frames_for(5, 24), 121)

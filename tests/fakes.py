@@ -216,6 +216,11 @@ OBJECT_INFO = {kind: {"display_name": kind, "input": {"required": required}} for
 # Inputs a workflow runs fine without.
 OBJECT_INFO["LatentVideo"]["input"]["optional"] = {"start_image": ["IMAGE"]}
 OBJECT_INFO["ReferenceToVideo"]["input"]["optional"] = {"ref_images": ["COMFY_AUTOGROW_V3", {}]}
+# MiniMax H3's: up to 9 images, and 3 each of videos, their sound and audio clips.
+OBJECT_INFO["MiniMaxH3ReferenceToVideo"] = {"display_name": "MiniMax H3 Reference to Video", "input": {
+    "required": dict(OBJECT_INFO["ReferenceToVideo"]["input"]["required"]),
+    "optional": {group: ["COMFY_AUTOGROW_V3", {"template": {"prefix": f"{group[:-1]}_", "min": 0, "max": most}}]
+                 for group, most in (("ref_images", 9), ("ref_videos", 3), ("ref_video_audios", 3), ("ref_audios", 3))}}}
 OBJECT_INFO["ComfySwitchNode"]["input"]["optional"] = {"on_false": ["COMFY_MATCHTYPE_V3", {}], "on_true": ["COMFY_MATCHTYPE_V3", {}]}
 OBJECT_INFO["TextEncodeQwenImageEditPlus"]["input"]["optional"] = {"image1": ["IMAGE"], "image2": ["IMAGE"]}
 
@@ -261,6 +266,13 @@ def reference_workflow():
     ], "links": [
         [1, 2, 0, 6, 0, "IMAGE"], [2, 1, 0, 6, 1, "IMAGE"], [3, 3, 0, 6, 2, "STRING"], [5, 5, 0, 6, 3, "INT"],
         [6, 5, 1, 6, 4, "INT"], [7, 4, 0, 6, 5, "FLOAT"], [8, 6, 0, 7, 0, "IMAGE"], [9, 7, 0, 8, 0, "VIDEO"]]}
+
+
+def h3_workflow():
+    """reference_workflow() on MiniMax H3's node, which also takes videos and audio clips that nothing is wired to."""
+    ui = reference_workflow()
+    next(node for node in ui["nodes"] if node["id"] == 6)["type"] = "MiniMaxH3ReferenceToVideo"
+    return ui
 
 
 def text_only_workflow():
