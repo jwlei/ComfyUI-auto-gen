@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from flask import request
 
+from core import seeds
 from core.paths import PROJECT_ROOT, WORKFLOWS_DIR
 from panel.server import (PIPELINES, SHORTS_TIMINGS, _runs_cache, app, busy_runs, job, list_videos, password_required, saved_at,
                           run_queue, safe_video_path, saved_workflows, upload_queue)
@@ -116,6 +117,12 @@ def build_run(form):
     if clips not in ("auto", "0", "2", "3"):
         return None, None, "Unknown avatar layout."
     argv += ["--avatar-clips", clips]
+    try:
+        seed = seeds.parse(form.get("seed"))
+    except ValueError:
+        return None, None, f"The seed must be a whole number from 0 to {seeds.MOST}, or empty for random."
+    if seed is not None:
+        argv += ["--seed", str(seed)]
 
     source = form.get("avatar_source") or "comfyui"
     if source not in ("comfyui", "static"):

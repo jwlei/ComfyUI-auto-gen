@@ -29,11 +29,11 @@ class ImageClient(ComfyClient):
             return media.edit_render_size(width, height)
         return media.render_size(width, height)
 
-    def render_image(self, prompt, images, width, height, save_as):
-        """Makes one image from these uploaded images and saves it as save_as plus its extension. Returns the path, or raises."""
+    def render_image(self, prompt, images, width, height, save_as, seed=None):
+        """Makes one image from these uploaded images, on this seed or a random one, and saves it as save_as plus its extension. Returns the path, or raises."""
         workflow = copy.deepcopy(self.workflow)
         self._set(workflow, "prompt", prompt)
         self._fill_images(workflow, images)
         self._set(workflow, "width", width)
         self._set(workflow, "height", height)
-        return self._download(self._run(workflow), save_as, IMAGE_EXTENSIONS, "an image")
+        return self._download(self._run(workflow, seed), save_as, IMAGE_EXTENSIONS, "an image")

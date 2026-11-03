@@ -10,6 +10,7 @@ import ffmpeg
 import requests
 from dotenv import load_dotenv
 
+from core import seeds
 from core.audio import AudioEngine
 from core.paths import LOGS_DIR
 from pipelines.video import media, paths, planner, roles
@@ -30,6 +31,13 @@ def parse_duration(text):
     if not planner.MIN_FILM_SECONDS <= seconds <= planner.MAX_FILM_SECONDS:
         raise argparse.ArgumentTypeError(f"The film has to be {planner.MIN_FILM_SECONDS}-{planner.MAX_FILM_SECONDS} seconds long, got {seconds}.")
     return seconds
+
+
+def parse_seed(text):
+    try:
+        return seeds.parse(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"'{text}' is not a seed: use a whole number from 0 to {seeds.MOST}, or random.")
 
 
 def parse_size(text):
@@ -70,6 +78,8 @@ def parse_args(argv=None):
     parser.add_argument("--audio", metavar="FILE", help="An audio file for the film: its length sets the film's, and a workflow with Load Audio gets it per clip.")
     parser.add_argument("--narration", metavar="TEXT", help="Text to voice with Gemini TTS, used the same way as --audio.")
     parser.add_argument("--voice", help="Gemini TTS voice for --narration, such as en-gb-tutor-13.")
+    parser.add_argument("--seed", type=parse_seed, help="The first clip's seed. Each clip after it gets the next one, so the film "
+                                                       "can be made again. Default: a random seed for every clip.")
     parser.add_argument("--plan-only", action="store_true", help="Write the prompts and stop before rendering.")
     parser.add_argument("--resume", metavar="RUN", help="Continue a saved run, with its original options.")
     parser.add_argument("--redo", type=int, metavar="SHOT", help="With --resume: render this shot again (chained: and every shot after it).")
@@ -234,6 +244,8 @@ def plan_run(args, stages):
                                      state.references())
     for image, path in zip(images, state.image_paths):
         media.save_input(image, path)
+    for index, shot in enumerate(shots):
+        shot["seed"] = seeds.nth(args.seed, index)
     state.update(title=title, shots=shots)
 
     print(f"🎞️ {title}")
@@ -269,13 +281,16 @@ def render_shot(state, comfy, index, images, audio=None, references=((), ())):
     shot = state.shots[index]
     save_as = os.path.join(state.clips_dir, f"shot_{index + 1:03d}")
     for attempt in range(1, CLIP_ATTEMPTS + 1):
+        seed = seeds.pick(shot.get("seed"), attempt)
+        print(f"      🌱 Seed {seed}")
         try:
-            clip = comfy.render(shot["prompt"], images, shot["seconds"], state.width, state.height, save_as, audio, *references)
+            clip = comfy.render(shot["prompt"], images, shot["seconds"], state.width, state.height, save_as, audio, *references, seed=seed)
         except (RuntimeError, OSError, ValueError) as e:
             print(f"      ❌ {e} (attempt {attempt}/{CLIP_ATTEMPTS}).")
             continue
         problem = media.clip_problem(clip, shot["seconds"])
         if not problem:
+            shot["used_seed"] = seed
             return clip
         print(f"      ⚠️ Rejected: {problem} (attempt {attempt}/{CLIP_ATTEMPTS}).")
     return None

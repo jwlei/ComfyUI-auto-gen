@@ -12,6 +12,7 @@ import ffmpeg
 import requests
 from dotenv import load_dotenv
 
+from core import seeds
 from core.paths import comfyui_client_id
 from core.saved_workflows import frames_for, image_slots
 
@@ -40,7 +41,6 @@ DEFAULT_REFERENCE_IMAGES = os.path.join("assets", "avatar", "avatar*.jpg")
 # How a workflow's nodes give away the video model it runs, for the label on its videos.
 VIDEO_MODELS = (("MiniMaxH3", "minimax-h3"), ("LTX", "ltx"), ("Wan", "wan"))
 VIDEO_EXTENSIONS = (".mp4", ".webm", ".mov", ".mkv", ".gif")
-SEED_INPUTS = ("seed", "noise_seed")
 POLL_INTERVAL = 5
 
 # What a clip's worst second may score (see lip_check.measure_clip), set from the
@@ -230,12 +230,14 @@ class AvatarGenerator:
       prompt (required), image (image_2... for more, and image_link where one is
       plugged in if it can be left out), audio, text_to_video, seconds (or frames,
       with fps saying where its frame rate is), width, height.
-    Any 'seed' / 'noise_seed' input is randomised on every run. Mapping 'audio'
-    turns on lip-sync: each clip is generated to match its scene's narration.
+    Every 'seed' / 'noise_seed' input gets the clip's seed: with a seed chosen, clip 1 has it
+    and each clip after the next one; otherwise a random one. Mapping 'audio' turns on lip-sync:
+    each clip is generated to match its scene's narration.
     """
 
-    def __init__(self, clips_dir=None):
+    def __init__(self, clips_dir=None, seed=None):
         load_dotenv()
+        self.seed = seed
         self.url = (os.getenv("COMFYUI_URL") or DEFAULT_COMFYUI_URL).rstrip("/")
         self.workflow_path = os.getenv("COMFYUI_WORKFLOW") or os.path.join(os.getcwd(), DEFAULT_WORKFLOW)
         self.timeout = int(os.getenv("COMFYUI_TIMEOUT") or 1800)
@@ -394,10 +396,11 @@ class AvatarGenerator:
             mode = "image-to-video" if reference else "text-to-video"
             print(f"   🎬 Clip {number}/{len(indices)} · scene {scene['id']}: {seconds}s {mode}")
             try:
+                seed = seeds.nth(self.seed, number - 1)
                 if self.lipsync:
-                    clip = self._render_speaking(scene, prompt, reference, seconds, on_screen)
+                    clip = self._render_speaking(scene, prompt, reference, seconds, on_screen, seed)
                 else:
-                    clip = self._render(prompt, reference, None, seconds, f"avatar_scene_{scene['id']}")
+                    clip = self._render(prompt, reference, None, seconds, f"avatar_scene_{scene['id']}", seed)
             except Exception as e:
                 print(f"   ❌ Scene {scene['id']} avatar failed: {e}")
                 clip = None
@@ -419,7 +422,7 @@ class AvatarGenerator:
             print(f"   ⚠️ Could not reuse scene {scene['id']} as the persona reference: {e}")
             return None
 
-    def _render_speaking(self, scene, prompt, reference, seconds, on_screen):
+    def _render_speaking(self, scene, prompt, reference, seconds, on_screen, seed=None):
         """
         Renders a lip-synced clip, on a new seed each time, until the part that gets
         shown passes the face checks. Returns None if it never does: an avatar that
@@ -428,7 +431,7 @@ class AvatarGenerator:
         """
         audio = self._upload(self._narration(scene, seconds), "aishorts_avatar_voice.wav")
         for attempt in range(1, self.lipsync_attempts + 1):
-            clip = self._render(prompt, reference, audio, seconds, f"avatar_scene_{scene['id']}")
+            clip = self._render(prompt, reference, audio, seconds, f"avatar_scene_{scene['id']}", seeds.pick(seed, attempt))
             if not clip:
                 return None
             problem = self._clip_problem(clip, on_screen)
@@ -476,7 +479,7 @@ class AvatarGenerator:
         node_id, input_name = self.fields[field]
         workflow[node_id]["inputs"][input_name] = value
 
-    def _render(self, prompt, reference, audio, seconds, name):
+    def _render(self, prompt, reference, audio, seconds, name, seed=None):
         workflow = copy.deepcopy(self.workflow)
         self._set(workflow, "prompt", prompt)
         if "seconds" in self.fields:
@@ -498,11 +501,11 @@ class AvatarGenerator:
         if audio:
             self._set(workflow, "audio", audio)
 
-        # Fresh seeds every run: ComfyUI would otherwise return its cached result.
+        # A random seed when none is chosen: ComfyUI would otherwise return its cached result.
+        seed = seeds.pick(seed)
+        if seeds.apply(workflow, seed):
+            print(f"      🌱 Seed {seed}")
         for node in workflow.values():
-            for key in SEED_INPUTS:
-                if isinstance(node.get("inputs", {}).get(key), int):
-                    node["inputs"][key] = random.randint(0, 2**32 - 1)
             # Keeps our clips out of ComfyUI's output folder: they go to its temp
             # folder, which it clears itself, and are downloaded from there below.
             if "save_output" in node.get("inputs", {}):

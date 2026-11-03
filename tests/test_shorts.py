@@ -322,6 +322,30 @@ class GenerateContinuesTest(unittest.TestCase):
         self.assertEqual(RunState.load(state.id).avatar_prompts, {3: "kept"})
 
 
+class SeedTest(unittest.TestCase):
+    def test_a_chosen_seed_reaches_the_avatar_clips(self):
+        argv, _, error = shorts_panel.build_run({**BASE, "seed": "77"})
+        self.assertIsNone(error)
+        self.assertEqual(argv[argv.index("--seed") + 1], "77")
+        self.assertNotIn("--seed", shorts_panel.build_run(BASE)[0], "empty is random")
+        self.assertIn("seed", shorts_panel.build_run({**BASE, "seed": "-3"})[2])
+        from pipelines.shorts import main as shorts_main
+        self.assertEqual(shorts_main.parse_args(["--seed", "77"]).seed, 77)
+
+    def test_each_avatar_clip_gets_the_next_seed(self):
+        from pipelines.shorts.avatar_generator import AvatarGenerator
+        generator = AvatarGenerator.__new__(AvatarGenerator)
+        generator.seed, generator.lipsync, generator.lipsync_attempts = 10, True, 2
+        sent = []
+        generator._upload = lambda *a: "voice.wav"
+        generator._narration = lambda *a: "voice.wav"
+        generator._render = lambda prompt, reference, audio, seconds, name, seed=None: sent.append(seed) or "clip.mp4"
+        generator._clip_problem = lambda clip, on_screen: "her mouth stops moving" if len(sent) == 1 else None
+        self.assertEqual(generator._render_speaking({"id": 1}, "p", None, 3, 3, 10), "clip.mp4")
+        self.assertEqual(sent[0], 10, "its own seed first")
+        self.assertEqual(len(sent), 2, "then, rejected, a new one")
+
+
 class VoiceKeptTest(unittest.TestCase):
     def setUp(self):
         self.folder = os.path.join(DATA, "voice_kept")

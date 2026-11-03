@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from flask import abort, request, send_file
 
+from core import seeds
 from panel.server import (PIPELINES, VIDEO_TIMINGS, _runs_cache, app, busy_runs, item_images, job,
                           password_required, saved_at, run_queue, saved_runs, saved_workflows)
 from panel.shorts import VOICES
@@ -114,6 +115,13 @@ def build_options(form):
         if not re.fullmatch(r"\d{2,4}x\d{2,4}", size):
             return None, "Render size must look like 1280x736."
         flags += ["--size", size]
+
+    try:
+        seed = seeds.parse(form.get("seed"))
+    except ValueError:
+        return None, f"The seed must be a whole number from 0 to {seeds.MOST}, or empty for random."
+    if seed is not None:
+        flags += ["--seed", str(seed)]
 
     if form.get("review"):
         flags.append("--plan-only")
@@ -327,6 +335,7 @@ def run_detail(run_id):
     return {"ok": True, "id": state.id, "title": state.title, "brief": state.brief, "start": state.start,
             "llm": state.llm, "busy": run_id in busy_runs(), "finished": bool(state.final),
             "shots": [{"title": shot["title"], "seconds": shot["seconds"], "prompt": shot["prompt"],
+                       "seed": shot.get("seed"), "used_seed": shot.get("used_seed"),
                        "rendered": i in state.clips} for i, shot in enumerate(state.shots)]}
 
 
@@ -355,13 +364,31 @@ def save_shots(run_id):
     state, refused = load_idle_run(run_id)
     if refused:
         return refused
-    prompts = (request.get_json(silent=True) or {}).get("prompts")
+    body = request.get_json(silent=True) or {}
+    prompts = body.get("prompts")
     if not isinstance(prompts, list) or len(prompts) != len(state.shots) or not all(isinstance(p, str) and p.strip() for p in prompts):
         return {"ok": False, "error": "Every shot needs a prompt."}, 400
-    for shot, prompt in zip(state.shots, prompts):
+    chosen, error = shot_seeds(body, len(state.shots))
+    if error:
+        return {"ok": False, "error": error}, 400
+    for shot, prompt, seed in zip(state.shots, prompts, chosen):
         shot["prompt"] = prompt.strip()
+        shot["seed"] = seed
     state.save()
     return {"ok": True}
+
+
+def shot_seeds(body, count):
+    """The seed set for each shot or image in the editor, None for random. Without any sent, every one is random."""
+    given = body.get("seeds")
+    if given is None:
+        return [None] * count, None
+    if not isinstance(given, list) or len(given) != count:
+        return None, "Every shot needs a seed, or none for random."
+    try:
+        return [seeds.parse(seed) for seed in given], None
+    except ValueError:
+        return None, f"A seed must be a whole number from 0 to {seeds.MOST}, or empty for random."
 
 
 def continue_run(run_id):

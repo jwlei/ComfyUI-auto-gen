@@ -290,6 +290,19 @@ class PanelTest(unittest.TestCase):
         seeds = [self.inputs(p, "KSampler")["seed"] for p in self.comfy.prompts]
         self.assertEqual(len(set(seeds)), 3)
 
+    def test_a_chosen_seed_counts_up_and_shows_in_the_set(self):
+        self.assertEqual(self.generate(seed="12x").status_code, 400)
+        self.make(seed="100")
+        self.assertEqual([self.inputs(p, "KSampler")["seed"] for p in self.comfy.prompts], [100, 101, 102])
+        run = self.only_run()
+        shots = self.client.get(f"/image-runs/{run.id}").get_json()["shots"]
+        self.assertEqual([(shot["seed"], shot["used_seed"]) for shot in shots], [(100, 100), (101, 101), (102, 102)])
+        prompts = [shot["prompt"] for shot in shots]
+        reply = self.client.post(f"/image-runs/{run.id}/shots", json={"prompts": prompts, "seeds": ["7", None, "x"]})
+        self.assertEqual(reply.status_code, 400)
+        self.assertTrue(self.client.post(f"/image-runs/{run.id}/shots", json={"prompts": prompts, "seeds": ["7", None, "102"]}).get_json()["ok"])
+        self.assertEqual([shot["seed"] for shot in self.client.get(f"/image-runs/{run.id}").get_json()["shots"]], [7, None, 102])
+
     def test_a_workflow_can_be_chosen(self):
         self.assertEqual(self.generate(workflow="image_edit.json").status_code, 400, "it can't run without an image")
         self.assertEqual(self.generate(image=True, workflow="image_text.json").status_code, 400, "and this one has nowhere to put one")
