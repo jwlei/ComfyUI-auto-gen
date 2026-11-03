@@ -121,7 +121,8 @@ class _ComfyHandler(_Handler):
                         f.write(b"not an image")
                 else:
                     # What a real one does with an empty latent: the size it was told.
-                    latent = next((node["inputs"] for node in data["prompt"].values() if node["class_type"] == "EmptyLatentImage"), {})
+                    latent = next((node["inputs"] for node in data["prompt"].values()
+                                   if isinstance(node["inputs"].get("width"), int) and isinstance(node["inputs"].get("height"), int)), {})
                     made = (latent["width"], latent["height"]) if latent else Image.open(io.BytesIO(state.uploads[-1])).size if state.uploads else (32, 32)
                     Image.new("RGB", made, (number * 40 % 256, 20, 40)).save(path)
             else:
@@ -212,6 +213,10 @@ OBJECT_INFO = {kind: {"display_name": kind, "input": {"required": required}} for
     "TextEncodeQwenImageEditPlus": {"prompt": ["STRING", {}], "clip": ["CLIP"]},
     "FluxKontextImageScale": {"image": ["IMAGE"]},
     "VAEEncode": {"pixels": ["IMAGE"]},
+    # As ComfyUI has it: its images are a growing list that's required, and can hold none.
+    "TextEncodeFibo2": {"clip": ["CLIP"], "prompt": ["STRING", {}], "negative_prompt": ["STRING", {}], "width": ["INT", {}], "height": ["INT", {}],
+                        "batch_size": ["INT", {}], "images": ["COMFY_AUTOGROW_V3", {"template": {
+                            "input": {"required": {"image": ["IMAGE", {}]}}, "names": [f"image_{n}" for n in range(1, 17)], "min": 0}}]},
 }.items()}
 # Inputs a workflow runs fine without.
 OBJECT_INFO["LatentVideo"]["input"]["optional"] = {"start_image": ["IMAGE"]}
@@ -363,6 +368,31 @@ def edit_image_workflow():
                _inside(4, 151, 0, 169, 1, "CONDITIONING"), _inside(5, 149, 0, 169, 2, "CONDITIONING"), _inside(6, 156, 0, 169, 3, "LATENT"),
                _inside(7, 169, 0, 158, 0, "LATENT"), _inside(344, 158, 0, -20, 0, "IMAGE"),
            ]}]}}
+
+
+def fibo2_workflow():
+    """Like the Fibo 2.0 edit turbo test you'd save: no image_ in its name, its one Load Image bypassed, so it starts from text."""
+    return {"nodes": [
+        _ui_node(1, "CheckpointLoader", {"ckpt_name": "model.safetensors"}, outputs=["MODEL", "CLIP"]),
+        _ui_node(14, "LoadImage", {"image": "example.png"}, values=["example.png", "image"], outputs=["IMAGE", "MASK"], mode=4),
+        _ui_node(4, "TextEncodeFibo2", {"prompt": "saved caption", "negative_prompt": "", "width": 0, "height": 0, "batch_size": 1},
+                 {"clip": 1, "images.image_1": 23}, ["CONDITIONING", "CONDITIONING", "LATENT"]),
+        _ui_node(6, "KSampler", {"seed": 64, "steps": 4}, {"model": 20, "positive": 3, "negative": 4, "latent_image": 22}, ["LATENT"],
+                 values=[64, "fixed", 4]),
+        _ui_node(7, "VAEDecode", links={"samples": 6}, outputs=["IMAGE"]),
+        _ui_node(8, "SaveImage", {"filename_prefix": "Fibo2_dev"}, {"images": 8}),
+    ], "links": [[1, 1, 1, 4, 0, "CLIP"], [23, 14, 0, 4, 1, "IMAGE"], [20, 1, 0, 6, 0, "MODEL"], [3, 4, 0, 6, 1, "CONDITIONING"],
+                 [4, 4, 1, 6, 2, "CONDITIONING"], [22, 4, 2, 6, 3, "LATENT"], [6, 6, 0, 7, 0, "LATENT"], [8, 7, 0, 8, 0, "IMAGE"]]}
+
+
+def caption(number, edit=True):
+    """A Fibo 2.0 prompt as the LLM writes it: a JSON caption, as text, with an edit_instruction when it edits."""
+    found = {"short_description": f"A woman in look number {number}.", "objects": [{"description": "a woman", "clothing": f"look {number}"}]}
+    return json.dumps({**found, "edit_instruction": f"Change her outfit to look number {number}."} if edit else found)
+
+
+def captions_reply(count=3, edit=True, title="Three Looks"):
+    return [json.dumps({"title": title, "versions": [{"title": f"Look {i + 1}", "prompt": caption(i + 1, edit)} for i in range(count)]})]
 
 
 def versions_reply(count=3, title="Three Looks"):

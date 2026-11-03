@@ -10,7 +10,7 @@ import time
 from dotenv import load_dotenv
 
 from core import seeds
-from pipelines.image import media, paths
+from pipelines.image import media, models, paths
 from pipelines.image import planner as image_planner
 from pipelines.image.comfy import ImageClient
 from pipelines.image.run_state import STAGES, RunState, list_runs
@@ -121,7 +121,13 @@ def plan_run(args, stages):
     llm = None if args.direct else args.llm or planner.default_llm()
     if llm and not planner.llm_configured(llm):
         raise RuntimeError(f"{llm} has no credentials: see .env.example.")
-    width, height = media.pick_size(args.size, args.aspect, args.megapixels, images[0].size if images else None)
+    model = comfy.model()
+    width, height = media.pick_size(args.size, args.aspect, args.megapixels, images[0].size if images else None,
+                                    models.MOST_MEGAPIXELS.get(model))
+    # Before the LLM is paid for anything.
+    problem = models.size_problem(model, width, height) or models.count_problem(model, args.count, args.direct)
+    if problem:
+        raise RuntimeError(problem)
 
     state = RunState.new(args.prompt, args.count, args.direct, width, height, llm, os.getenv("COMFYUI_WORKFLOW") or None, len(images))
     state.inputs = inputs
@@ -134,7 +140,7 @@ def plan_run(args, stages):
         versions = [{"title": f"Version {number}", "prompt": args.prompt} for number in range(1, args.count + 1)]
     else:
         print(f"🧠 {llm} is writing {args.count} {'prompt' if args.count == 1 else 'prompts'}...")
-        title, versions = image_planner.write_prompts([video_media.preview_jpeg(image) for image in images], args.prompt, args.count, llm)
+        title, versions = image_planner.write_prompts([video_media.preview_jpeg(image) for image in images], args.prompt, args.count, llm, model)
     shots = [{"number": number, "file": None, "seed": seeds.nth(args.seed, number - 1), **version}
              for number, version in enumerate(versions, 1)]
     # At once: the prompts are what was paid for.

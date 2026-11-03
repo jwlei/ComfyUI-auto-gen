@@ -268,6 +268,25 @@ assert.strictEqual(picked('image', 'image', [800, 1200]), '800x1200', 'the image
 assert.strictEqual(picked('image', '1', [800, 1200]), '832x1248', 'its shape at the pixel count asked for');
 assert.strictEqual(picked('1:1', 'image', [800, 1200]), '976x976', 'its pixel count in the shape asked for');
 run('sourceSize = null');
+// Automatic picks as the server does, and a model's limits grey out what it doesn't make well.
+run(`imageWorkflowList = [{ min_images: 0, max_images: 0, size: true, model: 'krea2' }, { min_images: 1, max_images: 1, size: true, model: 'qwen_image_edit' },
+  { min_images: 0, max_images: 16, size: true, model: 'fibo2' }]`);
+assert.deepStrictEqual(['0', '1', '2', '17'].map(n => run(`(automaticTakes(${n}) || {}).model`)), ['krea2', 'qwen_image_edit', 'fibo2', undefined],
+  'made for it first, Fibo 2.0 when nothing else fits');
+els.imageAspect.options = [{ value: '1920x1080' }, { value: '1024x1024' }, { value: '3840x2160' }, { value: '16:9' }];
+els.imageMegapixels.options = [{ value: 'image' }, { value: '1' }, { value: '2' }, { value: '6' }];
+run(`imageWorkflows = { 'fibo.json': imageWorkflowList[2], 'krea.json': imageWorkflowList[0] }`);
+els.imageWorkflow.value = 'fibo.json';
+const fiboLimit = run('syncImageLimits()');
+assert.deepStrictEqual(els.imageAspect.options.map(o => o.disabled), [true, false, true, undefined], 'Fibo 2.0: no screen over 1.1 MP');
+assert.deepStrictEqual(els.imageMegapixels.options.map(o => o.disabled), [undefined, false, true, true]);
+assert(fiboLimit.includes('Fibo 2.0 makes images up to 1.1 MP'));
+els.imageWorkflow.value = 'krea.json';
+run('syncImageLimits()');
+assert.deepStrictEqual(els.imageAspect.options.map(o => o.disabled), [false, false, true, undefined], 'Krea-2: 1080p yes, 4K no');
+assert.deepStrictEqual(els.imageMegapixels.options.map(o => o.disabled), [undefined, false, false, true]);
+els.imageWorkflow.value = '';
+run('imageWorkflows = {}; imageWorkflowList = []');
 for (const size of ['1920x1080', '2560x1440', '3840x2160', '1272x2772']) assert(html.includes(`<option value="${size}">`), size);
 els.imageAspect.value = '1920x1080';
 els.imageMegapixels.value = '1';

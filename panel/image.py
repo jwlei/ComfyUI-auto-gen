@@ -7,10 +7,9 @@ from types import SimpleNamespace
 from flask import abort, request, send_file
 
 from core import seeds
-from core.saved_workflows import is_for_image
 from panel.server import (IMAGE_TIMINGS, PIPELINES, _runs_cache, app, busy_runs, job, password_required, run_queue, saved_at, saved_workflows)
 from panel.video import clean_inputs, queue_label, shot_seeds
-from pipelines.image import media
+from pipelines.image import media, models
 from pipelines.image import planner as image_planner
 from pipelines.image.run_eta import RunEta
 from pipelines.image.run_state import STAGES, RunState, list_runs
@@ -32,7 +31,7 @@ def chosen_workflow(form, image_count=None):
     decides: text alone goes to a workflow that makes images from text, and an image to one that edits. image_count is
     None when that isn't known yet, as for the estimate. Returns (env, takes, error).
     """
-    entries = [entry for entry in saved_workflows() if is_for_image(entry["name"])]
+    entries = [entry for entry in saved_workflows() if entry.get("pipeline") == "image"]
     name = form.get("workflow")
     if name:
         entry = next((entry for entry in entries if entry["name"] == name), None)
@@ -41,17 +40,38 @@ def chosen_workflow(form, image_count=None):
         if "problem" in entry:
             return None, None, f"{entry['label']} can't run: {entry['problem']}"
         return {"COMFYUI_WORKFLOW": entry["path"]}, entry["takes"], None
-    usable = [entry for entry in entries if "problem" not in entry]
-    for entry in usable:
-        takes = entry["takes"]
-        if takes["min_images"] <= (image_count or 0) <= takes["max_images"]:
-            return {"COMFYUI_WORKFLOW": entry["path"]}, takes, None
+    entry = automatic([entry for entry in entries if "problem" not in entry], image_count or 0)
+    if entry:
+        return {"COMFYUI_WORKFLOW": entry["path"]}, entry["takes"], None
     if image_count is None:
         return {}, {"min_images": 0, "max_images": 1, "size": True}, None
     wanted = "edits an image" if image_count else "makes images from text"
     why = "; ".join(f"{entry['label']}: {entry['problem']}" for entry in entries if "problem" in entry)
     return None, None, (f"No workflow that {wanted} can run. {why}" if why
                         else f"No workflow that {wanted} is saved in ComfyUI with a name starting image_.")
+
+
+def automatic(usable, image_count):
+    """
+    The workflow Automatic picks, in name order. One made for what you gave it comes first: text alone goes to one that
+    takes no image, and an image to one that needs one, so Fibo 2.0, which does both, is for when nothing else fits.
+    """
+    fits = [entry for entry in usable if entry["takes"]["min_images"] <= image_count <= entry["takes"]["max_images"]]
+    made_for = [entry for entry in fits if (entry["takes"]["min_images"] >= 1 if image_count else entry["takes"]["max_images"] == 0)]
+    return (made_for or fits or [None])[0]
+
+
+def model_problem(flags, takes, source):
+    """Why the chosen workflow's model shouldn't make this: too big, or too many prompts for the LLM. None if it's fine."""
+    model = takes.get("model")
+    if not takes.get("size"):
+        size = None
+    elif not source and media.FROM_IMAGE in (option(flags, "--aspect"), option(flags, "--megapixels")) and not option(flags, "--size"):
+        size = None  # Comes from an image not chosen yet, which is held to the model's limit when it is
+    else:
+        size = media.pick_size(option(flags, "--size"), option(flags, "--aspect"), option(flags, "--megapixels"), source,
+                               models.MOST_MEGAPIXELS.get(model))
+    return (size and models.size_problem(model, *size)) or models.count_problem(model, int(option(flags, "--count")), "--direct" in flags)
 
 
 def resume_argv(state, redo=None):
@@ -130,7 +150,8 @@ def estimate():
     if error:
         return {"ok": False, "error": error}
     count = request.form.get("image_count")
-    env, _, error = chosen_workflow(request.form, int(count) if (count or "").isdigit() else None)
+    env, takes, error = chosen_workflow(request.form, int(count) if (count or "").isdigit() else None)
+    error = error or model_problem(flags, takes, None)
     if error:
         return {"ok": False, "error": error}
     # Reviewing first only writes the prompts now, but what you're deciding on is the whole set.
@@ -169,12 +190,15 @@ def generate():
         images = [video_media.load_image(upload.stream) for upload in uploads]
     except RuntimeError:
         return {"ok": False, "error": "That file isn't an image this can read."}, 400
+    problem = model_problem(flags, takes, images[0].size if images else None)
+    if problem:
+        return {"ok": False, "error": problem}, 400
 
     state = run_to_continue(prompt, flags, env, images)
     if state:
         if "--plan-only" in flags:
             return {"ok": True, "queued": False, "shots": state.id, "continued": state.title}
-        adopt_size(state, flags, images)
+        adopt_size(state, flags, images, takes.get("model"))
         reply = queue_saved_run(state)
         return reply if isinstance(reply, tuple) else {**reply, "continued": state.title}
 
@@ -215,10 +239,10 @@ def run_to_continue(prompt, flags, env, images):
     return None
 
 
-def adopt_size(state, flags, images):
+def adopt_size(state, flags, images, model=None):
     """The size chosen now, for what's still to be made. What has been made stays as it is."""
     state.width, state.height = media.pick_size(option(flags, "--size"), option(flags, "--aspect"), option(flags, "--megapixels"),
-                                                images[0].size if images else None)
+                                                images[0].size if images else None, models.MOST_MEGAPIXELS.get(model))
     state.save()
 
 
@@ -379,6 +403,7 @@ def context():
         "image_size_step": media.SIZE_STEP,
         "image_desktop_sizes": media.DESKTOP_SIZES,
         "image_phone_sizes": media.PHONE_SIZES,
+        "image_models": models.for_the_page(),
     }
 
 

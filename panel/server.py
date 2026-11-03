@@ -1091,7 +1091,7 @@ def workflows():
     """
     pipeline = request.args.get("pipeline") or "video"
     found = [{key: w[key] for key in ("name", "label", "takes", "problem") if key in w} for w in saved_workflows()
-             if pipeline_of(w["name"]) == pipeline and (pipeline == "image" or "problem" not in w)]
+             if w.get("pipeline", pipeline_of(w["name"])) == pipeline and (pipeline == "image" or "problem" not in w)]
     if pipeline == "video":
         # How long its video model makes a clip, for the form to say.
         paths = {w["name"]: w.get("path") for w in saved_workflows()}

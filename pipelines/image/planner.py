@@ -1,5 +1,6 @@
 from pydantic import BaseModel, ValidationError
 
+from pipelines.image import fibo2_prompt, models
 from pipelines.video import planner as llm
 
 PROMPT_ATTEMPTS = 3
@@ -72,7 +73,7 @@ def _create_rules():
     - One paragraph of plain prose, 40-110 words. No lists, no labels, no markdown, no negative prompts."""
 
 
-def _instructions(brief, count, images):
+def _instructions(brief, count, images, model=None):
     """How to write the prompts, for editing what's attached or for making an image from nothing."""
     versions = "one image" if count == 1 else f"{count} different versions"
     apart = ("" if count == 1 else f"""
@@ -84,19 +85,21 @@ def _instructions(brief, count, images):
     You are writing the prompts for {versions} from this brief, in the words of the person making them: "{brief}"
 
     The brief is short on purpose. Invent the detail, in keeping with it and never contradicting it.{apart}
-    {_edit_rules(images) if images else _create_rules()}
+    {fibo2_prompt.rules(images) if model == models.FIBO2 else _edit_rules(images) if images else _create_rules()}
 
     Return a title for the set, 2-5 words, and exactly {count} {"version" if count == 1 else "versions"}. For each:
     - title: 2-5 words saying what sets this one apart.
     - prompt: the text the model gets, following the rules above."""
 
 
-def write_prompts(image_jpegs, brief, count, llm_name):
+def write_prompts(image_jpegs, brief, count, llm_name, model=None):
     """
     The set's title and {count} versions from one request, however many: the prompts have to know each other
     to differ, and it spends one of a free model's daily requests rather than {count}.
     """
-    instructions = _instructions(brief, count, len(image_jpegs))
+    instructions = _instructions(brief, count, len(image_jpegs), model)
+    # Fibo 2.0's prompts are JSON captions: one that isn't the caption asked for can't be used.
+    tidy = (lambda prompt: fibo2_prompt.tidy(prompt, bool(image_jpegs))) if model == models.FIBO2 else str.strip
     best, title, problem = [], None, None
     for attempt in range(1, PROMPT_ATTEMPTS + 1):
         correction = f"\n\n    Your last reply came back with {problem}. Fix that." if problem else ""
@@ -108,7 +111,7 @@ def write_prompts(image_jpegs, brief, count, llm_name):
         else:
             seen, usable = set(), []
             for version in versions.versions:
-                prompt = version.prompt.strip()
+                prompt = tidy(version.prompt)
                 if prompt and prompt not in seen:
                     seen.add(prompt)
                     usable.append({"title": version.title.strip() or f"Version {len(usable) + 1}", "prompt": prompt})

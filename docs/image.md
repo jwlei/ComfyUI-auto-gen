@@ -17,7 +17,9 @@ image of a woman + "recreate her with different outfits and hairstyles" + 15 ima
 Press **Image** at the top, or open `/image`.
 
 **Text or edit:** give it an image and it edits that image. Give it none and it makes images from text. Left on
-**Automatic**, the workflow follows from that. Choosing one yourself asks for what it takes.
+**Automatic**, the workflow follows from that: text alone goes to one that takes no image, and an image to one that
+needs one. Fibo 2.0, which does both, is Automatic's pick only when nothing else fits, such as two or more images.
+Choosing one yourself asks for what it takes.
 
 **Prompts:**
 
@@ -26,7 +28,7 @@ Press **Image** at the top, or open `/image`.
 | **The LLM writes one per image** | Its own prompt, written from what you say. A sentence or two is enough. They're written together in one request, so they can differ from each other. |
 | **Use my prompt, word for word** | Your prompt exactly, on a new seed each time. No LLM, so no key or quota needed. |
 
-**How many images:** 1 to 100.
+**How many images:** 1 to 100, or 30 when the LLM writes Fibo 2.0's prompts (see below).
 
 **Resolution:**
 
@@ -62,10 +64,34 @@ again.
 **Prompts** on a set shows each image with its prompt and the seed it was made with. **Make again** makes one again
 using the prompt in the box, on that seed unless you change it or press shuffle. An empty seed is new each time. **Delete** takes one image and its prompt out of the set. **Delete** on the set removes all its images and prompts.
 
+## Each model's limits
+
+What each model makes well, from its makers and ComfyUI's templates. The form greys out the sizes and pixel counts past
+a model's limit, and Generate refuses them before anything is paid for. "Same as the image" stays within it.
+
+| Model | Size | Prompts | Steps, as saved |
+|---|---|---|---|
+| **Fibo 2.0** (Bria), edit turbo | Up to 1.1 MP. Trained at about 1 MP, every size within 10% of it: above that the prompt leaks into the top left corner and it stops following it. No desktop or phone screen fits, so those are greyed out. | JSON captions (below). The LLM writes at most 30 a set, as each is a few hundred words. | 4, CFG 1 |
+| **Krea-2** Turbo | Up to 4.2 MP: its 1K and 2K sizes, up to 2048x2048. 1440p and the phones fit; 4K and 1440p ultrawide don't. | A descriptive paragraph | 8 |
+| **Qwen-Image-Edit** 2511 | Up to the form's own 16 MP | An edit instruction | 40, or 4 with turbo |
+
+**Fibo 2.0's prompts.** It was trained on structured JSON captions (Bria's VGL) and reads them far better than prose: in
+Bria's tests an edit written as "keep X unchanged" redrew the whole frame and invented things, where a caption changed only
+what was asked. So the LLM writes each prompt as one JSON object describing the finished image (its objects, background,
+light, camera and medium) and, for an edit, one imperative `edit_instruction`. One that isn't valid JSON of that kind
+doesn't count, and is asked for again. **Prompts** on a set shows them, and you can change them there.
+Your own prompt, word for word, can be plain text or a caption of your own.
+
+Fibo 2.0 does both kinds in one workflow: with no image it makes one from text, and with images it edits. It takes up to
+16 images, a box at a time: the next box opens once the last holds an image. With several, call them `<image_1>`,
+`<image_2>` in your prompt, as in "put the jacket from `<image_2>` on the woman in `<image_1>`". One image is cropped to the
+size you chose, as the edit lines up with it pixel for pixel; several are each scaled to the size Fibo 2.0 was trained at for their shape.
+
 ## Workflows
 
-The form lists what you saved in ComfyUI with a name starting `image_`. One that can't run is greyed out, and the hint
-under the list says why, such as a model that isn't installed. They're tried in name order on Automatic.
+The form lists what you saved in ComfyUI for images: a name starting `image_`, or any other that saves images and no
+video, such as `Fibo2_turbo_edit_test`. One that can't run is greyed out, and the hint under the list says why, such as a
+model that isn't installed. Automatic tries them in name order, those made for what you gave it first.
 
 What the pipeline does to a saved workflow, in the copy it runs. Your saved one in ComfyUI is left as it is.
 
@@ -74,6 +100,7 @@ What the pipeline does to a saved workflow, in the copy it runs. Your saved one 
 | A subgraph | Opened up, as if you had unpacked it. |
 | Save Image, Save Image (Advanced) | Becomes Preview Image, so nothing lands in ComfyUI's output folder. Images are downloaded from its temp folder. |
 | A switch set on its face, such as Enable LoRA | Goes the way it's set, for good. A style LoRA that's off needs no file. |
+| A growing list of image inputs, such as Fibo 2.0's | Gets a Load Image for each, up to the node's own limit. Those left empty come out again. |
 | A refine or enhance prompt switch, such as Krea-2's | Turned off. The LLM has already written the prompt, or you have, so it should reach the model as it is. |
 | FluxKontext Image Scale, in Qwen-Image-Edit | Skipped, or it would snap the size you chose to one of its own. Its encoder wraps the image around if it comes out an odd number of latent pixels across, which leaves a band of the far side along one edge, so these render at the nearest size where it doesn't and are cropped to yours. |
 

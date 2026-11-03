@@ -1383,7 +1383,9 @@ const IMAGE_STORE_KEY = 'comfyui-auto-gen.image.v1';
 const IMAGE_DEFAULTS = { llm: {{ default_llm | tojson }}, prompt_mode: 'llm', count: 1, aspect: 'image', megapixels: '1', review: false };
 const SIZE_STEP = {{ image_size_step }}, MEGAPIXEL = 1024 * 1024, MOST_MEGAPIXELS = 16, LARGE_MEGAPIXELS = 4;
 const AUTOMATIC_TAKES = { min_images: 0, max_images: 1, size: true };
-let imageWorkflows = {}, sourceSize = null;
+// What each model makes well, from pipelines/image/models.py.
+const IMAGE_MODELS = {{ image_models | tojson }};
+let imageWorkflows = {}, imageWorkflowList = [], sourceSize = null;
 function saveImageForm() {
   const data = {};
   for (const el of $('formImage').elements) {
@@ -1419,6 +1421,7 @@ async function loadImageWorkflows() {
     `<option value="${esc(w.name)}"${w.problem ? ' disabled' : ''}>${esc(w.label)}${w.problem ? ' (can\'t run)' : ''}</option>`).join('');
   if (usable.some(w => w.name === wanted)) select.value = wanted;
   imageWorkflows = Object.fromEntries(usable.map(w => [w.name, w.takes]));
+  imageWorkflowList = usable.map(w => w.takes);
   const notes = stuck.map(w => `${w.label}: ${w.problem}`);
   if (!data.workflows.length) notes.push('Save one in ComfyUI with a name starting image_ and it appears here.');
   if (!data.online) notes.push('ComfyUI is off: this is the last list.');
@@ -1429,6 +1432,20 @@ async function loadImageWorkflows() {
 }
 $('imageWorkflow').addEventListener('focus', loadImageWorkflows);
 function sourceBoxes() { return [...$('imageSources').querySelectorAll('.image-box')]; }
+// As the server picks on Automatic (panel/image.py): one made for what you gave it, then any that fits.
+function automaticTakes(count) {
+  const fits = imageWorkflowList.filter(t => t.min_images <= count && count <= t.max_images);
+  const madeFor = fits.filter(t => count ? t.min_images >= 1 : t.max_images === 0);
+  return madeFor[0] || fits[0] || null;
+}
+// What the form is for now: the workflow chosen, or the one Automatic would pick with the images given.
+function imageTakes() {
+  const chosen = imageWorkflows[$('imageWorkflow').value];
+  if (chosen) return chosen;
+  const most = Math.max(1, ...imageWorkflowList.map(t => t.max_images));
+  return { ...AUTOMATIC_TAKES, ...(automaticTakes(chosenSources()) || {}), min_images: 0, max_images: Math.min(most, 20) };
+}
+function imageModel() { return IMAGE_MODELS[imageTakes().model] || null; }
 function sourceHtml(number) {
   const name = number === 1 ? 'image' : `image_${number}`;
   return `
@@ -1456,15 +1473,19 @@ function clearSource(box, first) {
   showSource(box, first);
 }
 function syncImageSources() {
-  const { min_images: low, max_images: high } = imageWorkflows[$('imageWorkflow').value] || AUTOMATIC_TAKES;
-  for (let number = sourceBoxes().length + 1; number <= high; number++) $('imageSources').insertAdjacentHTML('beforeend', sourceHtml(number));
+  const { min_images: low, max_images: high } = imageTakes();
+  // A box at a time: the next opens once the last holds an image. Fibo 2.0 takes 16.
+  const filled = sourceBoxes().filter((box, i) => i < high && box.querySelector('input').files.length).length;
+  const shown = Math.min(high, Math.max(low, 1, filled + 1));
+  for (let number = sourceBoxes().length + 1; number <= shown; number++) $('imageSources').insertAdjacentHTML('beforeend', sourceHtml(number));
   sourceBoxes().forEach((box, i) => {
     const input = box.querySelector('input');
-    box.hidden = i >= high;
+    box.hidden = i >= shown;
     // Not sent, and what a workflow can't take doesn't wait there for the next one.
     input.disabled = box.hidden;
     if (box.hidden && input.value) clearSource(box, i === 0);
-    box.querySelector('label').textContent = low > i ? `Image ${i + 1} to edit` : `Image ${i + 1} to edit (optional: without one it makes them from text)`;
+    box.querySelector('label').textContent = low > i ? `Image ${i + 1} to edit`
+      : i ? `Image ${i + 1} (optional: call it <image_${i + 1}> in the prompt)` : `Image ${i + 1} to edit (optional: without one it makes them from text)`;
   });
 }
 function chosenSources() { return sourceBoxes().filter(box => box.querySelector('input').files.length).length; }
@@ -1478,8 +1499,22 @@ function pickedSize() {
   const area = megapixels === 'image' ? (sourceSize ? Math.min(width * height, MOST_MEGAPIXELS * MEGAPIXEL) : MEGAPIXEL) : +megapixels * MEGAPIXEL;
   return [onGrid(Math.sqrt(area * ratio)), onGrid(Math.sqrt(area / ratio))];
 }
+// Greys out the sizes and pixel counts a model doesn't make well. Returns what the hint should say about it.
+function syncImageLimits() {
+  const model = imageModel(), most = model && model.most_megapixels;
+  const tooBig = (width, height) => !!most && width * height > most * MEGAPIXEL;
+  for (const option of [...($('imageAspect').options || [])]) {
+    const sides = /^(\d+)x(\d+)$/.exec(option.value);
+    if (sides) option.disabled = tooBig(+sides[1], +sides[2]);
+  }
+  for (const option of [...($('imageMegapixels').options || [])]) {
+    if (option.value !== 'image') option.disabled = !!most && +option.value > most;
+  }
+  return most ? ` ${model.label} makes images up to ${most} MP.` : '';
+}
 function syncImageSize() {
-  const takes = imageWorkflows[$('imageWorkflow').value] || AUTOMATIC_TAKES;
+  const takes = imageTakes();
+  const limit = syncImageLimits();
   const aspect = $('imageAspect').value, typed = aspect === 'custom', screen = /^\d+x\d+$/.test(aspect), exact = typed || screen;
   $('imageSizeBox').classList.toggle('hidden', !takes.size);
   $('imageSize').hidden = !typed;
@@ -1490,8 +1525,10 @@ function syncImageSize() {
     ? ' With no image, "same as the image" means square and 1 MP.' : '';
   const crop = chosenSources() ? ' An image of another shape is cropped at its edges to fit.' : '';
   const sides = size.split('x').map(Number);
-  const large = sides[0] * sides[1] > LARGE_MEGAPIXELS * MEGAPIXEL ? ` That is far above what these models usually work at: expect a long render, and repeated details.` : '';
-  $('imageSizeHint').textContent = `${size ? `Makes ${size}${exact ? ' exactly' : `, rounded to multiples of ${SIZE_STEP}`}.` : ''}${crop}${blank}${large || ' More pixels take longer.'}`;
+  const model = imageModel(), over = model && model.most_megapixels && sides[0] * sides[1] > model.most_megapixels * MEGAPIXEL;
+  const large = over ? ` That is more than ${model.label} makes well: choose a smaller size.`
+    : sides[0] * sides[1] > LARGE_MEGAPIXELS * MEGAPIXEL ? ` That is far above what these models usually work at: expect a long render, and repeated details.` : '';
+  $('imageSizeHint').textContent = `${size ? `Makes ${size}${exact ? ' exactly' : `, rounded to multiples of ${SIZE_STEP}`}.` : ''}${crop}${blank}${large || ' More pixels take longer.'}${limit}`;
 }
 function syncImageForm() {
   syncImageSources();
@@ -1505,9 +1542,11 @@ function syncImageForm() {
     ? (editing ? 'e.g. Change her coat to a red wool trench coat. Keep her face, pose and the background the same.' : 'e.g. Photo of a lighthouse at dusk, long exposure, wet rocks in the foreground.')
     : (editing ? 'e.g. Recreate this with different outfits and hairstyles' : 'e.g. A lighthouse in every season');
   const count = +$('imageCount').value || 1;
+  const written = (imageModel() || {}).most_written;
+  const tooMany = !direct && written && count > written ? ` ${imageModel().label}'s prompts are long, so the LLM writes at most ${written} at a time.` : '';
   $('imagePromptHint').textContent = direct
     ? (count > 1 ? `The same prompt ${count} times, each on a new seed.` : 'Goes to the model as you wrote it.')
-    : (count > 1 ? `A sentence or two is enough. The LLM writes ${count} prompts that differ from each other.` : 'A sentence or two is enough.');
+    : (count > 1 ? `A sentence or two is enough. The LLM writes ${count} prompts that differ from each other.` : 'A sentence or two is enough.') + tooMany;
 }
 $('formImage').addEventListener('change', () => { syncImageForm(); saveImageForm(); });
 $('imageCount').addEventListener('input', syncImageForm);

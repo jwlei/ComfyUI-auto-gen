@@ -1,7 +1,7 @@
 import copy
 import os
 
-from core.saved_workflows import image_takes
+from core.saved_workflows import image_model, image_takes
 from pipelines.image import media
 from pipelines.video.comfy import ComfyClient
 
@@ -20,8 +20,12 @@ class ImageClient(ComfyClient):
             raise RuntimeError("No workflow chosen: save one in ComfyUI named image_<something>, or set COMFYUI_WORKFLOW.")
         super().__init__()
 
+    def model(self):
+        """The image model it runs, if it's one with prompts or limits of its own (pipelines/image/models.py)."""
+        return image_model(self.workflow)
+
     def takes(self):
-        return image_takes(self.fields)
+        return image_takes(self.fields, self.model())
 
     def render_size(self, width, height):
         """What to have the model make for this size, which gets cropped to it afterwards."""

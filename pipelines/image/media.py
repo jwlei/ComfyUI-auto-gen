@@ -80,20 +80,24 @@ def parse_megapixels(text):
     return value if 0.05 <= value <= MAX_MEGAPIXELS else None
 
 
-def pick_size(size=None, aspect=FROM_IMAGE, megapixels=DEFAULT_MEGAPIXELS, source=None):
+def pick_size(size=None, aspect=FROM_IMAGE, megapixels=DEFAULT_MEGAPIXELS, source=None, most_megapixels=None):
     """
     The size to make, from what was asked for. source is the first image's (width, height), if there is one:
     with none, "the same as the image" means square and one megapixel, which is what a blank canvas gets.
+    most_megapixels: what the model makes well, which "the same as the image" stays within.
     """
     if size:
         return parse_size(size)
     width, height = source or (1, 1)
     ratio = width / height if aspect == FROM_IMAGE else parse_aspect(aspect) or 1
+    most = (most_megapixels or MAX_MEGAPIXELS) * PIXELS_PER_MEGAPIXEL
     if megapixels == FROM_IMAGE:
-        area = min(width * height, MAX_MEGAPIXELS * PIXELS_PER_MEGAPIXEL) if source else DEFAULT_MEGAPIXELS * PIXELS_PER_MEGAPIXEL
+        area = min(width * height, most) if source else DEFAULT_MEGAPIXELS * PIXELS_PER_MEGAPIXEL
     else:
         area = float(megapixels) * PIXELS_PER_MEGAPIXEL
-    return on_grid(math.sqrt(area * ratio)), on_grid(math.sqrt(area / ratio))
+    # Held to the limit, it rounds down: rounding up onto the grid would go over it.
+    snap = (lambda side: max(MIN_EDGE, math.floor(side / SIZE_STEP) * SIZE_STEP)) if area >= most else on_grid
+    return snap(math.sqrt(area * ratio)), snap(math.sqrt(area / ratio))
 
 
 def save_source(image, path):

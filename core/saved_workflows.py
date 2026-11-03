@@ -39,6 +39,12 @@ PREVIEW = "PreviewImage"
 SWITCHES = ("ComfySwitchNode",)
 # Snap the source image to a size of their own. The pipeline fits it to the size you chose instead.
 IMAGE_SCALERS = ("FluxKontextImageScale",)
+# What saves a video, so a workflow that saves images and none of these is for the Image side, whatever its name.
+VIDEO_SAVES = ("SaveVideo", "VHS_VideoCombine", "CreateVideo", "SaveWEBM", "SaveAnimatedWEBP", "SaveAnimatedPNG")
+# The image models whose prompts or limits are their own (pipelines/image/models.py), by the node that says which it is,
+# or else by the type its text encoder is loaded as.
+IMAGE_MODEL_NODES = {"TextEncodeFibo2": "fibo2", "TextEncodeQwenImageEditPlus": "qwen_image_edit"}
+IMAGE_MODEL_ENCODERS = ("fibo2", "krea2")
 # How a subgraph's links name the two ends it has in place of nodes.
 SUBGRAPH_IN, SUBGRAPH_OUT = -10, -20
 # Far more than any workflow has. Only subgraphs that contain each other get this far.
@@ -405,9 +411,19 @@ def _image_fields(api, info):
         fields[slot] = [str(node_id), "image"]
         if len(users) == 1:
             user_id, name = users[0]
-            if name.split(".")[0] in info[api[user_id]["class_type"]].get("input", {}).get("optional", {}):
+            if _can_be_left_empty(info[api[user_id]["class_type"]], name):
                 fields[f"{slot}_link"] = [user_id, name]
     return fields
+
+
+def _can_be_left_empty(spec, name):
+    """Whether a node runs without this input: an optional one, or one of a growing list that can hold none, as Fibo 2.0's images."""
+    inputs = spec.get("input", {})
+    group = name.split(".")[0]
+    if group in inputs.get("optional", {}):
+        return True
+    config = inputs.get("required", {}).get(group)
+    return "." in name and isinstance(config, list) and bool(config) and config[0] == "COMFY_AUTOGROW_V3" and _least(config[1:]) == 0
 
 
 def _users(api, node_id, slot=None):
@@ -531,9 +547,27 @@ def find_image_fields(api, info):
     return fields
 
 
-def image_takes(fields):
-    """As takes(), and whether its size can be chosen: by its own inputs, or by the source image it follows."""
-    return {**takes(fields), "size": "width" in fields or bool(image_slots(fields))}
+def image_takes(fields, model=None):
+    """As takes(), whether its size can be chosen (by its own inputs, or by the source image it follows), and its model."""
+    return {**takes(fields), "size": "width" in fields or bool(image_slots(fields)), "model": model}
+
+
+def image_model(api):
+    """Which image model a workflow runs, if it's one with prompts or limits of its own. None otherwise."""
+    for node in api.values():
+        if node["class_type"] in IMAGE_MODEL_NODES:
+            return IMAGE_MODEL_NODES[node["class_type"]]
+    for node in api.values():
+        if node["class_type"] == "CLIPLoader" and node["inputs"].get("type") in IMAGE_MODEL_ENCODERS:
+            return node["inputs"]["type"]
+    return None
+
+
+def makes_images(ui):
+    """Whether a saved workflow saves images and no video, subgraphs and all."""
+    kinds = {node["type"] for node in ui.get("nodes", [])}
+    kinds |= {node["type"] for subgraph in ui.get("definitions", {}).get("subgraphs", []) for node in subgraph.get("nodes", [])}
+    return bool(kinds & set(IMAGE_SAVES)) and not kinds & set(VIDEO_SAVES)
 
 
 def frames_for(seconds, fps):
@@ -561,8 +595,11 @@ def is_for_image(name):
     return not is_for_shorts(name) and _label(name).replace("\\", "/").rsplit("/", 1)[-1].startswith(IMAGE_PREFIX)
 
 
-def pipeline_of(name):
-    return "shorts" if is_for_shorts(name) else "image" if is_for_image(name) else "video"
+def pipeline_of(name, ui=None):
+    """Which side a workflow is for: by its name, or for one saved without image_ in it, by what it saves."""
+    if is_for_shorts(name):
+        return "shorts"
+    return "image" if is_for_image(name) or (ui is not None and makes_images(ui)) else "video"
 
 
 def _file_stem(name):
@@ -583,12 +620,25 @@ MOST_REFERENCES_FIELD = "_most_references"
 
 
 def _most(config):
-    """The largest count a growing input's settings allow, wherever they keep it, or None."""
+    """The largest count a growing input's settings allow, wherever they keep it, or None. A list of its names says too."""
     if isinstance(config, dict):
         found = [value for key, value in config.items() if key == "max" and isinstance(value, int)]
+        if not found and isinstance(config.get("names"), list) and config["names"]:
+            found = [len(config["names"])]
         return found[0] if found else next(filter(None, (_most(value) for value in config.values())), None)
     if isinstance(config, list):
         return next(filter(None, (_most(value) for value in config)), None)
+    return None
+
+
+def _least(config):
+    """The fewest a growing input's settings allow, wherever they keep it, or None if they don't say."""
+    if isinstance(config, dict):
+        if isinstance(config.get("min"), int):
+            return config["min"]
+        return next((found for found in map(_least, config.values()) if found is not None), None)
+    if isinstance(config, list):
+        return next((found for found in map(_least, config) if found is not None), None)
     return None
 
 
@@ -644,11 +694,15 @@ def _add_media_references(api, node, group, most, sounds):
             node["inputs"][f"{VIDEO_SOUND_GROUP}.{VIDEO_SOUND_GROUP[:-1]}_{number}"] = [split, 1]
 
 
-def _prepare(name, ui, info, folder):
+def _prepare(name, ui, info, folder, pipeline):
     """Writes what the pipeline runs. Returns its path, and how many images it takes."""
-    if is_for_image(name):
+    model = None
+    if pipeline == "image":
         api = to_api(ui, info, images=True)
+        # Fibo 2.0 edits with up to 16 references, of which a saved workflow wires one.
+        _grow_references(api, info)
         fields = find_image_fields(api, info)
+        model = image_model(api)
     else:
         api = to_api(ui, info)
         if not is_for_shorts(name):
@@ -656,8 +710,9 @@ def _prepare(name, ui, info, folder):
         fields = find_fields(api, info, needs_audio=is_for_shorts(name))
     stem = os.path.join(folder, _file_stem(name))
     _write_json(stem + ".json", api)
-    _write_json(stem + ".map.json", {"_saved_as": name, **{field: f"{node_id}.{input_name}" for field, (node_id, input_name) in fields.items()}})
-    return stem + ".json", image_takes(fields) if is_for_image(name) else takes(fields)
+    _write_json(stem + ".map.json", {"_saved_as": name, "_pipeline": pipeline, **({"_model": model} if model else {}),
+                                     **{field: value if field.startswith("_") else f"{value[0]}.{value[1]}" for field, value in fields.items()}})
+    return stem + ".json", image_takes(fields, model) if pipeline == "image" else takes(fields)
 
 
 def _from_comfyui(url, folder):
@@ -667,14 +722,15 @@ def _from_comfyui(url, folder):
     os.makedirs(folder, exist_ok=True)
     found = []
     for name in sorted(n for n in names if n.lower().endswith(".json")):
-        entry = {"name": name, "label": _label(name)}
+        entry = {"name": name, "label": _label(name), "pipeline": pipeline_of(name)}
         try:
             response = requests.get(f"{url}/api/userdata/{quote('workflows/' + name, safe='')}", timeout=10)
             response.raise_for_status()
             ui = response.json()
             if "nodes" not in ui:
                 raise Unusable("It's in API format, which has no way to tell which inputs to fill. Save it from the editor.")
-            entry["path"], entry["takes"] = _prepare(name, ui, info, folder)
+            entry["pipeline"] = pipeline_of(name, ui)
+            entry["path"], entry["takes"] = _prepare(name, ui, info, folder, entry["pipeline"])
         except Unusable as e:
             entry["problem"] = str(e)
         except (KeyError, IndexError, TypeError, AttributeError, ValueError, requests.RequestException) as e:
@@ -710,8 +766,10 @@ def _from_earlier(folder):
                 name = fields["_saved_as"]
             except (OSError, ValueError, KeyError):
                 continue
+            pipeline = fields.get("_pipeline") or pipeline_of(name)
             if os.path.exists(path) and ("audio" in fields or not is_for_shorts(name)):
-                found.append({"name": name, "label": _label(name), "path": path, "takes": image_takes(fields) if is_for_image(name) else takes(fields)})
+                found.append({"name": name, "label": _label(name), "pipeline": pipeline, "path": path,
+                              "takes": image_takes(fields, fields.get("_model")) if pipeline == "image" else takes(fields)})
     return found
 
 

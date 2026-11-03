@@ -16,13 +16,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fakes import OBJECT_INFO, close, edit_image_workflow, fake_claude, fake_comfy, text_to_image_workflow, versions_reply
+from fakes import (OBJECT_INFO, caption, captions_reply, close, edit_image_workflow, fake_claude, fake_comfy, fibo2_workflow,
+                   text_to_image_workflow, versions_reply)
 
 from PIL import Image
 
 from panel import app as _all_pipelines  # noqa: F401
 from panel import server as webapp
-from pipelines.image import media, paths, planner
+from pipelines.image import fibo2_prompt, media, models, paths, planner
 from pipelines.image.run_eta import RunEta
 from pipelines.image.run_state import RunState, list_runs
 from pipelines.video import paths as video_paths
@@ -75,6 +76,11 @@ class SizeTest(unittest.TestCase):
         self.assertEqual(media.pick_size(None, media.FROM_IMAGE, media.FROM_IMAGE, source), (800, 1200), "its own resolution")
         self.assertEqual(media.pick_size(None, media.FROM_IMAGE, "1", source), (832, 1248), "its shape")
         self.assertEqual(media.pick_size(None, "1:1", media.FROM_IMAGE, source), (976, 976), "its pixel count")
+
+    def test_the_same_as_the_image_stays_within_what_the_model_makes(self):
+        width, height = media.pick_size(None, media.FROM_IMAGE, media.FROM_IMAGE, (3000, 2000), most_megapixels=1.1)
+        self.assertLessEqual(width * height, 1.1 * media.PIXELS_PER_MEGAPIXEL * 1.01)
+        self.assertAlmostEqual(width / height, 1.5, delta=0.02, msg="in its shape")
 
     def test_nothing_to_match_means_a_square_megapixel(self):
         self.assertEqual(media.pick_size(None, media.FROM_IMAGE, media.FROM_IMAGE), (1024, 1024))
@@ -167,6 +173,60 @@ class PlannerTest(unittest.TestCase):
         self.assertIn("Picture 2", planner._instructions("x", 2, 2))
 
 
+class ModelLimitTest(unittest.TestCase):
+    def test_fibo2_stays_near_the_megapixel_it_was_trained_at(self):
+        self.assertIsNone(models.size_problem(models.FIBO2, 1024, 1024))
+        self.assertIsNone(models.size_problem(models.FIBO2, 1248, 832), "Bria's own 3:2")
+        self.assertIn("1.1 megapixels", models.size_problem(models.FIBO2, 1920, 1080))
+        self.assertIsNotNone(models.size_problem(models.FIBO2, 1272, 2772), "nor a phone")
+
+    def test_krea2_goes_up_to_2k(self):
+        self.assertIsNone(models.size_problem(models.KREA2, 2048, 2048))
+        self.assertIsNone(models.size_problem(models.KREA2, 2560, 1440))
+        self.assertIn("4.2 megapixels", models.size_problem(models.KREA2, 3840, 2160))
+
+    def test_a_model_with_no_limit_has_none(self):
+        self.assertIsNone(models.size_problem(models.QWEN_IMAGE_EDIT, 3840, 2160))
+        self.assertIsNone(models.size_problem(None, 3840, 2160))
+
+    def test_the_llm_writes_so_many_fibo2_captions(self):
+        self.assertIsNone(models.count_problem(models.FIBO2, 30, False))
+        self.assertIn("at most 30", models.count_problem(models.FIBO2, 31, False))
+        self.assertIsNone(models.count_problem(models.FIBO2, 100, True), "your own prompt needs no writing")
+        self.assertIsNone(models.count_problem(models.KREA2, 100, False))
+
+
+class Fibo2PromptTest(unittest.TestCase):
+    def test_a_caption_goes_in_compact(self):
+        self.assertEqual(fibo2_prompt.tidy('```json\n{"short_description": "x", "edit_instruction": "Change it."}\n```', True),
+                         '{"short_description":"x","edit_instruction":"Change it."}')
+
+    def test_what_isnt_the_caption_asked_for_is_refused(self):
+        self.assertIsNone(fibo2_prompt.tidy("Change her coat to red.", True), "prose")
+        self.assertIsNone(fibo2_prompt.tidy('{"short_description": "x"}', True), "an edit with no instruction")
+        self.assertIsNone(fibo2_prompt.tidy('{"objects": []}', False), "no description")
+        self.assertIsNone(fibo2_prompt.tidy('["x"]', False))
+
+    def test_an_image_from_text_has_nothing_to_edit(self):
+        self.assertEqual(fibo2_prompt.tidy('{"short_description": "x", "edit_instruction": "Add it."}', False), '{"short_description":"x"}')
+
+    def test_the_llm_is_told_to_write_captions(self):
+        edit = planner._instructions("different outfits", 15, 1, models.FIBO2)
+        self.assertIn("ONE JSON object", edit)
+        self.assertIn("edit_instruction", edit)
+        self.assertIn('Never write "keep X unchanged"', edit, "which made Fibo 2.0 redraw everything in Bria's tests")
+        self.assertIn("<image_2>", planner._instructions("x", 2, 2, models.FIBO2))
+        self.assertNotIn("edit_instruction: also required", planner._instructions("a lighthouse", 3, 0, models.FIBO2))
+
+    def test_prose_is_asked_for_again(self):
+        prose = json.dumps({"title": "Set", "versions": [{"title": "One", "prompt": "Change her coat to red."}]})
+        good = json.dumps({"title": "Set", "versions": [{"title": "One", "prompt": caption(1)}]})
+        with mock.patch.object(planner.llm, "_ask", side_effect=[prose, good]) as call:
+            _, versions = planner.write_prompts([b"image"], "a red coat", 1, "gemini", models.FIBO2)
+        self.assertEqual(call.call_count, 2)
+        self.assertEqual(json.loads(versions[0]["prompt"])["edit_instruction"], "Change her outfit to look number 1.")
+
+
 class EtaTest(unittest.TestCase):
     def test_each_workflow_learns_its_own_time(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -194,7 +254,7 @@ class PanelTest(unittest.TestCase):
             "COMFYUI_URL": self.comfy.url, "ANTHROPIC_BASE_URL": self.claude.url, "ANTHROPIC_API_KEY": "test"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.comfy.saved = {"image_text.json": text_to_image_workflow(), "image_edit.json": edit_image_workflow()}
+        self.comfy.saved = {"image_text.json": text_to_image_workflow(), "image_edit.json": edit_image_workflow(), "Fibo2_test.json": fibo2_workflow()}
         self.comfy.object_info = OBJECT_INFO
         webapp._comfyui_cache["at"] = 0.0
         webapp._runs_cache["at"] = 0.0
@@ -505,12 +565,79 @@ class PanelTest(unittest.TestCase):
         listed = self.client.get("/api/workflows?pipeline=image").get_json()["workflows"]
         self.assertEqual(listed, [
             {"name": "image_edit.json", "label": "image_edit", "problem": "Needs gone.safetensors, which isn't installed."},
-            {"name": "image_text.json", "label": "image_text", "takes": {"min_images": 0, "max_images": 0, "size": True}}])
+            {"name": "image_text.json", "label": "image_text", "takes": {"min_images": 0, "max_images": 0, "size": True, "model": None}}])
         self.assertEqual(self.client.get("/api/workflows?pipeline=video").get_json()["workflows"], [], "they don't turn up among the films")
         reply = self.generate(image=True)
         self.assertEqual(reply.status_code, 400)
         self.assertIn("gone.safetensors", reply.get_json()["error"], "Automatic says why it has nothing to edit with")
         self.assertEqual(self.generate(workflow="image_edit.json", image=True).status_code, 400)
+
+    # --- Fibo 2.0 ---
+
+    def fibo(self, **fields):
+        return self.generate(workflow="Fibo2_test.json", **fields)
+
+    def test_fibo2_is_listed_for_images_without_image_in_its_name(self):
+        listed = {w["name"]: w.get("takes") for w in self.client.get("/api/workflows?pipeline=image").get_json()["workflows"]}
+        self.assertEqual(listed["Fibo2_test.json"], {"min_images": 0, "max_images": 16, "size": True, "model": "fibo2"})
+        self.assertNotIn("Fibo2_test.json", [w["name"] for w in self.client.get("/api/workflows?pipeline=video").get_json()["workflows"]])
+
+    def test_automatic_keeps_to_what_was_made_for_it(self):
+        self.make(prompt_mode="direct", count="1", llm=None)
+        self.assertEqual(os.path.basename(self.only_run().workflow), "image_text.json", "text alone goes to the one that takes no image")
+        self.clear_everything()
+        self.make(image=True, prompt_mode="direct", count="1", llm=None)
+        self.assertEqual(os.path.basename(self.only_run().workflow), "image_edit.json", "an image to the one that needs one")
+
+    def test_automatic_uses_fibo2_when_nothing_else_fits(self):
+        form = {"prompt": "x", "prompt_mode": "direct", "count": "1", "aspect": "1:1", "megapixels": "1",
+                "image": (io.BytesIO(png_bytes()), "a.png"), "image_2": (io.BytesIO(png_bytes(color=(1, 2, 3))), "b.png")}
+        self.assertTrue(self.client.post("/generate/image", data=form, content_type="multipart/form-data").get_json()["ok"])
+        self.wait_idle()
+        run = self.only_run()
+        self.assertEqual((os.path.basename(run.workflow), run.image_count), ("Fibo2_test.json", 2), "two images: only Fibo 2.0 takes them")
+        encoder = self.inputs(self.comfy.prompts[0], "TextEncodeFibo2")
+        self.assertEqual(sum(name.startswith("images.") for name in encoder), 2, "the boxes left empty came out")
+
+    def test_fibo2_refuses_what_it_doesnt_make_well(self):
+        for fields in ({"aspect": "1920x1080"}, {"aspect": "1:1", "megapixels": "2"}, {"aspect": "custom", "size": "1272x2772"}):
+            reply = self.fibo(prompt_mode="direct", llm=None, **fields)
+            self.assertEqual(reply.status_code, 400, fields)
+            self.assertIn("Fibo 2.0 makes images up to 1.1 megapixels", reply.get_json()["error"])
+        reply = self.fibo(count="31")
+        self.assertEqual(reply.status_code, 400)
+        self.assertIn("at most 30", reply.get_json()["error"])
+        self.assertEqual(self.claude.requests, [], "refused before anything is paid for")
+        self.assertIn("1.1 megapixels", self.client.post("/api/estimate/image", data={"workflow": "Fibo2_test.json", "aspect": "3840x2160"}).get_json()["error"],
+                      "and the form hears it before Generate")
+
+    def test_fibo2_matching_a_big_image_stays_within_its_megapixel(self):
+        form = {"prompt": "x", "prompt_mode": "direct", "count": "1", "workflow": "Fibo2_test.json", "aspect": "image", "megapixels": "image",
+                "image": (io.BytesIO(png_bytes(size=(2400, 1600))), "big.png")}
+        self.assertTrue(self.client.post("/generate/image", data=form, content_type="multipart/form-data").get_json()["ok"])
+        self.wait_idle()
+        run = self.only_run()
+        self.assertLessEqual(run.width * run.height, 1.1 * media.PIXELS_PER_MEGAPIXEL)
+
+    def test_fibo2_gets_the_llms_json_captions(self):
+        self.claude.reply = captions_reply(edit=False)
+        self.make(workflow="Fibo2_test.json")
+        run = self.only_run()
+        self.assertTrue(run.finished, [l["text"] for l in webapp.job.lines][-15:])
+        sent = [self.inputs(p, "TextEncodeFibo2")["prompt"] for p in self.comfy.prompts]
+        self.assertEqual([json.loads(prompt)["short_description"] for prompt in sent], [f"A woman in look number {n}." for n in (1, 2, 3)])
+        self.assertTrue(all("edit_instruction" not in json.loads(prompt) for prompt in sent), "an image from text has nothing to edit")
+        self.assertIn("ONE JSON object", self.claude.requests[0]["body"]["messages"][0]["content"][-1]["text"])
+        encoder = self.inputs(self.comfy.prompts[0], "TextEncodeFibo2")
+        self.assertEqual((encoder["width"], encoder["height"]), (1024, 1024), "the size goes to the encoder, which makes the latent")
+        self.assertFalse(any(name.startswith("images.") for name in encoder), "and with no image, none of its inputs are left")
+
+    def test_fibo2_edits_with_an_instruction(self):
+        self.claude.reply = captions_reply()
+        self.make(image=True, workflow="Fibo2_test.json", aspect="image", megapixels="1")
+        prompt = json.loads(self.inputs(self.comfy.prompts[0], "TextEncodeFibo2")["prompt"])
+        self.assertEqual(prompt["edit_instruction"], "Change her outfit to look number 1.")
+        self.assertIn("images.image_1", self.inputs(self.comfy.prompts[0], "TextEncodeFibo2"))
 
     def test_the_estimate_starts_nothing_and_follows_the_options(self):
         one = self.client.post("/api/estimate/image", data={"count": "1", "image_count": "0"}).get_json()

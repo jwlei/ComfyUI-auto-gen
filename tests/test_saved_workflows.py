@@ -6,11 +6,12 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fakes import (OBJECT_INFO, edit_image_workflow, h3_workflow, reference_workflow, saved_workflow, text_only_workflow,
+from fakes import (OBJECT_INFO, edit_image_workflow, fibo2_workflow, h3_workflow, reference_workflow, saved_workflow, text_only_workflow,
                    text_to_image_workflow)
 
-from core.saved_workflows import (Unusable, _from_comfyui, _grow_references, _from_earlier, find_fields, find_image_fields, frames_for, image_takes,
-                                  is_for_image, is_for_shorts, pipeline_of, takes, to_api)
+from core import saved_workflows
+from core.saved_workflows import (Unusable, _from_comfyui, _grow_references, _from_earlier, _prepare, find_fields, find_image_fields, frames_for,
+                                  image_model, image_takes, is_for_image, is_for_shorts, pipeline_of, takes, to_api)
 
 
 def node_of(ui, node_id):
@@ -29,6 +30,12 @@ class WhichPipelineTest(unittest.TestCase):
         self.assertEqual(pipeline_of("video_image_to_video.json"), "video")
         self.assertEqual(pipeline_of("image_x_ytautoshort.json"), "shorts", "tuned for Shorts is tuned for Shorts")
         self.assertFalse(is_for_image("my_image_edit.json"))
+
+    def test_one_that_saves_images_is_for_image_whatever_its_name(self):
+        self.assertEqual(pipeline_of("Fibo2_turbo_edit_test.json", fibo2_workflow()), "image")
+        self.assertEqual(pipeline_of("Fibo2_turbo_edit_test.json"), "video", "by name alone it would be a film")
+        self.assertEqual(pipeline_of("film.json", saved_workflow()), "video", "it saves a video")
+        self.assertEqual(pipeline_of("x_ytautoshort.json", fibo2_workflow()), "shorts")
 
     def test_shorts_needs_load_audio_and_video_does_not(self):
         import json
@@ -127,7 +134,7 @@ class ImageWorkflowTest(unittest.TestCase):
         fields = find_image_fields(api, OBJECT_INFO)
         self.assertEqual(api[fields["prompt"][0]]["inputs"][fields["prompt"][1]], "saved prompt")
         self.assertEqual(api[fields["width"][0]]["class_type"], "EmptyLatentImage")
-        self.assertEqual(image_takes(fields), {"min_images": 0, "max_images": 0, "size": True})
+        self.assertEqual(image_takes(fields), {"min_images": 0, "max_images": 0, "size": True, "model": None})
         self.assertNotIn("SaveImage", kinds, "it would write to ComfyUI's output folder")
         self.assertIn("PreviewImage", kinds)
 
@@ -141,12 +148,29 @@ class ImageWorkflowTest(unittest.TestCase):
         api = to_api(edit_image_workflow(), OBJECT_INFO, images=True)
         fields = find_image_fields(api, OBJECT_INFO)
         self.assertEqual(api[fields["prompt"][0]]["inputs"]["prompt"], "saved instruction", "the positive one, not the negative")
-        self.assertEqual(image_takes(fields), {"min_images": 1, "max_images": 1, "size": True}, "its size follows the image, which it can't run without")
+        self.assertEqual(image_takes(fields, image_model(api)), {"min_images": 1, "max_images": 1, "size": True, "model": "qwen_image_edit"},
+                         "its size follows the image, which it can't run without")
         self.assertNotIn("FluxKontextImageScale", [node["class_type"] for node in api.values()], "or the size asked for would be snapped away")
         encoders = [node for node in api.values() if node["class_type"] == "TextEncodeQwenImageEditPlus"]
         self.assertTrue(all(node["inputs"]["image1"] == [fields["image"][0], 0] for node in encoders))
         self.assertTrue(all("image2" not in node["inputs"] for node in encoders), "the input nothing is plugged into is left out")
         self.assertIsInstance(next(node for node in api.values() if node["class_type"] == "KSampler")["inputs"]["seed"], int)
+
+    def test_fibo2_edits_up_to_sixteen_or_none(self):
+        api = to_api(fibo2_workflow(), OBJECT_INFO, images=True)
+        _grow_references(api, OBJECT_INFO)
+        fields = find_image_fields(api, OBJECT_INFO)
+        self.assertEqual(image_takes(fields, image_model(api)), {"min_images": 0, "max_images": 16, "size": True, "model": "fibo2"},
+                         "a required list that can hold none, and the node's own 16 names, not twenty")
+        encoder = next(node for node in api.values() if node["class_type"] == "TextEncodeFibo2")
+        self.assertEqual(sorted(name for name in encoder["inputs"] if name.startswith("images.")), sorted(f"images.image_{n}" for n in range(1, 17)))
+        self.assertEqual((fields["prompt"], fields["width"]), (["4", "prompt"], ["4", "width"]), "its prompt and size are on the encoder")
+        self.assertEqual(fields["image_link"], ["4", "images.image_1"], "the bypassed image comes out when it's left empty")
+
+    def test_the_text_encoder_says_which_model(self):
+        api = {"1": {"class_type": "CLIPLoader", "inputs": {"type": "krea2"}, "_meta": {"title": "x"}}}
+        self.assertEqual(image_model(api), "krea2")
+        self.assertIsNone(image_model({"1": {"class_type": "CLIPLoader", "inputs": {"type": "sd3"}, "_meta": {"title": "x"}}}))
 
     def test_what_wont_run_says_why(self):
         with self.assertRaisesRegex(Unusable, "Save Image"):
@@ -155,6 +179,20 @@ class ImageWorkflowTest(unittest.TestCase):
         missing["definitions"]["subgraphs"][0]["nodes"][0]["widgets_values"] = ["gone.safetensors"]
         with self.assertRaisesRegex(Unusable, "gone.safetensors"):
             to_api(missing, OBJECT_INFO, images=True)
+
+
+class PrepareTest(unittest.TestCase):
+    def test_a_reference_limit_is_written_into_the_map(self):
+        """MiniMax H3's limit is a number among the map's inputs, which once made listing it fail."""
+        import json
+        import tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as folder, mock.patch.dict(saved_workflows.REFERENCE_FILE_LIMITS, {"ReferenceToVideo": 12}):
+            path, found = _prepare("r2v.json", reference_workflow(), OBJECT_INFO, folder, "video")
+            with open(path[:-len(".json")] + ".map.json", encoding="utf-8") as f:
+                written = json.load(f)
+        self.assertEqual((written["_most_references"], written["_pipeline"]), (12, "video"))
+        self.assertEqual(found["max_images"], 20)
 
 
 class FieldsTest(unittest.TestCase):
