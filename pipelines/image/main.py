@@ -161,7 +161,7 @@ def render_image(state, comfy, shot, images):
     rendered = comfy.render_size(state.width, state.height)
     for attempt in range(1, IMAGE_ATTEMPTS + 1):
         seed = seeds.pick(shot.get("seed"), attempt)
-        print(f"      🎲 Seed {seed}")
+        print(f"      🌱 Seed {seed}")
         try:
             path = comfy.render_image(shot["prompt"], images, *rendered, save_as, seed)
         except (RuntimeError, OSError, ValueError) as e:

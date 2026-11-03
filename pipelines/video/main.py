@@ -282,7 +282,7 @@ def render_shot(state, comfy, index, images, audio=None, references=((), ())):
     save_as = os.path.join(state.clips_dir, f"shot_{index + 1:03d}")
     for attempt in range(1, CLIP_ATTEMPTS + 1):
         seed = seeds.pick(shot.get("seed"), attempt)
-        print(f"      🎲 Seed {seed}")
+        print(f"      🌱 Seed {seed}")
         try:
             clip = comfy.render(shot["prompt"], images, shot["seconds"], state.width, state.height, save_as, audio, *references, seed=seed)
         except (RuntimeError, OSError, ValueError) as e:

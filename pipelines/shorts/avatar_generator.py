@@ -504,7 +504,7 @@ class AvatarGenerator:
         # A random seed when none is chosen: ComfyUI would otherwise return its cached result.
         seed = seeds.pick(seed)
         if seeds.apply(workflow, seed):
-            print(f"      🎲 Seed {seed}")
+            print(f"      🌱 Seed {seed}")
         for node in workflow.values():
             # Keeps our clips out of ComfyUI's output folder: they go to its temp
             # folder, which it clears itself, and are downloaded from there below.

@@ -208,7 +208,7 @@ python -m pipelines.shorts.main --voice en-gb-storyteller-2 --output daily_short
 | `--check` | Run preflight checks (ffmpeg, API keys, avatar) and exit. |
 | `--upload` | Upload each finished video to YouTube (see below). |
 | `--privacy` | `private` (default), `unlisted`, or `public` for uploads. |
-| `--seed N` | The first avatar clip's seed, and the next number for each clip after it. Default: a random seed for every clip. The panel has it under Avatar, with 🎲 to pick one; the log shows each clip's. |
+| `--seed N` | The first avatar clip's seed, and the next number for each clip after it. Default: a random seed for every clip. The panel has it under Avatar, with a shuffle button to pick one; the log shows each clip's. |
 | `--avatar-clips` | `auto` (default: hook + 3-5 scenes, more where the stock footage fits badly), `3` (hook + two middle scenes), `2` (two middle scenes only) or `0` (no avatar). Overrides `AVATAR_CLIPS`. |
 
 Schedule a daily short with cron:

@@ -55,7 +55,7 @@ a second try, doesn't cost the rest of the set: the run ends as failed with the 
 
 **Let me read the prompts before rendering**, under How, stops once they're written so you can change them.
 
-**Seed**, under Generation, is empty by default: every image gets a new random seed. 🎲 picks one to keep, and
+**Seed**, under Generation, is empty by default: every image gets a new random seed. The shuffle button picks one to keep, and
 ✕ goes back to random. With a seed, image 1 uses it and each image after it the next number, so the set can be made
 again.
 

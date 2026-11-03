@@ -195,6 +195,8 @@
   .seed-line { display: flex; gap: 8px; align-items: center; }
   .seed-line input { flex: 1 1 0; min-width: 0; }
   .seed-line button { flex: none; width: auto; margin: 0; padding: 8px 12px; }
+  /* A click on the icon is a click on its button. */
+  .seed-line .icon { display: block; pointer-events: none; }
   .shot .seed-line { margin: 6px 0; font-size: .85rem; }
   .shot .seed-line label { margin: 0; flex: none; }
   #addImage, #addMedia { width: auto; margin: 8px 0 0; padding: 4px 16px; font-size: 1.1rem; }
@@ -572,7 +574,7 @@
         <label for="shortsSeed">Seed</label>
         <div class="seed-line">
           <input id="shortsSeed" name="seed" inputmode="numeric" autocomplete="off" placeholder="Random" pattern="[0-9]*">
-          <button type="button" class="ghost" data-seed-pick="shortsSeed" title="Pick a random seed to keep" aria-label="Pick a random seed to keep">🎲</button>
+          <button type="button" class="ghost" data-seed-pick="shortsSeed" title="Pick a random seed to keep" aria-label="Pick a random seed to keep"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg></button>
           <button type="button" class="ghost" data-seed-clear="shortsSeed" title="Back to random" aria-label="Back to a random seed every time">✕</button>
         </div>
         <div class="hint">Empty: a new random seed for every avatar clip. A number: avatar clip 1 uses it and each avatar clip after it the next one, so the same clips comes out again.</div>
@@ -681,7 +683,7 @@
     <label for="videoSeed">Seed</label>
     <div class="seed-line">
       <input id="videoSeed" name="seed" inputmode="numeric" autocomplete="off" placeholder="Random" pattern="[0-9]*">
-      <button type="button" class="ghost" data-seed-pick="videoSeed" title="Pick a random seed to keep" aria-label="Pick a random seed to keep">🎲</button>
+      <button type="button" class="ghost" data-seed-pick="videoSeed" title="Pick a random seed to keep" aria-label="Pick a random seed to keep"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg></button>
       <button type="button" class="ghost" data-seed-clear="videoSeed" title="Back to random" aria-label="Back to a random seed every time">✕</button>
     </div>
     <div class="hint">Empty: a new random seed for every clip. A number: clip 1 uses it and each clip after it the next one, so the same film comes out again. Each clip's seed shows under <b>Shots</b>.</div>
@@ -769,7 +771,7 @@
     <label for="imageSeed">Seed</label>
     <div class="seed-line">
       <input id="imageSeed" name="seed" inputmode="numeric" autocomplete="off" placeholder="Random" pattern="[0-9]*">
-      <button type="button" class="ghost" data-seed-pick="imageSeed" title="Pick a random seed to keep" aria-label="Pick a random seed to keep">🎲</button>
+      <button type="button" class="ghost" data-seed-pick="imageSeed" title="Pick a random seed to keep" aria-label="Pick a random seed to keep"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg></button>
       <button type="button" class="ghost" data-seed-clear="imageSeed" title="Back to random" aria-label="Back to a random seed every time">✕</button>
     </div>
     <div class="hint">Empty: a new random seed for every image. A number: image 1 uses it and each image after it the next one, so the same set comes out again. Each image's seed shows when you open the set.</div>
@@ -1578,7 +1580,8 @@ function filmHtml(v) {
 }
 
 
-// --- Seeds: empty is random, 🎲 picks one to keep, ✕ goes back to random ---
+// --- Seeds: empty is random, the shuffle button picks one to keep, ✕ goes back to random ---
+const SHUFFLE_ICON = '<svg class="icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>';
 const MOST_SEED = 4294967295;
 function randomSeed() {
   try { return crypto.getRandomValues(new Uint32Array(1))[0]; } catch (e) { return Math.floor(Math.random() * MOST_SEED); }
@@ -1608,7 +1611,7 @@ function shotSeedHtml(run, shot, i, what) {
     <div class="seed-line">
       <label for="seed_${number}">Seed</label>
       <input id="seed_${number}" data-seed inputmode="numeric" autocomplete="off" value="${shot.seed ?? ''}" placeholder="Random${used == null ? '' : ` · last ${used}`}" aria-label="Seed for ${what} ${number}" ${run.busy ? 'readonly' : ''}>
-      ${run.busy ? '' : `<button type="button" class="ghost" data-seed-roll="1" title="Pick a random seed to keep">🎲</button>${last}`}
+      ${run.busy ? '' : `<button type="button" class="ghost" data-seed-roll="1" title="Pick a random seed to keep" aria-label="Pick a random seed to keep">${SHUFFLE_ICON}</button>${last}`}
     </div>`;
 }
 
