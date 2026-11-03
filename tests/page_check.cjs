@@ -186,9 +186,11 @@ assert.strictEqual(els.etaDetail.hidden, true, 'on track: nothing to explain');
 run(`renderEtaDetail({ changes: [{ text: 'Clip <b>3</b> was slow', seconds: 120 }], original_total: 600, adjusted_total: 720 })`);
 assert(!els.etaDetail.hidden && els.etaDetail.innerHTML.includes('<details') && els.etaDetail.innerHTML.includes('+2 min') && !els.etaDetail.innerHTML.includes('<b>3'));
 
-// Shorts in YouTube red; the phone address is folded under More, at the bottom of Status; no voice hint.
+// Shorts in YouTube red; the phone address is hidden at the bottom of Status until its header is clicked; no voice hint.
 assert(/body\.on-shorts \{ --accent: #ff0033; \}/.test(html));
-assert(/<details class="misc" id="misc">\s*<summary>More<\/summary>\s*<div class="phone">/.test(status0()));
+assert(/<div class="misc" id="misc" hidden>\s*<div class="phone">/.test(status0()));
+assert(!/<summary>More<\/summary>/.test(html), 'no More dropdown');
+assert(/id="statusHead"[^>]*aria-controls="misc"/.test(status0()));
 assert(!html.includes('If both Gemini voice models fail'));
 
 // Times.

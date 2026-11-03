@@ -95,7 +95,11 @@
   .run-sep { border-top: 1px solid var(--line); margin: 14px 0 12px; }
   .phone { font-size: .82rem; color: var(--muted); margin-top: 6px; }
   .finished, .misc { margin-top: 10px; font-size: .85rem; }
-  .finished summary, .misc summary { font-size: .8rem; font-weight: 500; color: var(--muted); }
+  .finished summary { font-size: .8rem; font-weight: 500; color: var(--muted); }
+  .misc[hidden] { display: none; }
+  #statusHead { cursor: pointer; user-select: none; }
+  .status-chevron { display: inline-block; transition: transform .15s; }
+  #statusHead[aria-expanded="true"] .status-chevron { transform: rotate(90deg); }
   .finished .results div { padding: 2px 0; }
   .finished .failed, .finished summary .failed { color: var(--err); }
   .phone code { color: var(--text); background: var(--panel-2); padding: 2px 6px; border-radius: 6px; user-select: all; }
@@ -401,8 +405,8 @@
 
 <div class="dashboard">
 <div class="card run-card" id="runCard">
-  <div class="status-head">
-    <div class="section-title">Status</div>
+  <div class="status-head" id="statusHead" role="button" tabindex="0" aria-expanded="false" aria-controls="misc" title="Show how to open this on your phone">
+    <div class="section-title">Status <span class="status-chevron" aria-hidden="true">▸</span></div>
     <div class="comfy-status" title="Generate starts it when the run needs avatar clips and COMFYUI_LAUNCHER is set in .env."><span class="dot" id="comfyDot"></span><span id="comfyText">ComfyUI: checking…</span></div>
   </div>
   <div class="status-main">
@@ -463,12 +467,11 @@
     <summary id="finishedTitle"></summary>
     <div class="hint results" id="finishedList"></div>
   </details>
-  <details class="misc" id="misc">
-    <summary>More</summary>
+  <div class="misc" id="misc" hidden>
     <div class="phone">📱 Phone (same Wi-Fi): <code>{{ phone_url }}</code></div>
     {% if tailscale_url %}<div class="phone">🌍 Phone (anywhere, with Tailscale on): <code>{{ tailscale_url }}</code></div>{% endif %}
     {% if tailscale_problem %}<div class="phone">🌍 Phone (anywhere): {{ tailscale_problem }}</div>{% endif %}
-  </details>
+  </div>
   </div>
 </div>
 
@@ -1285,6 +1288,19 @@ $('mediaBoxes').addEventListener('click', e => {
 $('addMedia').addEventListener('click', () => {
   mediaShown++;
   syncMediaInput();
+});
+
+// The phone addresses stay out of the way until the Status header is clicked.
+function toggleMisc() {
+  const open = $('misc').hidden;
+  $('misc').hidden = !open;
+  $('statusHead').setAttribute('aria-expanded', String(open));
+}
+$('statusHead').addEventListener('click', toggleMisc);
+$('statusHead').addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  e.preventDefault();
+  toggleMisc();
 });
 
 function clipCount(n) { return `${n} ${n === 1 ? 'clip' : 'clips'}`; }
