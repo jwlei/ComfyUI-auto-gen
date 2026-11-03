@@ -25,6 +25,8 @@ MIN_LENGTH_SHARE = 0.8
 FADE = 0.3
 # Clips' sound doesn't line up where they join, which clicks without a tiny fade.
 SEAM = 0.03
+# How long a reference video or audio clip can be, in seconds: MiniMax H3 takes 2-15 s of either.
+SHORTEST_REFERENCE, LONGEST_REFERENCE = 2, 15
 
 
 def load_image(path):
@@ -47,9 +49,16 @@ def audio_fingerprint(path=None, text=None, voice=None):
     return digest.hexdigest()
 
 
-def inputs_fingerprint(images, image_roles, audio=None):
-    """What identifies a film's inputs, so the same ones can be recognised however they were uploaded."""
+def inputs_fingerprint(images, image_roles, audio=None, references=()):
+    """
+    What identifies a film's inputs, so the same ones can be recognised however they were uploaded.
+    references: (path, role) for each reference video or audio clip, in order.
+    """
     digest = hashlib.sha256(str(audio).encode() if audio else b"")
+    for path, role in references:
+        with open(path, "rb") as f:
+            digest.update(hashlib.sha256(f.read()).digest())
+        digest.update(str(role).encode())
     for image in images:
         digest.update(f"{image.size}{image.mode}".encode())
         digest.update(image.tobytes())
@@ -198,3 +207,47 @@ def with_audio(video_path, audio_path):
 
 def duration(path):
     return _probe(path)[0]
+
+
+def media_kind(path):
+    """"video" for a file with moving pictures, "audio" for sound alone (an album cover doesn't count), or None."""
+    try:
+        streams = ffmpeg.probe(path)["streams"]
+    except (ffmpeg.Error, KeyError, ValueError):
+        return None
+    if any(stream.get("codec_type") == "video" and not stream.get("disposition", {}).get("attached_pic") for stream in streams):
+        return "video"
+    return "audio" if any(stream.get("codec_type") == "audio" for stream in streams) else None
+
+
+def _reference_length(path, what):
+    try:
+        length = _probe(path)[0]
+    except (ffmpeg.Error, KeyError, ValueError):
+        raise RuntimeError(f"That {what} can't be read.")
+    if length < SHORTEST_REFERENCE:
+        raise RuntimeError(f"A reference {what} has to be at least {SHORTEST_REFERENCE} seconds long, and this one is {length:.1f}s.")
+    return min(length, LONGEST_REFERENCE)
+
+
+def reference_video(path, output):
+    """
+    A reference video as the clips get it: 24 fps, the frame rate H3 reads references at, and its first
+    15 seconds at most. Returns whether it has sound of its own, which H3 takes as a reference too.
+    """
+    length = _reference_length(path, "video")
+    has_sound = "audio" in _probe(path)[1]
+    os.makedirs(os.path.dirname(output), exist_ok=True)
+    source = ffmpeg.input(path, t=length)
+    streams = [source.video.filter("fps", fps=FPS)] + ([source.audio] if has_sound else [])
+    ffmpeg.output(*streams, output, vcodec="libx264", crf=18, preset="medium", pix_fmt="yuv420p",
+                  **({"acodec": "aac", "audio_bitrate": "192k"} if has_sound else {})).run(overwrite_output=True, quiet=True)
+    return has_sound
+
+
+def reference_audio(path, output):
+    """A reference audio clip as the clips get it: its first 15 seconds at most, as WAV."""
+    length = _reference_length(path, "audio clip")
+    os.makedirs(os.path.dirname(output), exist_ok=True)
+    ffmpeg.input(path, t=length).output(output, vn=None, ac=2, ar=48000).run(overwrite_output=True, quiet=True)
+    return output

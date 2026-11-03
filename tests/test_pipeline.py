@@ -20,7 +20,7 @@ from fakes import close, fake_claude, fake_comfy, make_clip, plan_reply
 import ffmpeg
 from PIL import Image
 
-from pipelines.video import comfy, h3_prompt, main, media, paths, planner, run_state, wan_prompt
+from pipelines.video import comfy, h3_prompt, main, media, paths, planner, roles, run_state, wan_prompt
 from pipelines.video.run_eta import RunEta
 
 SHOTS = [("Opening", 2), ("Middle", 2), ("Ending", 2)]
@@ -256,6 +256,24 @@ class PartsTest(unittest.TestCase):
         r, g, b = pixel(media.last_frame(joined, os.path.join(self.temp, "last.png")))
         self.assertGreater(b, r)
 
+    def test_references_are_cut_to_what_h3_takes(self):
+        clip, quiet, short = (os.path.join(self.temp, name) for name in ("clip.mp4", "quiet.mp4", "short.mp4"))
+        make_clip(clip, 17)
+        make_clip(quiet, 3, audio=False)
+        make_clip(short, 1)
+        self.assertEqual(media.media_kind(clip), "video")
+        video = os.path.join(self.temp, "ref", "ref_video_1.mp4")
+        self.assertTrue(media.reference_video(clip, video), "it has sound of its own")
+        self.assertAlmostEqual(media.duration(video), 15, delta=0.2)
+        self.assertEqual(ffmpeg.probe(video)["streams"][0]["r_frame_rate"], "24/1")
+        self.assertFalse(media.reference_video(quiet, os.path.join(self.temp, "ref", "quiet.mp4")))
+        audio = media.reference_audio(clip, os.path.join(self.temp, "ref", "ref_audio_1.wav"))
+        self.assertEqual(media.media_kind(audio), "audio")
+        self.assertAlmostEqual(media.duration(audio), 15, delta=0.2)
+        with self.assertRaises(RuntimeError):
+            media.reference_video(short, os.path.join(self.temp, "ref", "short.mp4"))
+        self.assertIsNone(media.media_kind(os.path.join(self.temp, "nothing.mp4")))
+
     def test_sideways_phone_photo_is_stood_up(self):
         path = os.path.join(self.temp, "phone.jpg")
         exif = Image.Exif()
@@ -312,6 +330,27 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(planner.shot_count(5), 1)
         self.assertEqual(planner.shot_count(600), 75)
 
+    def test_each_video_model_has_its_own_clip_lengths(self):
+        self.assertEqual(planner.clip_seconds(None)[:2], (5, 10), "LTX")
+        self.assertEqual(planner.clip_seconds(h3_prompt.MODEL)[:2], (5, 15), "H3 was trained on 124-362 frames at 24 fps")
+        self.assertEqual(planner.clip_seconds(wan_prompt.MODEL)[:2], (3, 5), "Wan 2.2 was trained on 81 frames at 16 fps")
+        for model in (None, h3_prompt.MODEL, wan_prompt.MODEL):
+            shortest, longest, _ = planner.clip_seconds(model)
+            for seconds in range(planner.MIN_FILM_SECONDS, planner.MAX_FILM_SECONDS + 1):
+                count = planner.shot_count(seconds, model)
+                self.assertTrue(count * shortest <= seconds <= count * longest, (model, seconds))
+        self.assertEqual(planner.shot_count(15, h3_prompt.MODEL), 1, "one H3 clip holds 15 seconds")
+        self.assertEqual(planner.fit_durations([15, 15], 30, h3_prompt.MODEL), [15, 15])
+        self.assertEqual(planner.fit_durations([15, 15], 30), [10, 10], "past what LTX makes, then short of the film")
+        self.assertIn("a whole number from 5 to 15", planner._instructions("x", 60, "image", 1, h3_prompt.MODEL))
+        self.assertIn("a whole number from 3 to 5", planner._instructions("x", 60, "chain", 1, wan_prompt.MODEL))
+
+    def test_an_h3_plan_can_have_fifteen_second_clips(self):
+        shots = [{"title": f"S{i}", "seconds": 15, "prompt": self.h3_prompt_text()} for i in range(4)]
+        with mock.patch.object(planner, "_ask", return_value=self.reply(shots)):
+            _, planned = planner.plan_film(b"jpeg", "brief", 60, "image", "gemini", h3_prompt.MODEL)
+        self.assertEqual([shot["seconds"] for shot in planned], [15] * 4)
+
     def test_a_ten_minute_plan_fits(self):
         shots = [{"title": f"S{i}", "seconds": 8, "prompt": f"p{i}"} for i in range(75)]
         with mock.patch.object(planner, "_ask", return_value=self.reply(shots)):
@@ -364,7 +403,7 @@ class PlanTest(unittest.TestCase):
     def test_h3_gets_its_own_instructions(self):
         two = planner._instructions("a storm rolls in", 60, "image", 2, h3_prompt.MODEL)
         self.assertIn("a storm rolls in", two)
-        for needed in ("subject_definitions:", "retention_analysis:", "<Picture 1> and <Picture 2>", "exactly 8 shots in order",
+        for needed in ("subject_definitions:", "retention_analysis:", "<Picture 1> and <Picture 2>", "exactly 5 shots in order",
                        "6 = 6.58 s", "350-500 words"):
             self.assertIn(needed, two)
         self.assertNotIn("LTX", two)
@@ -382,7 +421,7 @@ class PlanTest(unittest.TestCase):
 
     def test_a_long_h3_film_still_fits_in_one_reply(self):
         self.assertIn("350-500 words", planner._instructions("x", 60, "image", 1, h3_prompt.MODEL))
-        self.assertIn("140-200 words", planner._instructions("x", 600, "image", 1, h3_prompt.MODEL))
+        self.assertIn("280-400 words", planner._instructions("x", 600, "image", 1, h3_prompt.MODEL), "50 clips of 12 s")
         low, high = h3_prompt._detail_words(75)
         self.assertLessEqual(75 * (high + h3_prompt.SECTION_WORDS), h3_prompt.FILM_WORDS)
 
@@ -448,6 +487,64 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(h3_prompt.tidy(["A woman walks."], 1), ["A woman walks."], "asked for again, not patched")
         self.assertEqual(h3_prompt.tidy(["Text only."], 0), ["Text only."])
 
+    # --- H3's reference videos and audio clips ---
+
+    def test_references_are_labelled_as_h3_numbers_them(self):
+        found = roles.references([(roles.MOTION, True), (roles.CHARACTER, False)], [roles.VOICE])
+        self.assertEqual([(r.label, r.sound) for r in found], [("<Video 1>", "<Audio 1>"), ("<Video 2>", None), ("<Audio 2>", None)],
+                         "a video's own sound is labelled before any audio clip")
+        self.assertEqual(roles.labels(found), ["<Video 1>", "<Audio 1>", "<Video 2>", "<Audio 2>"])
+
+    def test_h3_is_told_what_each_reference_is_for(self):
+        found = roles.references([(roles.MOTION, False)], [roles.MUSIC])
+        guide = planner._instructions("x", 60, "image", 1, h3_prompt.MODEL, references=found)
+        self.assertIn("<Video 1> shows the movement and camera to follow", guide)
+        self.assertIn("<Audio 1> is the film's music", guide)
+        self.assertIn("can't watch or hear", guide)
+        self.assertNotIn("<Video 1>", planner._instructions("x", 60, "image", 1, h3_prompt.MODEL))
+
+    def test_an_h3_prompt_has_to_name_every_reference(self):
+        found = roles.references([(roles.CHARACTER, True)], [roles.VOICE])
+        text = self.h3_prompt_text()
+        self.assertIn("<Video 1>", h3_prompt.problem(text, 1, found))
+        tidied = h3_prompt.tidy([text], 1, (), found)[0]
+        self.assertIsNone(h3_prompt.problem(tidied, 1, found))
+        self.assertIn("Another character comes from <Video 1>.", tidied.split("summary:")[0], "where H3 reads who is in it")
+        self.assertIn("<Subject 1> speaks with the voice in <Audio 2>.", tidied)
+        self.assertEqual(h3_prompt.tidy(["Video 1 and Audio 1."], 0, (), found)[0].split(" ")[:3], ["<Video", "1>", "and"],
+                         "dropped brackets are put back")
+
+    def test_empty_reference_slots_come_out_of_the_workflow(self):
+        workflow = {"1": {"inputs": {"prompt": "x", "ref_videos.ref_video_0": ["3", 0], "ref_video_audios.ref_video_audio_0": ["3", 1],
+                                     "ref_videos.ref_video_1": ["5", 0], "ref_audios.ref_audio_0": ["6", 0]},
+                          "class_type": h3_prompt.REFERENCE_NODE},
+                    "2": {"inputs": {"file": ""}, "class_type": "LoadVideo"},
+                    "3": {"inputs": {"video": ["2", 0]}, "class_type": "GetVideoComponents"},
+                    "4": {"inputs": {"file": ""}, "class_type": "LoadVideo"},
+                    "5": {"inputs": {"video": ["4", 0]}, "class_type": "GetVideoComponents"},
+                    "6": {"inputs": {"audio": ""}, "class_type": "LoadAudio"}}
+        fields = {"prompt": "1.prompt", "_most_references": 12,
+                  "ref_video": "2.file", "ref_video_link": "1.ref_videos.ref_video_0", "ref_video_split": "3.video",
+                  "ref_video_sound": "1.ref_video_audios.ref_video_audio_0",
+                  "ref_video_2": "4.file", "ref_video_2_link": "1.ref_videos.ref_video_1", "ref_video_2_split": "5.video",
+                  "ref_audio": "6.audio", "ref_audio_link": "1.ref_audios.ref_audio_0"}
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "workflow.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(workflow, f)
+            with open(os.path.join(folder, "workflow.map.json"), "w", encoding="utf-8") as f:
+                json.dump(fields, f)
+            with mock.patch.dict(os.environ, {"COMFYUI_WORKFLOW": path}):
+                client = comfy.ComfyClient()
+            self.assertEqual(comfy.workflow_model(path), h3_prompt.MODEL)
+        self.assertEqual(client.takes(), {"min_images": 0, "max_images": 0, "max_videos": 2, "max_audios": 1, "max_references": 3})
+        filled = json.loads(json.dumps(workflow))
+        client._fill_media(filled, "video", ["mine.mp4"])
+        client._fill_media(filled, "audio", [])
+        self.assertEqual(filled["2"]["inputs"]["file"], "mine.mp4")
+        self.assertEqual(sorted(filled), ["1", "2", "3"], "the second video's and the audio's nodes are gone")
+        self.assertEqual(sorted(filled["1"]["inputs"]), ["prompt", "ref_video_audios.ref_video_audio_0", "ref_videos.ref_video_0"])
+
     def test_a_workflows_nodes_say_whose_prompts_it_gets(self):
         self.assertIsNone(comfy.ComfyClient().video_model(), "the built-in workflow")
 
@@ -472,7 +569,7 @@ class PlanTest(unittest.TestCase):
         one = planner._instructions("a storm rolls in", 60, "chain", 1, wan_prompt.MODEL)
         self.assertIn("a storm rolls in", one)
         self.assertIn("from Wan", one)
-        self.assertIn("exactly 8 shots in order", one)
+        self.assertIn("exactly 12 shots in order", one, "Wan makes 5 s at most")
         self.assertIn("how things move", one)
         self.assertIn("exact last frame", one, "a continuous take works here")
         self.assertIn("Wan makes no sound", one)
@@ -596,12 +693,31 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(call.call_args.args[4], [b"one", b"two"])
         self.assertIn("for you alone", call.call_args.args[1])
 
+    def test_reference_videos_and_audio_clips(self):
+        args = main.parse_args(["a.png", "--ref-video", "walk.mp4", "--ref-video", "room.mp4", "--ref-video-role", "character",
+                                "--ref-audio", "voice.wav", "--ref-audio-role", "voice", "a prompt"])
+        videos, audios = main.reference_roles(args)
+        self.assertEqual(videos, [("walk.mp4", "character"), ("room.mp4", "motion")], "one without a role is for movement")
+        self.assertEqual(audios, [("voice.wav", "voice")])
+        with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
+            main.parse_args(["a.png", "--ref-video-role", "place", "a prompt"])
+
+        h3 = {"min_images": 0, "max_images": 9, "max_videos": 3, "max_audios": 3, "max_references": 12}
+        main.check_references(h3, 9, [("v", "motion")] * 2, [("a", "sound")])
+        for images, videos, audios, says in ((9, 3, 1, "12 references"), (1, 4, 0, "3 reference videos"), (1, 0, 4, "3 reference audio")):
+            with self.assertRaises(RuntimeError) as caught:
+                main.check_references(h3, images, [("v", "motion")] * videos, [("a", "sound")] * audios)
+            self.assertIn(says, str(caught.exception))
+        with self.assertRaises(RuntimeError) as caught:
+            main.check_references({"min_images": 1, "max_images": 1}, 1, [("v", "motion")], [])
+        self.assertIn("no reference videos", str(caught.exception))
+
     def test_an_image_2_needs_an_image_1(self):
         with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
             main.parse_args(["--no-image", "--reference", "b.png", "a prompt"])
 
     def test_wan_prompts_arent_held_to_h3s_shape(self):
-        reply = self.reply([{"title": f"S{i}", "seconds": 8, "prompt": "A woman walks into the rain."} for i in range(8)])
+        reply = self.reply([{"title": f"S{i}", "seconds": 5, "prompt": "A woman walks into the rain."} for i in range(12)])
         with mock.patch.object(planner, "_ask", return_value=reply) as call:
             _, planned = planner.plan_film(b"jpeg", "brief", 60, "chain", "gemini", wan_prompt.MODEL)
         self.assertEqual(call.call_count, 1)

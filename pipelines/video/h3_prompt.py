@@ -25,7 +25,7 @@ LEAST_DETAIL_WORDS = 150
 # Models run short of a word count, which is fine. This far short, it's a sketch.
 TOO_SHORT_SHARE = 2
 # Models sometimes drop the angle brackets, as if they were an HTML tag.
-BARE_LABEL = re.compile(r"(?<!<)\b(Picture|Subject) (\d+)\b(?!>)")
+BARE_LABEL = re.compile(r"(?<!<)\b(Picture|Subject|Video|Audio) (\d+)\b(?!>)")
 
 REFERENCE_SECTIONS = ("subject_definitions:", "summary:", "retention_analysis:", "detailed_description:",
                       "overall_soundscape:", "non_diegetic_music:")
@@ -95,6 +95,39 @@ def _second_picture(roles):
       from <Picture 2>. Define both, and keep their details apart."""
 
 
+def _reference_line(reference):
+    """What the LLM is told one reference video or audio clip is for. It can't watch or hear them."""
+    label, sound = reference.label, reference.sound
+    if reference.kind == "video":
+        own = f" {sound} is its own sound, which goes with it: mention {sound} where that sound is heard." if sound else ""
+        if reference.role == image_role.CHARACTER:
+            return (f"{label} shows another character, the next free <Subject N>. In subject_definitions, say they come from "
+                    f"{label}. You can't see it, so describe them only as far as the brief does.{own}")
+        if reference.role == image_role.PLACE:
+            return (f"{label} shows a place, the next free <Subject N>, where the film happens. In subject_definitions, say it "
+                    f"comes from {label}. You can't see it, so describe it only as far as the brief does.{own}")
+        return (f"{label} shows the movement and camera to follow. In each summary and detailed_description, say the action "
+                f"and camera follow {label}, and still describe them in full.{own}")
+    if reference.role == image_role.VOICE:
+        return (f"{label} is the voice of <Subject 1>. In subject_definitions, say <Subject 1> speaks with the voice in {label}, "
+                f"and when they speak, write that (S1) speaks in the voice of {label}.")
+    if reference.role == image_role.MUSIC:
+        return (f"{label} is the film's music. Write non_diegetic_music as music following {label}, its mood and tempo, "
+                f"instead of N/A.")
+    return f"{label} is the sound and ambience to follow. In overall_soundscape, say the sound follows {label}."
+
+
+def _references(references):
+    if not references:
+        return ""
+    lines = "\n    - ".join(_reference_line(reference) for reference in references)
+    every = " and ".join(image_role.labels(references))
+    return f"""Every clip also gets these references, which you can't watch or hear: you only know what each one is
+    for. If the brief says how to use one, that wins.
+    - {lines}
+    Write {every} exactly like this, angle brackets included, in every prompt."""
+
+
 def _format(images, low, high, roles=()):
     if not images:
         return f"""Every prompt is these three fields, in this order, in English. Replace the words in capitals:
@@ -158,7 +191,7 @@ def _format(images, low, high, roles=()):
     {_what_to_describe(low, high)}"""
 
 
-def instructions(brief, seconds, count, images, shortest, longest, second_image="", roles=()):
+def instructions(brief, seconds, count, images, shortest, longest, second_image="", roles=(), references=None):
     clips = "one clip" if count == 1 else f"{count} clips"
     shots = "one shot" if count == 1 else f"{count} shots in order"
     together = f"Use {seconds}." if count == 1 else f"All of them together add up to {seconds}."
@@ -177,6 +210,8 @@ def instructions(brief, seconds, count, images, shortest, longest, second_image=
     {_what_you_get(images)}
 
     {second_image}
+
+    {_references(references)}
 
     The brief, in the words of the person making it: "{brief}"
 
@@ -238,8 +273,8 @@ def instructions(brief, seconds, count, images, shortest, longest, second_image=
 
     Sound. H3 makes sound whether you write it or not, so an empty field is a guess:
     - overall_soundscape: ambience, the sounds of the action, breath and other non-verbal human sounds. 1-4 sentences.
-    - non_diegetic_music is always N/A. Score would jump every time one clip hands over to the next. Music the
-      characters can hear goes in the description.
+    - non_diegetic_music is N/A unless a reference above is the film's music. Score would jump every time one clip
+      hands over to the next. Music the characters can hear goes in the description.
     - No speech unless the brief asks for it. If it does, give the first voice heard the id (S1) and the next new voice
       (S2). Who speaks, what they do and how they sound go outside the tag, and only the language and the exact words go
       inside: (S1) says quietly, <d>[English] I get off at the next station.</d> A voice from outside the picture
@@ -261,19 +296,47 @@ def _as_roles(roles):
     return [image_role.CHARACTER] if roles is True else [] if roles is False or roles is None else list(roles)
 
 
-def tidy(prompts, images, roles=()):
+def _missing_reference(reference, label):
+    """A line for subject_definitions that names a reference the prompt left out."""
+    if label == reference.sound:
+        return f"{label} is the sound of {reference.label}."
+    if reference.kind == "video":
+        return {image_role.CHARACTER: f"Another character comes from {label}.",
+                image_role.PLACE: f"The place comes from {label}."}.get(reference.role, f"The movement and camera follow {label}.")
+    return {image_role.VOICE: f"<Subject 1> speaks with the voice in {label}.",
+            image_role.MUSIC: f"The music follows {label}."}.get(reference.role, f"The sound follows {label}.")
+
+
+def _add_references(prompt, references):
+    """Every reference label in the prompt: a missing one gets a line where H3 reads who and what is in the clip."""
+    lines = [_missing_reference(reference, label) for reference in references or ()
+             for label in (reference.label, reference.sound) if label and label not in prompt]
+    if not lines:
+        return prompt
+    if "summary:" in prompt:
+        head, rest = prompt.split("summary:", 1)
+        return f"{head.rstrip()}\n{' '.join(lines)}\n\nsummary:{rest}"
+    if "overall_soundscape:" in prompt:
+        head, rest = prompt.split("overall_soundscape:", 1)
+        return f"{head.rstrip()} {' '.join(lines)}\n\noverall_soundscape:{rest}"
+    return f"{prompt.rstrip()} {' '.join(lines)}"
+
+
+def tidy(prompts, images, roles=(), references=None):
     """
     Gives every clip the fullest subject_definitions, word for word and naming every
-    picture. Done here rather than by asking again: in a long film some clip would
+    picture and reference. Done here rather than by asking again: in a long film some clip would
     always slip, and a film whose characters are defined differently drifts.
     """
-    if not images:
+    if not images and not references:
         return prompts
     prompts = [BARE_LABEL.sub(r"<\1 \2>", prompt) for prompt in prompts]
-    labels = [f"<Picture {number}>" for number in range(1, images + 1)]
+    if not images:
+        return [_add_references(prompt, references) for prompt in prompts]
+    labels = [f"<Picture {number}>" for number in range(1, images + 1)] + image_role.labels(references)
     definitions = [prompt.split("summary:", 1)[0] for prompt in prompts if "subject_definitions:" in prompt and "summary:" in prompt]
     if not definitions:
-        return prompts
+        return [_add_references(prompt, references) for prompt in prompts]
     fullest = max(definitions, key=lambda text: ("<Subject 1>" in text, sum(label in text for label in labels), len(text)))
     missing = [label for label in labels if label not in fullest]
     numbers = image_role.subjects(image_role.image_roles(_as_roles(roles), images))
@@ -282,13 +345,16 @@ def tidy(prompts, images, roles=()):
         if label in missing and numbers.get(number, 1) != 1:
             missing.remove(label)
             fullest = f"{fullest.rstrip()}\n<Subject {numbers[number]}> comes from {label}.\n\n"
-    if missing:
-        fullest = f"{fullest.rstrip()}\n<Subject 1> also draws on {' and '.join(missing)}.\n\n"
-    return [fullest + prompt[prompt.index("summary:"):] if "subject_definitions:" in prompt and "summary:" in prompt else prompt
+    pictures = [label for label in missing if label.startswith("<Picture")]
+    if pictures:
+        fullest = f"{fullest.rstrip()}\n<Subject 1> also draws on {' and '.join(pictures)}.\n\n"
+    fullest = _add_references(fullest, references)
+    return [_add_references(fullest + prompt[prompt.index("summary:"):], references)
+            if "subject_definitions:" in prompt and "summary:" in prompt else _add_references(prompt, references)
             for prompt in prompts]
 
 
-def problem(prompt, images):
+def problem(prompt, images, references=None):
     """What makes this not the prompt H3 needs, or None. An automated run has nobody to spot it before an expensive render."""
     position = 0
     for section in REFERENCE_SECTIONS if images else TEXT_SECTIONS:
@@ -299,6 +365,9 @@ def problem(prompt, images):
     for number in range(1, images + 1):
         if f"<Picture {number}>" not in prompt:
             return f"a prompt that never mentions <Picture {number}>"
+    for label in image_role.labels(references):
+        if label not in prompt:
+            return f"a prompt that never mentions {label}"
     if images and "<Subject 1>" not in prompt:
         return "a prompt that never names <Subject 1>, angle brackets included"
     if images and "[reference generation]" not in prompt:
@@ -309,8 +378,8 @@ def problem(prompt, images):
     return None
 
 
-def film_problem(prompts, images):
-    return next(filter(None, (problem(prompt, images) for prompt in prompts)), None)
+def film_problem(prompts, images, references=None):
+    return next(filter(None, (problem(prompt, images, references) for prompt in prompts)), None)
 
 
 def too_thin(prompts, images):

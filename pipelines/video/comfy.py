@@ -10,7 +10,7 @@ from PIL import Image
 
 from pipelines.video import h3_prompt, wan_prompt
 from core.paths import WORKFLOWS_DIR, comfyui_client_id as client_id
-from core.saved_workflows import frames_for, image_slots, takes
+from core.saved_workflows import MOST_REFERENCES_FIELD, frames_for, image_slots, media_slots, takes
 
 DEFAULT_COMFYUI_URL = "http://127.0.0.1:8188"
 DEFAULT_WORKFLOW = os.path.join(WORKFLOWS_DIR, "video_workflow.json")
@@ -28,8 +28,10 @@ class ComfyClient:
     The workflow sits next to a '.map.json' that says which node inputs to fill,
     as "<node id>.<input name>": prompt (required), image (image_2... for more, and
     image_link where one is plugged in if it can be left out), audio, text_to_video, seconds
-    (or frames, with fps saying where its frame rate is), width, height. Any 'seed' /
-    'noise_seed' input is randomised on every run.
+    (or frames, with fps saying where its frame rate is), width, height. Reference videos and
+    audio clips are ref_video and ref_audio (_2... for more), each with a _link to take out
+    when it's left empty, and a video with the _split node making frames of it and its _sound.
+    Any 'seed' / 'noise_seed' input is randomised on every run.
     """
 
     def __init__(self):
@@ -40,7 +42,7 @@ class ComfyClient:
         # (ComfyUI only sends progress to the client that queued the job), and so
         # cancelling never touches anyone else's renders.
         self.client_id = client_id()
-        self.workflow, self.fields = self._load_workflow()
+        self.workflow, self.fields, self.limits = self._load_workflow()
 
     def _load_workflow(self):
         map_path = os.path.splitext(self.workflow_path)[0] + ".map.json"
@@ -67,16 +69,14 @@ class ComfyClient:
 
         if "prompt" not in fields:
             raise RuntimeError(f"{map_path} must map 'prompt'.")
-        return workflow, fields
+        return workflow, fields, {key: raw_map[key] for key in (MOST_REFERENCES_FIELD,) if key in raw_map}
 
     def takes(self):
-        return takes(self.fields)
+        return takes({**self.fields, **self.limits})
 
     def video_model(self):
         """The model, if its prompts have to be written a way of their own."""
-        if any(node.get("class_type") == h3_prompt.REFERENCE_NODE for node in self.workflow.values()):
-            return h3_prompt.MODEL
-        return wan_prompt.MODEL if wan_prompt.uses_wan(self.workflow) else None
+        return video_model_of(self.workflow)
 
     def is_reachable(self):
         try:
@@ -119,6 +119,20 @@ class ComfyClient:
             else:
                 self._set(workflow, slot, self._stand_in_image())
 
+    def _fill_media(self, workflow, kind, uploaded):
+        """Reference videos or audio clips into their slots. An empty slot comes out, with the nodes that only served it."""
+        for position, slot in enumerate(media_slots(self.fields, kind)):
+            if position < len(uploaded):
+                self._set(workflow, slot, uploaded[position])
+                continue
+            for part in ("link", "sound"):
+                if f"{slot}_{part}" in self.fields:
+                    node_id, input_name = self.fields[f"{slot}_{part}"]
+                    workflow.get(node_id, {}).get("inputs", {}).pop(input_name, None)
+            for part in (slot, f"{slot}_split"):
+                if part in self.fields:
+                    workflow.pop(self.fields[part][0], None)
+
     def _stand_in_image(self):
         buffer = io.BytesIO()
         Image.new("RGB", (64, 64)).save(buffer, format="PNG")
@@ -128,11 +142,16 @@ class ComfyClient:
     def takes_audio(self):
         return "audio" in self.fields
 
-    def render(self, prompt, images, seconds, width, height, save_as, audio=None):
-        """Renders one clip from these uploaded images and saves it as save_as plus its extension. Returns the path, or raises."""
+    def render(self, prompt, images, seconds, width, height, save_as, audio=None, ref_videos=(), ref_audios=()):
+        """
+        Renders one clip from these uploaded images, and reference videos and audio clips, and saves it as
+        save_as plus its extension. Returns the path, or raises.
+        """
         workflow = copy.deepcopy(self.workflow)
         self._set(workflow, "prompt", prompt)
         self._fill_images(workflow, images)
+        self._fill_media(workflow, "video", ref_videos)
+        self._fill_media(workflow, "audio", ref_audios)
         self._set(workflow, "seconds", seconds)
         if "frames" in self.fields:
             node_id, input_name = self.fields["fps"]
@@ -225,7 +244,7 @@ class ComfyClient:
             print(f"   ⚠️ Could not cancel the ComfyUI clip, it may keep rendering: {e}")
 
     def upload(self, path, name):
-        """Uploads to ComfyUI's input folder and returns the value LoadImage expects."""
+        """Uploads to ComfyUI's input folder and returns the value LoadImage expects. Load Video and Load Audio take the same."""
         with open(path, "rb") as f:
             return self._send_image(f, name)
 
@@ -236,3 +255,27 @@ class ComfyClient:
         response.raise_for_status()
         data = response.json()
         return f"{data['subfolder']}/{data['name']}" if data.get("subfolder") else data["name"]
+
+
+def video_model_of(workflow):
+    """The model a workflow in API format renders with, if its prompts have to be written a way of their own."""
+    if any(node.get("class_type") == h3_prompt.REFERENCE_NODE for node in workflow.values()):
+        return h3_prompt.MODEL
+    return wan_prompt.MODEL if wan_prompt.uses_wan(workflow) else None
+
+
+_models = {}
+
+
+def workflow_model(path=None):
+    """video_model_of() the workflow file at path, or the built-in one. None if it can't be read."""
+    path = path or DEFAULT_WORKFLOW
+    try:
+        stat = os.stat(path)
+        key = (path, stat.st_mtime_ns, stat.st_size)
+        if key not in _models:
+            with open(path, "r", encoding="utf-8") as f:
+                _models[key] = video_model_of(json.load(f))
+        return _models[key]
+    except (OSError, ValueError, AttributeError):
+        return None

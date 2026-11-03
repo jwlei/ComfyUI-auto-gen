@@ -375,8 +375,8 @@ def _prompt_input(api):
     return None
 
 
-def _one_input(api, class_type, name, what):
-    found = [node_id for node_id, node in api.items() if node["class_type"] == class_type]
+def _one_input(api, class_type, name, what, besides=()):
+    found = [node_id for node_id, node in api.items() if node["class_type"] == class_type and node_id not in besides]
     if len(found) > 1:
         raise Unusable(f"It takes {len(found)} {what} inputs, and the pipeline only has one to give.")
     return [found[0], name] if found else None
@@ -410,24 +410,82 @@ def _image_fields(api, info):
     return fields
 
 
+def _users(api, node_id, slot=None):
+    """Every (node id, input) this node's output feeds, or this one output's."""
+    return [(user_id, name) for user_id, user in api.items() for name, value in user["inputs"].items()
+            if isinstance(value, list) and value[0] == node_id and (slot is None or value[1] == slot)]
+
+
+def _media_fields(api):
+    """
+    ref_video, ref_video_2... for each Load Video split into frames and sound for a reference node's
+    ref_videos (with _link, _split and _sound saying what to take out when it's left empty), and
+    ref_audio, ref_audio_2... for each Load Audio feeding its ref_audios.
+    """
+    videos, audios = [], []
+    for node_id, node in api.items():
+        if node["class_type"] == "LoadVideo":
+            for split_id, _ in _users(api, node_id):
+                if api[split_id]["class_type"] != "GetVideoComponents":
+                    continue
+                frames = [use for use in _users(api, split_id, 0) if use[1].startswith(f"{VIDEO_GROUP}.")]
+                sound = [use for use in _users(api, split_id, 1) if use[1].startswith(f"{VIDEO_SOUND_GROUP}.")]
+                if frames:
+                    videos.append((frames[0][1], node_id, split_id, frames[0], sound[0] if sound else None))
+        elif node["class_type"] == "LoadAudio":
+            uses = [use for use in _users(api, node_id) if use[1].startswith(f"{AUDIO_GROUP}.")]
+            if uses:
+                audios.append((uses[0][1], node_id, uses[0]))
+    fields = {}
+    for number, (_, node_id, split_id, link, sound) in enumerate(sorted(videos, key=lambda entry: _in_number_order(entry[0])), 1):
+        slot = "ref_video" if number == 1 else f"ref_video_{number}"
+        fields.update({slot: [node_id, "file"], f"{slot}_link": list(link), f"{slot}_split": [split_id, "video"]})
+        if sound:
+            fields[f"{slot}_sound"] = list(sound)
+    for number, (_, node_id, link) in enumerate(sorted(audios, key=lambda entry: _in_number_order(entry[0])), 1):
+        slot = "ref_audio" if number == 1 else f"ref_audio_{number}"
+        fields.update({slot: [node_id, "audio"], f"{slot}_link": list(link)})
+    return fields
+
+
 def image_slots(fields):
     """The image inputs a map fills, in order."""
     return [field for field in fields if re.fullmatch(r"image(_\d+)?", field)]
 
 
+def media_slots(fields, kind):
+    """The reference video or audio inputs a map fills, in order: ref_video, ref_video_2..."""
+    return [field for field in fields if re.fullmatch(rf"ref_{kind}(_\d+)?", field)]
+
+
 def takes(fields):
-    """How many images a workflow can be given. One it can't run without needs a switch to text, or an image."""
+    """
+    How many images a workflow can be given. One it can't run without needs a switch to text, or an image.
+    And if it takes any, how many reference videos and audio clips, and how many references of every kind together.
+    """
     slots = image_slots(fields)
     needed = 0 if "text_to_video" in fields else sum(f"{slot}_link" not in fields for slot in slots)
-    return {"min_images": needed, "max_images": len(slots)}
+    found = {"min_images": needed, "max_images": len(slots)}
+    videos, audios = len(media_slots(fields, "video")), len(media_slots(fields, "audio"))
+    if not videos + audios:
+        return found
+    most = len(slots) + videos + audios
+    limit = fields.get(MOST_REFERENCES_FIELD)
+    return {**found, "max_videos": videos, "max_audios": audios,
+            "max_references": min(most, int(limit)) if str(limit).isdigit() else most}
 
 
 def find_fields(api, info, needs_audio=False):
     """Which inputs the pipeline fills: {field: [node id, input]}. Raises Unusable."""
-    fields = {"prompt": _prompt_input(api), **_image_fields(api, info)}
+    media = _media_fields(api)
+    fields = {"prompt": _prompt_input(api), **_image_fields(api, info), **media}
     if not fields["prompt"]:
         raise Unusable("Couldn't find its prompt: nothing feeds the sampler's positive input, or a prompt input.")
-    audio = _one_input(api, "LoadAudio", "audio", "audio")
+    limit = next((REFERENCE_FILE_LIMITS[node["class_type"]] for node in api.values() if node["class_type"] in REFERENCE_FILE_LIMITS), None)
+    if limit:
+        fields[MOST_REFERENCES_FIELD] = limit
+    references = {node_id for node_id, _ in (media[slot] for slot in media_slots(media, "audio"))}
+    audio = _one_input(api, "LoadAudio", "audio", "audio", besides=references)
     if audio:
         fields["audio"] = audio
     elif needs_audio:
@@ -514,6 +572,14 @@ def _file_stem(name):
 # How many references a film gets on a node whose reference inputs grow, such as MiniMax's,
 # however many the saved workflow happens to wire up.
 MOST_REFERENCES = 20
+# A reference node's inputs for videos (frames, and each one's own sound) and audio clips, as MiniMax H3 names them.
+VIDEO_GROUP, VIDEO_SOUND_GROUP, AUDIO_GROUP = "ref_videos", "ref_video_audios", "ref_audios"
+# How many it takes when its own settings don't say.
+MOST_MEDIA_REFERENCES = 3
+# How many references of every kind together a node takes, where that's fewer than its inputs add up to.
+# MiniMax H3 takes 12: 9 images and 3 videos or audio clips, at most 3 of each.
+REFERENCE_FILE_LIMITS = {"MiniMaxH3ReferenceToVideo": 12}
+MOST_REFERENCES_FIELD = "_most_references"
 
 
 def _most(config):
@@ -533,7 +599,8 @@ def _grow_references(api, info):
     comes out of the workflow again.
     """
     for node_id, node in list(api.items()):
-        for group, config in _input_spec(info.get(node["class_type"], {})).items():
+        spec = _input_spec(info.get(node["class_type"], {}))
+        for group, config in spec.items():
             if not (isinstance(config, list) and config and config[0] == "COMFY_AUTOGROW_V3"):
                 continue
             wired = {}
@@ -542,13 +609,39 @@ def _grow_references(api, info):
                 if match and isinstance(value, list) and api.get(value[0], {}).get("class_type") == "LoadImage":
                     wired[int(match.group(2))] = (match.group(1), value[0])
             if not wired:
+                if group in (VIDEO_GROUP, AUDIO_GROUP) and not any(name.startswith(f"{group}.") for name in node["inputs"]):
+                    _add_media_references(api, node, group, _most(config[1:]) or MOST_MEDIA_REFERENCES, VIDEO_SOUND_GROUP in spec)
                 continue
             most = min(MOST_REFERENCES, _most(config[1:]) or MOST_REFERENCES)
             prefix, example = wired[max(wired)]
             for number in range(max(wired) + 1, max(wired) + 1 + most - len(wired)):
-                new_id = str(max(int(key) for key in api if key.isdigit()) + 1)
-                api[new_id] = _node("LoadImage", dict(api[example]["inputs"]), f"Reference {number + 1} (added by the pipeline)")
-                node["inputs"][f"{group}.{prefix}{number}"] = [new_id, 0]
+                added = _add_node(api, "LoadImage", dict(api[example]["inputs"]), f"Reference {number + 1} (added by the pipeline)")
+                node["inputs"][f"{group}.{prefix}{number}"] = [added, 0]
+
+
+def _add_node(api, class_type, inputs, title):
+    """Adds a node under the next free id, and returns that id."""
+    node_id = str(max(int(key) for key in api if key.isdigit()) + 1)
+    api[node_id] = _node(class_type, inputs, title)
+    return node_id
+
+
+def _add_media_references(api, node, group, most, sounds):
+    """
+    Load Video or Load Audio nodes for each of a reference node's video or audio inputs, which a saved
+    workflow seldom wires. A video is split into the frames and its own sound, each to its input.
+    """
+    prefix = group[:-1] + "_"
+    for number in range(most):
+        if group == AUDIO_GROUP:
+            audio = _add_node(api, "LoadAudio", {"audio": ""}, f"Reference audio {number + 1} (added by the pipeline)")
+            node["inputs"][f"{group}.{prefix}{number}"] = [audio, 0]
+            continue
+        video = _add_node(api, "LoadVideo", {"file": ""}, f"Reference video {number + 1} (added by the pipeline)")
+        split = _add_node(api, "GetVideoComponents", {"video": [video, 0]}, f"Reference video {number + 1}, split")
+        node["inputs"][f"{group}.{prefix}{number}"] = [split, 0]
+        if sounds:
+            node["inputs"][f"{VIDEO_SOUND_GROUP}.{VIDEO_SOUND_GROUP[:-1]}_{number}"] = [split, 1]
 
 
 def _prepare(name, ui, info, folder):

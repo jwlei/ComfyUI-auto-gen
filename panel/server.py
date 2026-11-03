@@ -42,6 +42,8 @@ from pipelines.image.run_eta import RunEta as ImageEta
 from pipelines.shorts.paths import OUTPUT_DIR as SHORTS_READY, UPLOADED_DIR as SHORTS_UPLOADED
 from pipelines.shorts.run_eta import RunEta as ShortsEta
 from pipelines.video.paths import OUTPUT_DIR as VIDEO_OUTPUT
+from pipelines.video import planner as video_planner
+from pipelines.video.comfy import workflow_model
 from pipelines.video.run_eta import RunEta as VideoEta
 
 load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
@@ -52,7 +54,7 @@ SHORTS_TIMINGS = os.path.join(LOGS_DIR, "stage_timings_shorts.json")
 VIDEO_TIMINGS = os.path.join(LOGS_DIR, "stage_timings_video.json")
 IMAGE_TIMINGS = os.path.join(LOGS_DIR, "stage_timings_image.json")
 ETAS = {"shorts": lambda argv, env: ShortsEta(argv, env, SHORTS_TIMINGS),
-        "video": lambda argv, env: VideoEta(argv, VIDEO_TIMINGS),
+        "video": lambda argv, env: VideoEta(argv, VIDEO_TIMINGS, env),
         "image": lambda argv, env: ImageEta(argv, env, IMAGE_TIMINGS)}
 # What panel/shorts.py, panel/video.py and panel/image.py each add: load_run, describe_runs, continue_run,
 # discard_run, delete_video, captions and context.
@@ -1090,6 +1092,11 @@ def workflows():
     pipeline = request.args.get("pipeline") or "video"
     found = [{key: w[key] for key in ("name", "label", "takes", "problem") if key in w} for w in saved_workflows()
              if pipeline_of(w["name"]) == pipeline and (pipeline == "image" or "problem" not in w)]
+    if pipeline == "video":
+        # How long its video model makes a clip, for the form to say.
+        paths = {w["name"]: w.get("path") for w in saved_workflows()}
+        for w in found:
+            w["clip_seconds"] = video_planner.clip_seconds(workflow_model(paths.get(w["name"])))
     return {"online": comfyui_online(), "workflows": found}
 
 
