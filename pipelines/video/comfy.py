@@ -2,13 +2,13 @@ import copy
 import io
 import json
 import os
-import random
 import time
 
 import requests
 from PIL import Image
 
 from pipelines.video import h3_prompt, wan_prompt
+from core import seeds
 from core.paths import WORKFLOWS_DIR, comfyui_client_id as client_id
 from core.saved_workflows import MOST_REFERENCES_FIELD, frames_for, image_slots, media_slots, takes
 
@@ -17,7 +17,6 @@ DEFAULT_WORKFLOW = os.path.join(WORKFLOWS_DIR, "video_workflow.json")
 # Counts time spent waiting in ComfyUI's queue too, which other work may be ahead in.
 DEFAULT_TIMEOUT = 3600
 VIDEO_EXTENSIONS = (".mp4", ".webm", ".mov", ".mkv", ".gif")
-SEED_INPUTS = ("seed", "noise_seed")
 POLL_INTERVAL = 5
 
 
@@ -31,7 +30,7 @@ class ComfyClient:
     (or frames, with fps saying where its frame rate is), width, height. Reference videos and
     audio clips are ref_video and ref_audio (_2... for more), each with a _link to take out
     when it's left empty, and a video with the _split node making frames of it and its _sound.
-    Any 'seed' / 'noise_seed' input is randomised on every run.
+    Every 'seed' / 'noise_seed' input gets the render's seed: the one asked for, or a random one.
     """
 
     def __init__(self):
@@ -142,7 +141,7 @@ class ComfyClient:
     def takes_audio(self):
         return "audio" in self.fields
 
-    def render(self, prompt, images, seconds, width, height, save_as, audio=None, ref_videos=(), ref_audios=()):
+    def render(self, prompt, images, seconds, width, height, save_as, audio=None, ref_videos=(), ref_audios=(), seed=None):
         """
         Renders one clip from these uploaded images, and reference videos and audio clips, and saves it as
         save_as plus its extension. Returns the path, or raises.
@@ -160,15 +159,13 @@ class ComfyClient:
         self._set(workflow, "height", height)
         if audio:
             self._set(workflow, "audio", audio)
-        return self._download(self._run(workflow), save_as)
+        return self._download(self._run(workflow, seed), save_as)
 
-    def _run(self, workflow):
-        """Queues the filled-in workflow and waits. Returns its history entry, or raises."""
-        # Fresh seeds every run: ComfyUI would otherwise return its cached result.
+    def _run(self, workflow, seed=None):
+        """Queues the filled-in workflow with this seed, or a random one, and waits. Returns its history entry, or raises."""
+        # A random seed when none is asked for: ComfyUI would otherwise return its cached result.
+        seeds.apply(workflow, seeds.pick(seed))
         for node in workflow.values():
-            for key in SEED_INPUTS:
-                if isinstance(node.get("inputs", {}).get(key), int):
-                    node["inputs"][key] = random.randint(0, 2**32 - 1)
             # Keeps our clips out of ComfyUI's output folder: they go to its temp
             # folder, which it clears itself, and are downloaded from there below.
             if "save_output" in node.get("inputs", {}):

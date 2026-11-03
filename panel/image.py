@@ -6,9 +6,10 @@ from types import SimpleNamespace
 
 from flask import abort, request, send_file
 
+from core import seeds
 from core.saved_workflows import is_for_image
 from panel.server import (IMAGE_TIMINGS, PIPELINES, _runs_cache, app, busy_runs, job, password_required, run_queue, saved_at, saved_workflows)
-from panel.video import clean_inputs, queue_label
+from panel.video import clean_inputs, queue_label, shot_seeds
 from pipelines.image import media
 from pipelines.image import planner as image_planner
 from pipelines.image.run_eta import RunEta
@@ -86,6 +87,12 @@ def build_options(form):
     if not 1 <= count <= image_planner.MAX_IMAGES:
         return None, f"A set has 1-{image_planner.MAX_IMAGES} images."
     flags = ["--count", str(count)]
+    try:
+        seed = seeds.parse(form.get("seed"))
+    except ValueError:
+        return None, f"The seed must be a whole number from 0 to {seeds.MOST}, or empty for random."
+    if seed is not None:
+        flags += ["--seed", str(seed)]
 
     mode = form.get("prompt_mode") or "llm"
     if mode not in ("llm", "direct"):
@@ -249,6 +256,7 @@ def image_run_detail(run_id):
             "busy": run_id in busy_runs(), "finished": state.finished, "is_image": True,
             "size": f"{state.width}x{state.height}", "image_count": state.image_count,
             "shots": [{"title": shot["title"], "prompt": shot["prompt"], "rendered": bool(shot.get("file")),
+                       "seed": shot.get("seed"), "used_seed": shot.get("used_seed"),
                        "version": int(os.path.getmtime(state.image_path(shot))) if shot.get("file") else 0} for shot in state.shots]}
 
 
@@ -280,11 +288,16 @@ def save_image_shots(run_id):
     state, refused = load_idle_run(run_id)
     if refused:
         return refused
-    prompts = (request.get_json(silent=True) or {}).get("prompts")
+    body = request.get_json(silent=True) or {}
+    prompts = body.get("prompts")
     if not isinstance(prompts, list) or len(prompts) != len(state.shots) or not all(isinstance(p, str) and p.strip() for p in prompts):
         return {"ok": False, "error": "Every image needs a prompt."}, 400
-    for shot, prompt in zip(state.shots, prompts):
+    chosen, error = shot_seeds(body, len(state.shots))
+    if error:
+        return {"ok": False, "error": error}, 400
+    for shot, prompt, seed in zip(state.shots, prompts, chosen):
         shot["prompt"] = prompt.strip()
+        shot["seed"] = seed
     state.save()
     return {"ok": True}
 
@@ -292,7 +305,7 @@ def save_image_shots(run_id):
 @app.route("/image-runs/<run_id>/redo/<int:position>", methods=["POST"])
 @password_required
 def redo_image(run_id, position):
-    """Makes one image again, on a new seed, leaving the others as they are."""
+    """Makes one image again, on its seed if one is set or else a new one, leaving the others as they are."""
     state, refused = load_idle_run(run_id)
     if refused:
         return refused

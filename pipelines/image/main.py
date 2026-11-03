@@ -9,12 +9,14 @@ import time
 
 from dotenv import load_dotenv
 
+from core import seeds
 from pipelines.image import media, paths
 from pipelines.image import planner as image_planner
 from pipelines.image.comfy import ImageClient
 from pipelines.image.run_state import STAGES, RunState, list_runs
 from pipelines.video import media as video_media
 from pipelines.video import planner
+from pipelines.video.main import parse_seed
 
 IMAGE_ATTEMPTS = 2
 
@@ -57,6 +59,8 @@ def parse_args(argv=None):
     parser.add_argument("--aspect", type=parse_aspect, default=media.FROM_IMAGE, help=f"Aspect ratio such as 16:9, or '{media.FROM_IMAGE}' for the source image's (the default, square without one).")
     parser.add_argument("--megapixels", type=parse_megapixels, default=str(media.DEFAULT_MEGAPIXELS), help=f"Pixel count, such as 1.5 (the default is {media.DEFAULT_MEGAPIXELS:g}), or '{media.FROM_IMAGE}' for the source image's.")
     parser.add_argument("--size", type=parse_size, help="An exact size such as 1920x1080, in place of --aspect and --megapixels.")
+    parser.add_argument("--seed", type=parse_seed, help="The first image's seed. Each image after it gets the next one, so the set "
+                                                       "can be made again. Default: a random seed for every image.")
     parser.add_argument("--plan-only", action="store_true", help="Write the prompts and stop before rendering.")
     parser.add_argument("--resume", metavar="RUN", help="Continue a saved run, with its original options.")
     parser.add_argument("--redo", type=int, metavar="IMAGE", help="With --resume: make this image again, by its place in the set.")
@@ -131,7 +135,8 @@ def plan_run(args, stages):
     else:
         print(f"🧠 {llm} is writing {args.count} {'prompt' if args.count == 1 else 'prompts'}...")
         title, versions = image_planner.write_prompts([video_media.preview_jpeg(image) for image in images], args.prompt, args.count, llm)
-    shots = [{"number": number, "file": None, **version} for number, version in enumerate(versions, 1)]
+    shots = [{"number": number, "file": None, "seed": seeds.nth(args.seed, number - 1), **version}
+             for number, version in enumerate(versions, 1)]
     # At once: the prompts are what was paid for.
     state.update(title=title, shots=shots)
 
@@ -155,14 +160,17 @@ def render_image(state, comfy, shot, images):
     save_as = os.path.join(state.output_dir, f"image_{shot['number']:03d}")
     rendered = comfy.render_size(state.width, state.height)
     for attempt in range(1, IMAGE_ATTEMPTS + 1):
+        seed = seeds.pick(shot.get("seed"), attempt)
+        print(f"      🎲 Seed {seed}")
         try:
-            path = comfy.render_image(shot["prompt"], images, *rendered, save_as)
+            path = comfy.render_image(shot["prompt"], images, *rendered, save_as, seed)
         except (RuntimeError, OSError, ValueError) as e:
             print(f"      ❌ {e} (attempt {attempt}/{IMAGE_ATTEMPTS}).")
             continue
         problem = media.image_problem(path)
         if not problem:
             media.trim(path, rendered, (state.width, state.height))
+            shot["used_seed"] = seed
             return path
         print(f"      ⚠️ Rejected: {problem} (attempt {attempt}/{IMAGE_ATTEMPTS}).")
     return None

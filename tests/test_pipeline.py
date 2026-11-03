@@ -106,8 +106,10 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(workflow["291"]["inputs"]["value"], 2)
         self.assertEqual((workflow["292"]["inputs"]["value"], workflow["293"]["inputs"]["value"]), (64, 64))
         self.assertIs(workflow["140"]["inputs"]["save_output"], False, "must stay out of ComfyUI's output folder")
-        seeds = {p["prompt"]["115"]["inputs"]["noise_seed"] for p in self.server.prompts}
-        self.assertEqual(len(seeds), 3)
+        used = [p["prompt"]["115"]["inputs"]["noise_seed"] for p in self.server.prompts]
+        self.assertEqual(len(set(used)), 3)
+        self.assertEqual([shot["used_seed"] for shot in state.shots], used, "each clip keeps the seed it was made with")
+        self.assertEqual([shot["seed"] for shot in state.shots], [None] * 3, "and none is set for next time")
 
         self.assertTrue(os.path.basename(state.final).startswith("A_Test_Film"))
         probe = ffmpeg.probe(state.final)
@@ -121,6 +123,14 @@ class PipelineTest(unittest.TestCase):
         self.assertFalse(os.path.exists(state.parts_dir), "parts are only a step on the way")
         self.assertFalse(os.path.exists(state.final + ".part"))
 
+
+    def test_a_chosen_seed_counts_up_clip_by_clip(self):
+        self.assertEqual(self.film("--seed", "4294967294"), 0)
+        state = self.only_run()
+        expected = [4294967294, 4294967295, 0]
+        self.assertEqual([p["prompt"]["115"]["inputs"]["noise_seed"] for p in self.server.prompts], expected)
+        self.assertEqual([shot["seed"] for shot in state.shots], expected)
+        self.assertEqual([shot["used_seed"] for shot in state.shots], expected)
     def test_failed_clip_continues_where_it_stopped(self):
         self.server.script = ["ok", "error", "error"]
         self.assertEqual(self.film(), 1)
@@ -240,6 +250,28 @@ class PipelineTest(unittest.TestCase):
         with mock.patch.object(planner, "llm_configured", return_value=False):
             self.assertEqual(self.film("--llm", "claude"), 1)
         main.planner.plan_film.assert_not_called()
+
+class SeedTest(unittest.TestCase):
+    def test_seeds(self):
+        from core import seeds
+        self.assertIsNone(seeds.parse(""))
+        self.assertIsNone(seeds.parse(" Random "))
+        self.assertEqual(seeds.parse(" 42 "), 42)
+        for wrong in ("-1", "4294967296", "1.5", "abc"):
+            with self.assertRaises(ValueError):
+                seeds.parse(wrong)
+        self.assertEqual(seeds.nth(10, 2), 12)
+        self.assertIsNone(seeds.nth(None, 2))
+        self.assertEqual(seeds.pick(7), 7)
+        self.assertNotEqual({seeds.pick(7, 2) for _ in range(5)}, {7}, "a rejected render tries a new seed")
+        workflow = {"1": {"inputs": {"seed": 0}}, "2": {"inputs": {"noise_seed": 1}}, "3": {"inputs": {"seed": ["4", 0]}}}
+        self.assertTrue(seeds.apply(workflow, 99))
+        self.assertEqual((workflow["1"]["inputs"]["seed"], workflow["2"]["inputs"]["noise_seed"]), (99, 99))
+        self.assertEqual(workflow["3"]["inputs"]["seed"], ["4", 0], "a seed wired from another node is left alone")
+        self.assertFalse(seeds.apply({"1": {"inputs": {}}}, 5))
+        with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
+            main.parse_args(["a.png", "--seed", "abc", "a prompt"])
+
 
 class PartsTest(unittest.TestCase):
     def setUp(self):

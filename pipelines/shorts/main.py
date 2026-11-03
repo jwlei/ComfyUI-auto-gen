@@ -13,6 +13,7 @@ from core.audio import AudioEngine, get_tts_provider
 from pipelines.shorts.avatar_generator import (AVATAR_LAYOUTS, AvatarGenerator, default_avatar_layout,
                                       get_avatar_source, pick_on_screen, plan_avatar_scenes)
 from pipelines.shorts.composer import Composer
+from pipelines.video.main import parse_seed
 from pipelines.shorts.run_state import RunState, list_runs
 from pipelines.shorts.thumbnail import save_avatar_still
 from pipelines.shorts.topic_history import find_exact_repeat, read_successful_topics, record_successful_topic
@@ -266,7 +267,7 @@ async def generate_one(args, state):
     generator = None
     if source == "comfyui" and layout != "0":
         try:
-            generator = AvatarGenerator(clips_dir=state.clips_dir)
+            generator = AvatarGenerator(clips_dir=state.clips_dir, seed=args.seed)
         except Exception as e:
             print(f"❌ Avatar Error: {e}")
 
@@ -432,6 +433,8 @@ def parse_args(argv=None):
                              "(default 3-5), more where the stock footage fits the narration badly; 3 = open on it + "
                              "two middle scenes; 2 = two middle scenes only; 0 = no avatar (default: AVATAR_CLIPS "
                              "from .env, else auto).")
+    parser.add_argument("--seed", type=parse_seed, help="The first avatar clip's seed. Each clip after it gets the next one. "
+                                                       "Default: a random seed for every clip.")
     parser.add_argument("--resume", metavar="RUN", help="Continue a stopped or failed run with its original options, "
                                                         "from its folder under runs/shorts. Other options are ignored.")
 

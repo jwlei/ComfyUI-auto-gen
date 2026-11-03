@@ -105,6 +105,12 @@ A workflow with one image input, like Built-in LTX, renders from image 1 alone. 
 it reaches the clips as words in the prompts: expect a description of that place or person, not a copy of it.
 A reference workflow gives image 2 to every clip.
 
+**Seed**, under Generation, is empty by default: every clip gets a new random seed. 🎲 picks one to keep, and ✕
+goes back to random. With a seed, clip 1 uses it, clip 2 the next number and so on, so the same prompts make the
+same film again. **Shots** shows the seed each clip was made with: **Keep** sets it for that shot, so rendering it
+again with a changed prompt changes only what the prompt does. A seed you set is used once per render: a clip that
+fails its check is tried again on a new one.
+
 **Resolution** offers 360p, 480p, 540p and 720p, in landscape 16:9 or portrait 9:16. The default and highest preset
 is 720p (1280x736) in the shape of image 1, and **Custom size** takes anything else. The sizes are multiples of 32,
 so they're as near 16:9 as the models allow. An image of another shape is fitted to the size, usually by cropping
@@ -163,6 +169,7 @@ python -m pipelines.video.main harbour.jpg "a storm rolls in over the harbour" -
 | `--ref-video-role`, `--ref-audio-role` | What each one is for, in order: `motion`, `character` or `place` for a video, `voice`, `music` or `sound` for audio. |
 | `--image-role` | What an image after the first is, once per image in order from image 2: `view` (more of the subject), `character`, `place`, or `context` to let the LLM tell by looking (the default). `--image-2-role` still works. |
 | `--size 1280x736` | Render size, rounded to multiples of 32. By default it takes the image's shape at the workflow's pixel count. |
+| `--seed N` | Clip 1's seed, and the next number for each clip after it. Default: a random seed for every clip. |
 | `--plan-only` | Writes the prompts and stops, so you can read them before spending the GPU time. |
 | `--upload`, `--privacy` | Uploads when the film is done. Private by default. |
 | `--resume RUN` | Continues a saved run. |

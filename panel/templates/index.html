@@ -192,6 +192,11 @@
   #duration { padding: 0; margin-top: 8px; height: 22px; background: none; border: 0; outline: 0; accent-color: var(--accent); }
   /* One row per image: its thumbnail, the file, what it is, and Remove. */
   .image-box { min-width: 0; }
+  .seed-line { display: flex; gap: 8px; align-items: center; }
+  .seed-line input { flex: 1 1 0; min-width: 0; }
+  .seed-line button { flex: none; width: auto; margin: 0; padding: 8px 12px; }
+  .shot .seed-line { margin: 6px 0; font-size: .85rem; }
+  .shot .seed-line label { margin: 0; flex: none; }
   #addImage, #addMedia { width: auto; margin: 8px 0 0; padding: 4px 16px; font-size: 1.1rem; }
   .image-line { display: flex; align-items: center; gap: 8px; }
   .image-line input[type=file] { flex: 1 1 0; min-width: 0; }
@@ -563,6 +568,14 @@
             </select>
           </div>
         </div>
+
+        <label for="shortsSeed">Seed</label>
+        <div class="seed-line">
+          <input id="shortsSeed" name="seed" inputmode="numeric" autocomplete="off" placeholder="Random" pattern="[0-9]*">
+          <button type="button" class="ghost" data-seed-pick="shortsSeed" title="Pick a random seed to keep" aria-label="Pick a random seed to keep">🎲</button>
+          <button type="button" class="ghost" data-seed-clear="shortsSeed" title="Back to random" aria-label="Back to a random seed every time">✕</button>
+        </div>
+        <div class="hint">Empty: a new random seed for every avatar clip. A number: avatar clip 1 uses it and each avatar clip after it the next one, so the same clips comes out again.</div>
       </div>
     </details>
 
@@ -664,6 +677,14 @@
     </select>
     <input id="size" name="size" placeholder="Such as 1280x736, rounded to multiples of 32" autocomplete="off" style="margin-top:8px" hidden>
     <div class="hint">Lower renders faster. An image of another shape gets cropped.</div>
+
+    <label for="videoSeed">Seed</label>
+    <div class="seed-line">
+      <input id="videoSeed" name="seed" inputmode="numeric" autocomplete="off" placeholder="Random" pattern="[0-9]*">
+      <button type="button" class="ghost" data-seed-pick="videoSeed" title="Pick a random seed to keep" aria-label="Pick a random seed to keep">🎲</button>
+      <button type="button" class="ghost" data-seed-clear="videoSeed" title="Back to random" aria-label="Back to a random seed every time">✕</button>
+    </div>
+    <div class="hint">Empty: a new random seed for every clip. A number: clip 1 uses it and each clip after it the next one, so the same film comes out again. Each clip's seed shows under <b>Shots</b>.</div>
   </details>
 
   <details class="section" id="videoHow">
@@ -744,6 +765,14 @@
       <input id="imageSize" name="size" placeholder="Such as 1920x1080" autocomplete="off" style="margin-top:8px" hidden>
     </div>
     <div class="hint" id="imageSizeHint"></div>
+
+    <label for="imageSeed">Seed</label>
+    <div class="seed-line">
+      <input id="imageSeed" name="seed" inputmode="numeric" autocomplete="off" placeholder="Random" pattern="[0-9]*">
+      <button type="button" class="ghost" data-seed-pick="imageSeed" title="Pick a random seed to keep" aria-label="Pick a random seed to keep">🎲</button>
+      <button type="button" class="ghost" data-seed-clear="imageSeed" title="Back to random" aria-label="Back to a random seed every time">✕</button>
+    </div>
+    <div class="hint">Empty: a new random seed for every image. A number: image 1 uses it and each image after it the next one, so the same set comes out again. Each image's seed shows when you open the set.</div>
   </details>
 
   <details class="section" id="imageHow">
@@ -831,7 +860,7 @@ const DEFAULTS = {
 function saveForm() {
   const data = {};
   for (const el of $('formShorts').elements) {
-    if (!el.name || el.name === 'topic' || el.name === 'output') continue;
+    if (!el.name || el.name === 'topic' || el.name === 'output' || el.name === 'seed') continue;
     data[el.name] = el.type === 'checkbox' ? el.checked : el.value;
   }
   try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch (e) {}
@@ -1068,7 +1097,8 @@ $('tabUploaded').onclick = () => setTab('uploaded');
 const VIDEO_STORE_KEY = 'comfyui-auto-gen.video.v1';
 const VIDEO_DEFAULTS = { llm: {{ default_llm | tojson }}, review: true, duration: {{ film_limits[2] | tojson }}, privacy: 'private', start: 'chain' };
 // What belongs to one film rather than being the way you like to work.
-const NOT_REMEMBERED = ['prompt', 'size', 'narration'];
+// A seed is for one run: kept, it would quietly make the next film the same.
+const NOT_REMEMBERED = ['prompt', 'size', 'narration', 'seed'];
 // A file input also throws if you set its value. An image's role goes with that image.
 function remembered(el) { return el.name && el.type !== 'file' && !NOT_REMEMBERED.includes(el.name) && !/^(image_\d+|ref_media(_\d+)?)_role$/.test(el.name); }
 
@@ -1548,6 +1578,40 @@ function filmHtml(v) {
 }
 
 
+// --- Seeds: empty is random, 🎲 picks one to keep, ✕ goes back to random ---
+const MOST_SEED = 4294967295;
+function randomSeed() {
+  try { return crypto.getRandomValues(new Uint32Array(1))[0]; } catch (e) { return Math.floor(Math.random() * MOST_SEED); }
+}
+function setSeed(input, value) {
+  input.value = value;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+document.addEventListener('click', e => {
+  const d = e.target.dataset || {};
+  if (d.seedPick) setSeed($(d.seedPick), randomSeed());
+  else if (d.seedClear) setSeed($(d.seedClear), '');
+});
+// Digits only: anything else isn't a seed.
+document.addEventListener('input', e => {
+  if (e.target.name === 'seed' || e.target.dataset.seed !== undefined) {
+    const digits = e.target.value.replace(/\D/g, '');
+    if (digits !== e.target.value) e.target.value = digits;
+  }
+});
+// In the shots and images editors: what it used last time, and what the next render uses.
+function shotSeedHtml(run, shot, i, what) {
+  const number = i + 1, used = shot.used_seed;
+  const last = used == null ? '' : `<button type="button" class="plain" data-seed-keep="${used}" title="Use the seed ${what} ${number} was made with">Keep ${used}</button>`;
+  return `
+    <div class="seed-line">
+      <label for="seed_${number}">Seed</label>
+      <input id="seed_${number}" data-seed inputmode="numeric" autocomplete="off" value="${shot.seed ?? ''}" placeholder="Random${used == null ? '' : ` · last ${used}`}" aria-label="Seed for ${what} ${number}" ${run.busy ? 'readonly' : ''}>
+      ${run.busy ? '' : `<button type="button" class="ghost" data-seed-roll="1" title="Pick a random seed to keep">🎲</button>${last}`}
+    </div>`;
+}
+
 // --- A film's shots ---
 let shotsRun = null, shotsDirty = false;
 function shotHtml(run, shot, i) {
@@ -1559,6 +1623,7 @@ function shotHtml(run, shot, i) {
     <div class="shot-title"><b>${number}. ${esc(shot.title)}</b><span>${shot.seconds}s · ${shot.rendered ? 'rendered' : 'not rendered yet'}</span></div>
     ${clip}
     <textarea aria-label="Prompt for shot ${number}" ${run.busy ? 'readonly' : ''}>${esc(shot.prompt)}</textarea>
+    ${shotSeedHtml(run, shot, i, 'shot')}
     ${redo}
   </div>`;
 }
@@ -1572,13 +1637,14 @@ function imageShotHtml(run, shot, i) {
     <div class="shot-title"><b>${number}. ${esc(shot.title)}</b><span>${shot.rendered ? 'made' : 'not made yet'}</span></div>
     ${picture}
     <textarea aria-label="Prompt for image ${number}" ${run.busy ? 'readonly' : ''}>${esc(shot.prompt)}</textarea>
+    ${shotSeedHtml(run, shot, i, 'image')}
     ${buttons}
   </div>`;
 }
 function imageShotsHtml(run) {
   const left = run.shots.filter(shot => !shot.rendered).length;
   const note = run.busy ? 'This run is going or queued, so its prompts can\'t change right now.'
-    : 'Making an image again leaves the others as they are. A changed prompt only counts for the images made after it.';
+    : 'Making an image again leaves the others as they are. A changed prompt or seed only counts for the images made after it. An empty seed is a new random one each time.';
   const go = !left || run.busy ? '' : `<button type="button" data-render="1">${left === run.shots.length ? 'Make the images' : `Make the ${left} left`}</button>`;
   const save = run.busy ? '' : '<button type="button" class="plain" data-save="1">Save prompts</button>';
   return `
@@ -1594,8 +1660,8 @@ function shotsHtml(run) {
   if (run.is_image) return imageShotsHtml(run);
   const left = run.shots.filter(shot => !shot.rendered).length;
   const note = run.busy ? 'This run is going or queued, so its prompts can\'t change right now.'
-    : run.start === 'chain' ? 'A continuous take: rendering a shot again also renders every shot after it, because they start from it.'
-    : 'Separate moments: rendering a shot again leaves the others as they are.';
+    : (run.start === 'chain' ? 'A continuous take: rendering a shot again also renders every shot after it, because they start from it.'
+    : 'Separate moments: rendering a shot again leaves the others as they are.') + ' An empty seed is a new random one each time; a set one makes the same clip from the same prompt.';
   const go = run.finished || run.busy ? '' : `<button type="button" data-render="1">${left === run.shots.length ? 'Render the film' : left ? `Render the ${left} left` : 'Stitch the film'}</button>`;
   const save = run.busy ? '' : '<button type="button" class="plain" data-save="1">Save prompts</button>';
   return `
@@ -1623,8 +1689,9 @@ async function openShots(id) {
 async function saveShots() {
   if (!shotsDirty) return true;
   const prompts = [...$('shotsBody').querySelectorAll('textarea')].map(t => t.value);
+  const seeds = [...$('shotsBody').querySelectorAll('[data-seed]')].map(input => input.value.trim() || null);
   const data = await (await fetch(`${runUrl(shotsRun.id)}/shots`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompts }),
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompts, seeds }),
   })).json();
   if (!data.ok) { alert(data.error || 'Could not save the prompts.'); return false; }
   shotsDirty = false;
@@ -1646,7 +1713,11 @@ async function runSaved(url) {
 $('shotsBody').addEventListener('input', () => { shotsDirty = true; });
 $('shotsBody').addEventListener('click', async e => {
   const d = e.target.dataset || {};
-  if (d.close) closeShots();
+  const seedInput = e.target.closest('.seed-line')?.querySelector('[data-seed]');
+  if (d.seedRoll || d.seedKeep) {
+    seedInput.value = d.seedKeep || randomSeed();
+    shotsDirty = true;
+  } else if (d.close) closeShots();
   else if (d.save) await saveShots();
   else if (d.render) {
     if (await saveShots()) runSaved(`/runs/${shotsRun.id}/continue`);
@@ -1659,7 +1730,8 @@ $('shotsBody').addEventListener('click', async e => {
     if (last) closeShots(); else openShots(id);
     poll();
   } else if (d.redo && shotsRun.is_image) {
-    if (!confirm(`Make image ${d.redo} again on a new seed? The new one replaces it.`)) return;
+    const seed = $(`seed_${d.redo}`).value.trim();
+    if (!confirm(`Make image ${d.redo} again on ${seed ? `seed ${seed}` : 'a new seed'}? The new one replaces it.`)) return;
     if (await saveShots()) runSaved(`${runUrl(shotsRun.id)}/redo/${d.redo}`);
   } else if (d.redo) {
     const after = shotsRun.start === 'chain' ? shotsRun.shots.length - d.redo : 0;

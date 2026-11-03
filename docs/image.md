@@ -55,8 +55,12 @@ a second try, doesn't cost the rest of the set: the run ends as failed with the 
 
 **Let me read the prompts before rendering**, under How, stops once they're written so you can change them.
 
-**Prompts** on a set shows each image with its prompt. **Make again** makes one again on a new seed, using the prompt in
-the box. **Delete** takes one image and its prompt out of the set. **Delete** on the set removes all its images and prompts.
+**Seed**, under Generation, is empty by default: every image gets a new random seed. 🎲 picks one to keep, and
+✕ goes back to random. With a seed, image 1 uses it and each image after it the next number, so the set can be made
+again.
+
+**Prompts** on a set shows each image with its prompt and the seed it was made with. **Keep** sets that seed for the
+image. **Make again** makes one again using the prompt in the box, on its seed if one is set, or on a new one. **Delete** takes one image and its prompt out of the set. **Delete** on the set removes all its images and prompts.
 
 ## Workflows
 
@@ -96,6 +100,7 @@ Set `COMFYUI_WORKFLOW` to the workflow it runs: the panel keeps its conversions 
 | `--aspect` | Such as `16:9`, or `image` for the source's (the default, square without one). |
 | `--megapixels` | Such as `1.5` (default 1), or `image` for the source's. |
 | `--size 1920x1080` | An exact size, in place of those two. |
+| `--seed N` | Image 1's seed, and the next number for each image after it. Default: a random seed for every image. |
 | `--plan-only` | Writes the prompts and stops. |
 | `--resume RUN` | Continues a saved run. |
 | `--redo IMAGE` | With `--resume`: makes that image again. |
