@@ -1603,17 +1603,18 @@ document.addEventListener('input', e => {
     if (digits !== e.target.value) e.target.value = digits;
   }
 });
-// In the shots and images editors: what it used last time, and what the next render uses.
+// In the shots and images editors: the seed it was made with, which the next render keeps unless it's changed.
+function shownSeed(shot) { return shot.seed ?? shot.used_seed ?? null; }
 function shotSeedHtml(run, shot, i, what) {
-  const number = i + 1, used = shot.used_seed;
-  const last = used == null ? '' : `<button type="button" class="plain" data-seed-keep="${used}" title="Use the seed ${what} ${number} was made with">Keep ${used}</button>`;
+  const number = i + 1, seed = shownSeed(shot);
   return `
     <div class="seed-line">
       <label for="seed_${number}">Seed</label>
-      <input id="seed_${number}" data-seed inputmode="numeric" autocomplete="off" value="${shot.seed ?? ''}" placeholder="Random${used == null ? '' : ` · last ${used}`}" aria-label="Seed for ${what} ${number}" ${run.busy ? 'readonly' : ''}>
-      ${run.busy ? '' : `<button type="button" class="ghost" data-seed-roll="1" title="Pick a random seed to keep" aria-label="Pick a random seed to keep">${SHUFFLE_ICON}</button>${last}`}
+      <input id="seed_${number}" data-seed inputmode="numeric" autocomplete="off" value="${seed ?? ''}" placeholder="Random" aria-label="Seed for ${what} ${number}" ${run.busy ? 'readonly' : ''}>
+      ${run.busy ? '' : `<button type="button" class="ghost" data-seed-roll="1" title="A new random seed" aria-label="A new random seed for ${what} ${number}">${SHUFFLE_ICON}</button>`}
     </div>`;
 }
+function editedSeeds() { return [...$('shotsBody').querySelectorAll('[data-seed]')].map(input => input.value.trim() || null); }
 
 // --- A film's shots ---
 let shotsRun = null, shotsDirty = false;
@@ -1647,7 +1648,7 @@ function imageShotHtml(run, shot, i) {
 function imageShotsHtml(run) {
   const left = run.shots.filter(shot => !shot.rendered).length;
   const note = run.busy ? 'This run is going or queued, so its prompts can\'t change right now.'
-    : 'Making an image again leaves the others as they are. A changed prompt or seed only counts for the images made after it. An empty seed is a new random one each time.';
+    : 'Making an image again leaves the others as they are. Its seed stays unless you change it or shuffle it, and an empty one is new each time.';
   const go = !left || run.busy ? '' : `<button type="button" data-render="1">${left === run.shots.length ? 'Make the images' : `Make the ${left} left`}</button>`;
   const save = run.busy ? '' : '<button type="button" class="plain" data-save="1">Save prompts</button>';
   return `
@@ -1664,7 +1665,7 @@ function shotsHtml(run) {
   const left = run.shots.filter(shot => !shot.rendered).length;
   const note = run.busy ? 'This run is going or queued, so its prompts can\'t change right now.'
     : (run.start === 'chain' ? 'A continuous take: rendering a shot again also renders every shot after it, because they start from it.'
-    : 'Separate moments: rendering a shot again leaves the others as they are.') + ' An empty seed is a new random one each time; a set one makes the same clip from the same prompt.';
+    : 'Separate moments: rendering a shot again leaves the others as they are.') + ' A shot keeps its seed unless you change it or shuffle it, and an empty one is new each time.';
   const go = run.finished || run.busy ? '' : `<button type="button" data-render="1">${left === run.shots.length ? 'Render the film' : left ? `Render the ${left} left` : 'Stitch the film'}</button>`;
   const save = run.busy ? '' : '<button type="button" class="plain" data-save="1">Save prompts</button>';
   return `
@@ -1690,9 +1691,11 @@ async function openShots(id) {
   if (!$('shotsDialog').open) $('shotsDialog').showModal();
 }
 async function saveShots() {
-  if (!shotsDirty) return true;
+  const seeds = editedSeeds();
+  // The seed a shot was made with is shown, and kept, without being saved as its own yet.
+  const keptSeeds = seeds.some((seed, i) => seed !== (shotsRun.shots[i].seed == null ? null : String(shotsRun.shots[i].seed)));
+  if (!shotsDirty && !keptSeeds) return true;
   const prompts = [...$('shotsBody').querySelectorAll('textarea')].map(t => t.value);
-  const seeds = [...$('shotsBody').querySelectorAll('[data-seed]')].map(input => input.value.trim() || null);
   const data = await (await fetch(`${runUrl(shotsRun.id)}/shots`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompts, seeds }),
   })).json();
@@ -1717,8 +1720,8 @@ $('shotsBody').addEventListener('input', () => { shotsDirty = true; });
 $('shotsBody').addEventListener('click', async e => {
   const d = e.target.dataset || {};
   const seedInput = e.target.closest('.seed-line')?.querySelector('[data-seed]');
-  if (d.seedRoll || d.seedKeep) {
-    seedInput.value = d.seedKeep || randomSeed();
+  if (d.seedRoll) {
+    seedInput.value = randomSeed();
     shotsDirty = true;
   } else if (d.close) closeShots();
   else if (d.save) await saveShots();
@@ -1739,7 +1742,8 @@ $('shotsBody').addEventListener('click', async e => {
   } else if (d.redo) {
     const after = shotsRun.start === 'chain' ? shotsRun.shots.length - d.redo : 0;
     const also = after ? ` and the ${after} after it` : '';
-    if (!confirm(`Render shot ${d.redo}${also} again, then join the film anew? The film replaces the one already finished.`)) return;
+    const seed = $(`seed_${d.redo}`).value.trim();
+    if (!confirm(`Render shot ${d.redo}${also} again on ${seed ? `seed ${seed}` : 'a new seed'}, then join the film anew? The film replaces the one already finished.`)) return;
     if (await saveShots()) runSaved(`/runs/${shotsRun.id}/redo/${d.redo}`);
   }
 });

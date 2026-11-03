@@ -107,8 +107,8 @@ A reference workflow gives image 2 to every clip.
 
 **Seed**, under Generation, is empty by default: every clip gets a new random seed. The shuffle button picks one to keep, and ✕
 goes back to random. With a seed, clip 1 uses it, clip 2 the next number and so on, so the same prompts make the
-same film again. **Shots** shows the seed each clip was made with: **Keep** sets it for that shot, so rendering it
-again with a changed prompt changes only what the prompt does. A seed you set is used once per render: a clip that
+same film again. **Shots** shows the seed each clip was made with, and rendering it again keeps that seed unless you
+change it or press shuffle, so a changed prompt changes only what the prompt does. An empty seed is new each time. A seed you set is used once per render: a clip that
 fails its check is tried again on a new one.
 
 **Resolution** offers 360p, 480p, 540p and 720p, in landscape 16:9 or portrait 9:16. The default and highest preset
