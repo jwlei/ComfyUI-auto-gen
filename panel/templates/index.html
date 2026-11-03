@@ -268,7 +268,7 @@
   .status-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .status-head .section-title { margin: 0; }
   .comfy-status { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: .72rem; color: var(--muted); }
-  .run-actions { display: flex; gap: 8px; margin: 8px 0 12px; }
+  .run-actions { display: flex; gap: 8px; margin: 12px 0 8px; }
   .run-actions[hidden] { display: none; }
   .run-actions button { flex: 1; width: auto; margin: 0; }
   .card > .section-title:first-child { margin-top: 0; }
@@ -306,7 +306,7 @@
     .run-card > .status-main { grid-column: 1; grid-row: 2; }
     .run-card > .status-foot { grid-column: 1; grid-row: 3; }
     .run-card > .log-box { grid-column: 2; grid-row: 2 / 4; position: relative; min-height: 240px; margin-top: 0; }
-    .run-actions { margin-top: 0; }
+    .run-actions { margin-bottom: 0; }
     /* Always open here, and as tall as what's beside it: it scrolls rather than stretching the card. */
     .log-box > summary { display: none; }
     .log-panes { position: absolute; inset: 0; display: flex; flex-direction: column; }
@@ -406,10 +406,6 @@
     <div class="comfy-status" title="Generate starts it when the run needs avatar clips and COMFYUI_LAUNCHER is set in .env."><span class="dot" id="comfyDot"></span><span id="comfyText">ComfyUI: checking…</span></div>
   </div>
   <div class="status-main">
-  <div class="run-actions" id="runActions" hidden>
-    <button type="button" id="skip">Skip, resume later</button>
-    <button type="button" class="danger" id="stop">Stop all</button>
-  </div>
   <div class="current-work" id="currentWork" hidden></div>
   <div class="status">
     <span class="dot" id="dot"></span>
@@ -447,6 +443,10 @@
     <div class="queue" id="runQueue" data-lane="run" data-title="Runs" hidden></div>
     <div class="queue" id="stoppedRuns" hidden></div>
     <div class="queue only-shorts" id="uploadQueue" data-lane="upload" data-title="Uploads" hidden></div>
+  </div>
+  <div class="run-actions" id="runActions" hidden>
+    <button type="button" id="skip">Skip, resume later</button>
+    <button type="button" class="danger" id="stop">Stop all</button>
   </div>
   </div>
   <details class="log-box" id="logBox">
