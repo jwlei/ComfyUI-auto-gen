@@ -277,6 +277,7 @@ assert(/<div class="image-set-row album">\s*<a [^>]*class="album-cover"[^>]*><im
 const single = run("imageSetHtml({ id: 'image_9', label: 'One', total: 1, size: '1x1', when: 'now', images: [{ position: 1, title: 'x', version: 1 }] })");
 assert(single.includes('<div class="image-grid">') && !single.includes('album'), 'one image is just itself');
 assert(/\.image-set-row\.album \{ align-items: stretch; \}/.test(html) && /\.album-strip \{ display: flex;[^}]*overflow-x: auto/.test(html), 'the strip scrolls sideways');
+assert(/\.album-cover img \{ position: absolute; inset: 0;/.test(html) && !/\.album-cover \{[^}]*min-height/.test(html), 'the cover is as tall as the strip and buttons, not its picture');
 assert(/input\[type=file\]::file-selector-button/.test(html), 'choosing a file has a real button');
 run('imageSets = sets; renderImageSets()');
 const once = els.imageSets.innerHTML;

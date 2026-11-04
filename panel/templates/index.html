@@ -302,8 +302,9 @@
   .image-set-actions { flex: none; display: flex; gap: 6px; }
   /* An album: the cover spans the strip and the buttons, so it sits like a single image beside its buttons. */
   .image-set-row.album { align-items: stretch; }
-  .album-cover { position: relative; flex: none; display: block; width: 92px; min-height: 92px; }
-  .album-cover img { width: 100%; height: 100%; object-fit: cover; border-radius: 8px; display: block; background: #000; }
+  /* Its picture fills the box rather than sizing it: a tall wallpaper would otherwise make the row as tall as itself. */
+  .album-cover { position: relative; flex: none; display: block; width: 92px; overflow: hidden; border-radius: 8px; }
+  .album-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
   .album-count { position: absolute; right: 4px; bottom: 4px; padding: 0 6px; border-radius: 999px; background: rgba(0, 0, 0, .7);
     color: #fff; font-size: .7rem; font-weight: 600; line-height: 1.5; pointer-events: none; }
   .album-side { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; gap: 6px; }
@@ -311,6 +312,9 @@
   .album-strip::-webkit-scrollbar { display: none; }
   .album-strip a { flex: none; scroll-snap-align: start; }
   .album-strip img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; display: block; background: #000; }
+  /* Beside the cover the buttons share what width there is. */
+  .album-side .image-set-actions { min-width: 0; }
+  .album-side .image-set-actions button { flex: 1 1 0; min-width: 0; padding: 6px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .image-set-actions button { width: auto; margin: 0; padding: 6px 10px; font-size: .78rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
   .image-set-actions .del { background: transparent; color: var(--muted); }
   .pipeline-form .option-choice { display: inline-block; width: auto; max-width: 100%; margin: 4px 0 0 8px; padding: 3px 6px; font-size: .85rem; text-overflow: ellipsis; }
