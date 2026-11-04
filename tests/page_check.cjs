@@ -787,12 +787,12 @@ assert(/const PRESET_SKIP = \['prompt', 'narration', 'seed', 'topic', 'output', 
 
 // Try one first; start later; a note when something ends.
 assert((html.match(/<input type="checkbox" name="try_first">/g) || []).length === 2, 'Video and Image can try one first');
-assert(/<div class="start-later">\s*<label for="startAt">Start later, at<\/label>\s*<input type="time" id="startAt" name="start_at"/.test(html));
+assert(/<button type="button" class="start-later" id="goLater"[^>]*>Start later<\/button>/.test(html) && !html.includes('type="time"'), 'Start later: a quiet button, no clock');
 run(`resultsSeen = null; announceResults([{ label: 'Old', outcome: 'done', t: 1 }])`);
 assert.notStrictEqual(els.toast && els.toast.hidden, false, 'what ended before the page opened is not news');
 run(`announceResults([{ label: 'Old', outcome: 'done', t: 1 }, { label: 'A <b>storm', outcome: 'done', t: 2 }])`);
 assert(els.toast.hidden === false && els.toast.textContent === '✔ Finished: A <b>storm', 'then a note, as text');
-assert(/starts \$\{new Date\(item\.not_before \* 1000\)/.test(script), 'a job set to start later says when');
+assert(/item\.later \? `<button type="button" class="start-item" data-start="\$\{item\.id\}"/.test(script), 'one waiting to be started has Start');
 
 assert(/\.output-filter-line \{ display: flex; justify-content: center;/.test(html) && /\.output-filter-line select \{ width: 220px;/.test(html), 'the filter: centred, one size');
 

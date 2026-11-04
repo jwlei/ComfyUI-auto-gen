@@ -24,7 +24,7 @@ import socket
 import subprocess
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from functools import wraps
 
 import requests
@@ -359,14 +359,16 @@ class JobQueue:
 
     def add(self, item):
         """Starts the job if nothing is ahead of it, otherwise queues it. Returns True if it is queued."""
-        # Generate with a time to start at: it waits in the queue until then.
-        if has_request_context() and request.path.startswith("/generate/") and not item.get("not_before"):
-            item["not_before"] = start_at(request.form.get("start_at"))
+        # Generate's "Start later": it waits in the queue until it's started.
+        if has_request_context() and request.path.startswith("/generate/") and request.form.get("start_later"):
+            item["later"] = True
         with self.lock:
             self._ensure_watcher()
             item["id"] = self.next_id
             self.next_id += 1
-            self.items.append(item)
+            # Ahead of those waiting to be started, which stay at the end.
+            at = len(self.items) if item.get("later") else next((i for i, waiting in enumerate(self.items) if waiting.get("later")), len(self.items))
+            self.items.insert(at, item)
             self._advance()
             item["waited"] = item in self.items
             self._save()
@@ -384,8 +386,8 @@ class JobQueue:
         if not self.items:
             self.held = False
         elif self.job.idle and not self.held and not self.blocked():
-            # The first that may start now: one set to start later lets those behind it go first.
-            ready = next((i for i, waiting in enumerate(self.items) if (waiting.get("not_before") or 0) <= time.time()), None)
+            # The first that may start: one waiting to be started lets those behind it go first.
+            ready = next((i for i, waiting in enumerate(self.items) if not waiting.get("later")), None)
             if ready is None:
                 return
             item = self.items.pop(ready)
@@ -439,6 +441,19 @@ class JobQueue:
             self.held = False
             self._advance()
 
+    def start(self, item_id):
+        """Starts a job that was waiting to be: it goes next, ahead of the rest."""
+        with self.lock:
+            item = next((item for item in self.items if item["id"] == item_id), None)
+            if not item:
+                return False
+            item.pop("later", None)
+            self.items.remove(item)
+            self.items.insert(0, item)
+            self._advance()
+            self._save()
+            return True
+
     def remove(self, item_id):
         with self.lock:
             kept = [item for item in self.items if item["id"] != item_id]
@@ -473,7 +488,7 @@ class JobQueue:
     def snapshot(self):
         with self.lock:
             self._advance()
-            public = lambda item: {key: item.get(key) for key in ("id", "label", "detail", "estimate", "videos", "pipeline", "not_before")}
+            public = lambda item: {key: item.get(key) for key in ("id", "label", "detail", "estimate", "videos", "pipeline", "later")}
             return {"items": [public(item) for item in self.items],
                     "current": public(self.current) if self.current else None,
                     "results": list(self.results),
@@ -500,18 +515,6 @@ def notify_ended(item, outcome, note=None):
         except requests.RequestException:
             pass  # A notification that doesn't arrive costs nothing else
     threading.Thread(target=send, daemon=True).start()
-
-
-def start_at(text):
-    """When a job set to start at HH:MM may start: today, or tomorrow if that's already gone. None for now."""
-    match = re.fullmatch(r"(\d{1,2}):(\d{2})", (text or "").strip())
-    if not match or int(match.group(1)) > 23 or int(match.group(2)) > 59:
-        return None
-    now = datetime.now()
-    at = now.replace(hour=int(match.group(1)), minute=int(match.group(2)), second=0, microsecond=0)
-    if at <= now:
-        at += timedelta(days=1)
-    return at.timestamp()
 
 
 def form_options(form, takes):
@@ -1174,6 +1177,14 @@ def queue_remove(lane, item_id):
     if lane not in QUEUES:
         abort(404)
     return {"ok": QUEUES[lane].remove(item_id)}
+
+
+@app.route("/queue/<lane>/start/<int:item_id>", methods=["POST"])
+@password_required
+def queue_start(lane, item_id):
+    if lane not in QUEUES:
+        abort(404)
+    return {"ok": QUEUES[lane].start(item_id)}
 
 
 @app.route("/queue/<lane>/resume", methods=["POST"])

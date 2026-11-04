@@ -443,20 +443,19 @@ class PanelTest(unittest.TestCase):
         self.assertEqual([p["name"] for p in self.client.get("/api/presets").get_json()["presets"]["image"]], ["Phone wallpaper"])
         self.assertEqual(post({"side": "nowhere", "name": "x", "values": {}}).status_code, 400)
 
-    def test_a_job_set_to_start_later_waits_and_lets_others_go_first(self):
-        later = (datetime.now() + timedelta(hours=2)).strftime("%H:%M")
-        self.assertTrue(self.generate(start_at=later).get_json()["queued"], "it waits, though nothing is running")
-        queued = self.status()["queue"]["items"]
-        self.assertEqual(len(queued), 1)
-        self.assertGreater(queued[0]["not_before"], time.time() + 3600)
+    def test_a_job_started_later_waits_at_the_end_until_it_is_started(self):
+        self.assertTrue(self.generate(start_later="1").get_json()["queued"], "it waits, though nothing is running")
+        waiting = self.status()["queue"]["items"]
+        self.assertEqual([item["later"] for item in waiting], [True])
         self.assertFalse(webapp.job.running)
-        self.comfy.script = ["ok"] * 8
-        self.assertFalse(self.generate(prompt="now please").get_json()["queued"], "one without a time goes ahead of it")
+        self.comfy.script = ["ok"] * 16
+        self.assertTrue(self.generate(prompt="busy", review="1").get_json() is not None)
         self.wait_idle()
-        self.assertEqual([item["label"] for item in self.status()["queue"]["items"]], [queued[0]["label"]], "the later one still waits")
-        self.assertIsNone(webapp.start_at(""))
-        self.assertIsNone(webapp.start_at("25:00"))
-        self.assertGreater(webapp.start_at((datetime.now() - timedelta(minutes=5)).strftime("%H:%M")), time.time(), "a time gone today is tomorrow's")
+        self.assertEqual([item["label"] for item in self.status()["queue"]["items"]], [waiting[0]["label"]], "the one added after went first")
+        # Held again by something running, a new one goes ahead of it, and it stays last.
+        self.assertTrue(self.client.post(f"/queue/run/start/{waiting[0]['id']}").get_json()["ok"])
+        self.wait_idle()
+        self.assertEqual(self.status()["queue"]["items"], [], "started, it ran")
 
     def test_your_phone_is_told_when_a_job_ends_if_ntfy_is_set(self):
         sent = []

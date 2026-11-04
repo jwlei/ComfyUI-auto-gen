@@ -54,6 +54,7 @@
   .queue button { width: auto; margin: 0; padding: 4px 10px; font-size: .78rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
   .queue .results { margin-top: 6px; }
   /* A stopped run in a box of its own: what it is, how far it got, then what you can do with it. */
+  .queue .start-item { flex: none; color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
   .queue-item.leaving { overflow: hidden; animation: queue-leave .38s ease forwards; pointer-events: none; }
   @keyframes queue-leave {
     45% { opacity: 0; transform: translateY(-10px); }
@@ -488,12 +489,9 @@
   .form-actions { margin-top: 16px; }
   .form-actions .btns { margin-top: 0; }
   .form-actions #go { margin-top: 0; }
-  /* Start later: quiet, under the button. */
-  .start-later { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 6px; font-size: .78rem; color: var(--muted); }
-  .start-later label { margin: 0; text-transform: none; letter-spacing: 0; font-size: .78rem; }
-  .start-later input { width: auto; padding: 3px 6px; font-size: .8rem; }
-  .start-later button { width: auto; margin: 0; padding: 2px 8px; font-size: .78rem; }
-  .start-later button[hidden] { display: none; }
+  /* Start later: quiet, centred under the button. */
+  .start-later { display: block; width: auto; margin: 8px auto 0; padding: 2px 8px; background: none; border: 0; color: var(--muted);
+    font-size: .8rem; font-weight: 600; }
   .log-box { margin-top: 8px; font-size: .85rem; }
   .current-work { font-size: .95rem; font-weight: 600; margin-bottom: 8px; overflow-wrap: anywhere; }
   .run-card .btns:empty { display: none; }
@@ -1122,11 +1120,7 @@
   <div class="btns">
     <button type="button" id="go">Generate</button>
   </div>
-  <div class="start-later">
-    <label for="startAt">Start later, at</label>
-    <input type="time" id="startAt" name="start_at" aria-label="Start later, at this time">
-    <button type="button" class="ghost" id="startAtClear" title="Start as soon as it can" aria-label="Start as soon as it can" hidden>✕</button>
-  </div>
+  <button type="button" class="start-later" id="goLater" title="Into the queue, to start when you start it">Start later</button>
   <div class="err" id="formError" hidden></div>
   <div class="hint" id="formNote" hidden></div>
   <div class="estimate" id="estimate" hidden>
@@ -3054,7 +3048,7 @@ function renderQueue(el, q, doneIn, moving = false) {
   const items = waiting.map((item, i) => `
     <div class="queue-item" data-id="${esc(String(item.id))}">
       <div class="what">${i + 1}. ${esc(item.label)}<div class="hint">${el.dataset.lane === 'run' ? `${SIDE_NAMES[item.pipeline] || 'Shorts'} · ` : ''}${esc(item.detail)}</div></div>
-      ${item.not_before && item.not_before * 1000 > Date.now() ? `<span class="when">starts ${new Date(item.not_before * 1000).toTimeString().slice(0, 5)}</span>`
+      ${item.later ? `<button type="button" class="start-item" data-start="${item.id}" title="Start it: it goes next">Start</button>`
         : item.estimate ? `<span class="when">${fmtEta(item.estimate)}</span>` : ''}
       <button type="button" data-remove="${item.id}" aria-label="Remove from the queue" title="Remove from the queue">✕</button>
     </div>`).join('');
@@ -3186,7 +3180,8 @@ $('stoppedRuns').addEventListener('click', async e => {
 for (const id of ['runQueue', 'uploadQueue']) {
   $(id).addEventListener('click', async e => {
     const d = e.target.dataset || {}, lane = $(id).dataset.lane;
-    if (d.remove) await fetch(`/queue/${lane}/remove/${d.remove}`, { method: 'POST' });
+    if (d.start) await fetch(`/queue/${lane}/start/${d.start}`, { method: 'POST' });
+    else if (d.remove) await fetch(`/queue/${lane}/remove/${d.remove}`, { method: 'POST' });
     else if (d.resume) await fetch(`/queue/${lane}/resume`, { method: 'POST' });
     else return;
     poll();
@@ -3318,10 +3313,12 @@ async function poll() {
   const queue = data.queue, upq = data.upload.queue;
   runsQueued = queue.items.length;
   uploadsQueued = upq.items.length;
+  // Waiting to be started, they don't start by themselves: not next, and not part of when this all ends.
+  const ready = queue.items.filter(item => !item.later);
   // Between two jobs for a moment: the next is about to start, so this isn't "Finished".
-  const nextUp = !running && runsQueued > 0 && !queue.held;
+  const nextUp = !running && ready.length > 0 && !queue.held;
   // On hold they won't start by themselves, so they aren't part of when this all ends.
-  const queuedNext = queue.held ? [] : queue.items;
+  const queuedNext = queue.held ? [] : ready;
   const waitingWork = queuedNext.reduce((sum, item) => sum + (item.estimate || 0), 0);
   const runningLeft = running && data.progress.eta ? data.progress.eta.total_left : 0;
   queueAhead = queue.held ? null : runningLeft + waitingWork;
@@ -3406,8 +3403,6 @@ function showFormError(text) {
   $('formError').hidden = $('goError').hidden = !text;
 }
 for (const form of ['formShorts', 'formVideo', 'formImage']) $(form).addEventListener('input', () => { if (!$('goError').hidden) showFormError(''); });
-$('startAt').addEventListener('input', () => { $('startAtClear').hidden = !$('startAt').value; });
-$('startAtClear').addEventListener('click', () => { $('startAt').value = ''; $('startAtClear').hidden = true; });
 // Sends a form and reports how much of it is sent: an image over mobile data can take a while.
 function postForm(url, form, progress) {
   return new Promise(resolve => {
@@ -3429,15 +3424,16 @@ function showSending(share) {
   $('queuePendingPct').textContent = pct.trim();
   $('queuePendingBar').style.width = `${Math.round((share || 0) * 100)}%`;
 }
-async function startJob(url) {
+async function startJob(url, later = false) {
   showFormError('');
   submitting = true;
   $('go').disabled = $('goStick').disabled = true;
   showSending(0);
-  const body = await postForm(url, new FormData($(SIDE_FORMS[pipeline])), showSending);
+  const form = new FormData($(SIDE_FORMS[pipeline]));
+  if (later) form.append('start_later', '1');
+  const body = await postForm(url, form, showSending);
   submitting = false;
   $('queuePending').hidden = true;
-  if (body.ok) { $('startAt').value = ''; $('startAtClear').hidden = true; }  // The time was for that job
   $('go').textContent = $('goStick').textContent = wasRunning || runsQueued ? 'Add to queue' : 'Generate';
   $('formNote').hidden = !body.continued;
   if (body.continued) $('formNote').textContent = `Continuing what was already paid for: ${body.continued}`;
@@ -3481,6 +3477,11 @@ $('go').addEventListener('click', () => {
   startJob(`/generate/${pipeline}`);
 });
 $('goStick').addEventListener('click', () => $('go').click());
+// Into the queue, waiting at its end until you start it there.
+$('goLater').addEventListener('click', () => {
+  if (pipeline === 'video') saveVideoForm(); else if (pipeline === 'image') saveImageForm(); else saveForm();
+  startJob(`/generate/${pipeline}`, true);
+});
 
 function setPipeline(side, remember = true) {
   // Each side opens with its headings folded.
