@@ -449,15 +449,11 @@ assert(!script.includes("'Finished ✔'") && !script.includes('Upload finished')
 // The header: a short status on Run, and a bar under it per job.
 const idle = { running: false, stopped: false, returncode: null, elapsed: 0, progress: {}, upload: { running: false, elapsed: 0 } };
 context.idle = idle;
-assert.strictEqual(run('runShort(idle, false)'), 'Idle');
-assert.strictEqual(run('runShort({ ...idle, returncode: 0 }, false)'), 'Idle', 'finished is idle');
-assert.strictEqual(run('runShort({ ...idle, returncode: 1 }, false)'), 'Idle');
-assert.strictEqual(run('runShort(idle, true)'), 'Next job');
+// The footer's Status is just that, with its dot: what is being made shows in Status and the bars.
+assert(/<a href="#runCard" data-page="status" class="run"><span class="dot" id="jumpDot"><\/span>Status<\/a>/.test(html) && !html.includes('jumpRun'));
 const rendering = { ...idle, running: true, elapsed: 400, progress: { stage: [2, 4, 'Clips'], detail: 'Clip 2 of 75: The harbour, 8s',
   eta: { total_left: 600, adjusted_total: 1000 } } };
 context.rendering = rendering;
-assert.strictEqual(run('runShort(rendering, false)'), 'Clip 2/75');
-assert.strictEqual(run('runShort({ ...idle, running: true }, false)'), 'Starting');
 run('renderStrips(idle)');
 assert(els.runStrip.hidden && els.uploadStrip.hidden, 'nothing going, no bars');
 const barOf = id => { const bar = context.document.getElementById(id); bar.parentElement = element('bar'); return bar; };
@@ -739,8 +735,7 @@ assert(queue.innerHTML.includes('data-resume') && queue.innerHTML.includes('data
   context.setTimeout = () => 0;
   context.fetch = answer({ ...quiet, server_started: 1, returncode: 0 });
   await run('poll()');
-  assert.strictEqual(els.jumpRun.textContent, 'Idle', 'it works again straight after a stuck one');
-  assert.strictEqual(els.statusText.textContent, 'Idle', 'a finished run leaves the status idle');
+  assert.strictEqual(els.statusText.textContent, 'Idle', 'it works again straight after a stuck one, and a finished run leaves it idle');
   assert.strictEqual(els.go.textContent, 'Generate');
   context.fetch = answer({ ...quiet, server_started: 1, queue: { ...quiet.queue, items: [{ id: 1, label: 'x', estimate: 60 }] } });
   await run('poll()');

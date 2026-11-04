@@ -323,7 +323,7 @@
   .strip-total:empty { display: none; }
   .stick .strip[hidden] { display: block; max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
   .wrap { padding-bottom: calc(var(--head, 130px) + 16px); }
-  .jump { display: grid; grid-template-columns: 1.7fr 1fr 1fr .8fr; gap: 5px; padding: 6px 16px; }
+  .jump { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; padding: 6px 16px; }
   .jump a {
     display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px;
     background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; overflow: hidden;
@@ -342,7 +342,6 @@
   @keyframes menu-in { from { opacity: 0; transform: translateY(8px) scale(.94); } to { opacity: 1; transform: none; } }
   @keyframes menu-out { to { opacity: 0; transform: translateY(6px) scale(.96); } }
   @media (prefers-reduced-motion: reduce) { .side-menu, .side-menu.closing { animation: none; } }
-  .jump small { font-size: .74rem; font-weight: 400; overflow: hidden; text-overflow: ellipsis; }
   .strip { padding: 0 16px 7px; font-size: .78rem; }
   .strip-head { display: flex; justify-content: space-between; gap: 10px; }
   .strip-head b { font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -491,7 +490,7 @@
 <div class="stick" id="stick">
   <div class="side-menu" id="sideMenu" role="menu" hidden></div>
   <nav class="jump" id="jump" aria-label="Sections">
-    <a href="#runCard" data-page="status" class="run"><span class="dot" id="jumpDot"></span>Status<small id="jumpRun">Idle</small></a>
+    <a href="#runCard" data-page="status" class="run"><span class="dot" id="jumpDot"></span>Status</a>
     <a href="#optionsCard" data-page="generate">Generate</a>
     <a href="#videosCard" data-page="output" id="jumpResults">Videos</a>
     <a href="#quotaCard" data-page="quota">Quota</a>
@@ -2101,7 +2100,6 @@ const STAGE_HINTS = {
   'Stitching': 'Joining the scenes.',
   'Upload': 'Uploading to YouTube.',
 };
-const SHORT_STAGES = { 'Topic & script': 'Script', 'Stock footage': 'Footage', 'Avatar clips': 'Clips', 'Rendering scenes': 'Scenes' };
 function fmt(sec) {
   sec = Math.max(0, sec | 0);
   const m = Math.floor(sec / 60), s = sec % 60;
@@ -2461,15 +2459,6 @@ function showWork(text) {
   void el.offsetWidth;  // So it plays again
   el.classList.add('arrive');
 }
-function runShort(data, nextUp) {
-  if (data.running) {
-    const p = data.progress || {};
-    if (!p.stage) return 'Starting';
-    const clip = /^(Clip|Image) (\d+) of (\d+)/.exec(p.detail || '');
-    return clip ? `${clip[1]} ${clip[2]}/${clip[3]}` : SHORT_STAGES[p.stage[2]] || p.stage[2];
-  }
-  return nextUp ? 'Next job' : 'Idle';
-}
 // share is how much is done, 0 to 1, or null when that can't be told.
 function inView(id) {
   const box = $(id).getBoundingClientRect();
@@ -2603,7 +2592,6 @@ async function poll() {
   renderFinished(queue.results, upq.results);
   $('dot').className = 'dot' + (running || nextUp ? ' on' : '');
   $('jumpDot').className = $('dot').className;
-  $('jumpRun').textContent = runShort(data, nextUp);
   renderStrips(data);
   $('go').disabled = $('goStick').disabled = submitting;
   $('go').textContent = $('goStick').textContent = running || runsQueued ? 'Add to queue' : 'Generate';
