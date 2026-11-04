@@ -253,7 +253,7 @@ run("downloadImages('image_20261102_120000', [1, 3])");
 assert.deepStrictEqual(clicked, ['/image-runs/image_20261102_120000/files/1?download=1', '/image-runs/image_20261102_120000/files/3?download=1'], 'no zip');
 context.setTimeout = () => 0;
 assert(/<dialog id="imageViewer"[\s\S]*?id="viewerImage"[\s\S]*?id="viewerDownload"[\s\S]*?id="viewerClose"[\s\S]*?id="viewerDelete"[\s\S]*?<\/dialog>/.test(html), 'the picture, then Download, Close and Delete under it');
-assert(/dialog\.viewer::backdrop \{ background: rgba\(0, 0, 0, \.85\)/.test(html), 'over a dimmed page');
+assert(/dialog\.viewer::backdrop \{ background: rgba\(0, 0, 0, \.55\)/.test(html), 'over a dimmed page');
 run('imageSets = sets');
 run("openViewer('image_20261102_120000', 3)");
 assert.strictEqual(els.imageViewer.open, true);
@@ -796,7 +796,7 @@ assert(/item\.later \? `<button type="button" class="start-item" data-start="\$\
 
 assert(/\.output-filter-line \{ display: flex; justify-content: center;/.test(html) && /\.output-filter-line select \{ width: 220px;/.test(html), 'the filter: centred, one size');
 
-assert(/dialog\.viewer::backdrop \{[^}]*backdrop-filter: blur\(24px\)/.test(html), 'the page behind the preview, well blurred');
+assert(/dialog\.viewer::backdrop \{ background: rgba\(0, 0, 0, \.55\);[^}]*backdrop-filter: blur\(6px\)/.test(html), 'the page behind the preview, as behind Quota');
 
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/maximum-scale=1, user-scalable=no/.test(base) && /html \{ overflow-x: clip; touch-action: manipulation; \}/.test(base), 'no zooming the page out from under the footer');
