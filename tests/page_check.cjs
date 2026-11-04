@@ -268,7 +268,7 @@ assert.strictEqual(run('viewing.position'), 3, 'the next one in the set, whereve
 assert.strictEqual(els.viewerTitle.textContent, 'Two · 2 of 2');
 assert.strictEqual(run('stepViewer(1)'), false, 'nothing after the last');
 assert(/touchend[\s\S]*?Math\.abs\(dx\) > 50 && Math\.abs\(dx\) > Math\.abs\(dy\)/.test(script) && /ArrowRight/.test(script), 'swipes, and arrow keys on a desktop');
-assert(/#viewerImage \{[^}]*touch-action: pan-y pinch-zoom/.test(html), 'a sideways swipe is the page\'s, not the browser\'s');
+assert(/#viewerImage \{[^}]*touch-action: none;/.test(html), 'a swipe and a pinch are the page\'s, not the browser\'s');
 run('closeViewer()');
 assert.strictEqual(els.imageViewer.open, false);
 assert(/\.image-set-row \{ display: flex/.test(html) && /\.image-grid img \{ width: 56px/.test(html), 'and small enough to');
@@ -750,6 +750,16 @@ assert.strictEqual(els.imageAspect.value, 'custom', 'a size typed in stays');
 els.imageAspect.value = 'image';
 
 assert(/\.status-queue:has\(> :not\(\[hidden\]\)\) \{[^}]*border-top: 1px solid var\(--line\)/.test(html), 'a line between Status and the runs');
+
+// The page doesn't zoom, but a picture in the viewer does: around a point, and back to its own size.
+run('resetZoom()');
+run('zoomAround(2.5, { x: 300, y: 200 }, 1, { x: 0, y: 0 }, { x: 200, y: 200 })');
+assert.deepStrictEqual(JSON.parse(run('JSON.stringify(zoom)')), { scale: 2.5, x: -150, y: 0 }, 'the point tapped stays where it was');
+run('zoomAround(9, { x: 0, y: 0 }, 1, { x: 0, y: 0 }, { x: 0, y: 0 })');
+assert.strictEqual(run('zoom.scale'), 5, 'up to 5x');
+run('resetZoom()');
+assert.deepStrictEqual(JSON.parse(run('JSON.stringify(zoom)')), { scale: 1, x: 0, y: 0 });
+assert(/#viewerImage \{[^}]*touch-action: none;/.test(html) && /zoom\.scale === 1 \? \{ x: e\.touches\[0\]\.clientX/.test(script), 'zoomed in, a finger moves it rather than turning the page');
 
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/maximum-scale=1, user-scalable=no/.test(base) && /html \{ overflow-x: clip; touch-action: manipulation; \}/.test(base), 'no zooming the page out from under the footer');

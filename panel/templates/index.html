@@ -271,7 +271,8 @@
   /* Its own display would otherwise beat [hidden]: after a film, the video showed under the next image. */
   #viewerImage[hidden], #viewerVideo[hidden] { display: none !important; }
   #viewerImage { display: block; max-width: calc(100vw - 24px); max-height: calc(100dvh - 180px); object-fit: contain; border-radius: 8px; background: #000;
-    touch-action: pan-y pinch-zoom; user-select: none; -webkit-user-drag: none; }
+    touch-action: none; user-select: none; -webkit-user-drag: none; transform-origin: center; will-change: transform; }
+  #viewerImage.easing { transition: transform .2s ease; }
   /* The next image slides in from the side it was swiped towards. */
   #viewerImage.from-right { animation: viewer-from-right .2s ease; }
   #viewerImage.from-left { animation: viewer-from-left .2s ease; }
@@ -2111,6 +2112,7 @@ function openViewer(id, position) {
   if (!picture) return;
   viewing = { id, position };
   showViewerMedia(false);
+  resetZoom();
   const url = `/image-runs/${encodeURIComponent(id)}/files/${position}?v=${picture.version}`;
   $('viewerImage').src = url;
   $('viewerImage').alt = picture.title;
@@ -2146,11 +2148,85 @@ function stepViewer(by) {
   return true;
 }
 let swipeFrom = null;
+// --- Zooming into an image: the page itself doesn't zoom, so the footer stays put; the picture does ---
+// Pinch around your fingers, double-tap for 2.5x where you tapped, and drag about while zoomed. A swipe turns
+// to the next image only at its own size.
+const MOST_ZOOM = 5, TAP_ZOOM = 2.5;
+const zoom = { scale: 1, x: 0, y: 0 };
+let pinch = null, drag = null, lastTap = null;
+function applyZoom(ease = false) {
+  const image = $('viewerImage');
+  image.classList.toggle('easing', ease);
+  image.style.transform = zoom.scale > 1 ? `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})` : '';
+}
+function resetZoom() {
+  zoom.scale = 1;
+  zoom.x = zoom.y = 0;
+  pinch = drag = null;
+  applyZoom();
+}
+// To scale to s around the screen point m, from where it was (s0, t0) with the image's centre at c.
+function zoomAround(s, m, s0, t0, c) {
+  zoom.scale = Math.min(MOST_ZOOM, Math.max(1, s));
+  if (zoom.scale === 1) { zoom.x = zoom.y = 0; return; }
+  zoom.x = m.x - c.x - (zoom.scale / s0) * (m.x - c.x - t0.x);
+  zoom.y = m.y - c.y - (zoom.scale / s0) * (m.y - c.y - t0.y);
+}
+function imageCentre() {
+  const box = $('viewerImage').getBoundingClientRect();
+  return { x: box.left + box.width / 2 - zoom.x, y: box.top + box.height / 2 - zoom.y };
+}
+const between = (a, b) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
+const apart = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+$('viewerImage').addEventListener('touchstart', e => {
+  if (e.touches.length === 2) {
+    e.preventDefault();
+    pinch = { dist: apart(e.touches[0], e.touches[1]), mid: between(e.touches[0], e.touches[1]), scale: zoom.scale,
+              at: { x: zoom.x, y: zoom.y }, centre: imageCentre() };
+    drag = null;
+  } else if (e.touches.length === 1 && zoom.scale > 1) {
+    drag = { x: e.touches[0].clientX - zoom.x, y: e.touches[0].clientY - zoom.y };
+  }
+}, { passive: false });
+$('viewerImage').addEventListener('touchmove', e => {
+  if (pinch && e.touches.length === 2) {
+    e.preventDefault();
+    zoom.scale = Math.min(MOST_ZOOM, Math.max(1, pinch.scale * apart(e.touches[0], e.touches[1]) / pinch.dist));
+    // Keeps the point between your fingers under them, wherever they move.
+    const m = between(e.touches[0], e.touches[1]), s = zoom.scale;
+    zoom.x = m.x - pinch.centre.x - (s / pinch.scale) * (pinch.mid.x - pinch.centre.x - pinch.at.x);
+    zoom.y = m.y - pinch.centre.y - (s / pinch.scale) * (pinch.mid.y - pinch.centre.y - pinch.at.y);
+    if (s === 1) zoom.x = zoom.y = 0;
+    applyZoom();
+  } else if (drag && e.touches.length === 1) {
+    e.preventDefault();
+    zoom.x = e.touches[0].clientX - drag.x;
+    zoom.y = e.touches[0].clientY - drag.y;
+    applyZoom();
+  }
+}, { passive: false });
+$('viewerImage').addEventListener('touchend', e => {
+  if (e.touches.length < 2) pinch = null;
+  if (!e.touches.length) drag = null;
+  if (e.touches.length || e.changedTouches.length !== 1) return;
+  // Two taps close together: in to 2.5x where you tapped, or back out.
+  const touch = e.changedTouches[0], now = Date.now();
+  if (lastTap && now - lastTap.at < 300 && Math.hypot(touch.clientX - lastTap.x, touch.clientY - lastTap.y) < 30) {
+    lastTap = null;
+    if (zoom.scale > 1) resetZoom();
+    else zoomAround(TAP_ZOOM, { x: touch.clientX, y: touch.clientY }, 1, { x: 0, y: 0 }, imageCentre());
+    applyZoom(true);
+    e.preventDefault();
+  } else {
+    lastTap = { at: now, x: touch.clientX, y: touch.clientY };
+  }
+});
 $('imageViewer').addEventListener('touchstart', e => {
-  swipeFrom = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+  // Zoomed in, a finger moves the picture rather than turning to the next one.
+  swipeFrom = e.touches.length === 1 && zoom.scale === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
 }, { passive: true });
 $('imageViewer').addEventListener('touchend', e => {
-  if (!swipeFrom || !e.changedTouches.length) return;
+  if (!swipeFrom || !e.changedTouches.length || zoom.scale > 1) return;
   const dx = e.changedTouches[0].clientX - swipeFrom.x, dy = e.changedTouches[0].clientY - swipeFrom.y;
   swipeFrom = null;
   // Sideways, and far enough to mean it: a tap or a scroll isn't a swipe.
@@ -2164,6 +2240,7 @@ function closeViewer() {
   if ($('imageViewer').open) $('imageViewer').close();
 }
 $('imageViewer').addEventListener('close', () => {
+  resetZoom();
   viewing = null;
   $('viewerImage').removeAttribute('src');
   $('viewerVideo').pause();
