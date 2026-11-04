@@ -418,14 +418,32 @@ assert.strictEqual(box.hidden, true);
 // How a run or upload ended is said once, under Finished, newest first; the status itself goes back to Idle.
 run(`renderUpload({ lines: [{ n: 1, t: '17:00', text: 'x' }], running: false, started_at: '17:00', elapsed: 1, returncode: 1, stopped: true, queue: { items: [], held: false, results: [] } })`);
 assert.strictEqual(els.uploadBox.hidden, true, 'an upload that ended has nothing to show here');
-run(`renderFinished([{ label: 'A <b>run', outcome: 'done', at: '17:05' }, { label: 'B', outcome: 'failed', note: 'exit 1', at: '17:10' }],
-  [{ label: 'C', outcome: 'stopped', at: '17:20' }])`);
+run(`renderFinished([{ label: 'A <b>run', outcome: 'done', at: '17:05', pipeline: 'video' }, { label: 'B', outcome: 'failed', note: 'exit 1', at: '17:10', pipeline: 'image' }],
+  [{ label: 'C', outcome: 'done', at: '17:20' }])`);
 assert.strictEqual(els.finished.hidden, false);
-assert(els.finishedTitle.innerHTML.startsWith('Finished (3)') && els.finishedTitle.innerHTML.includes('1 failed'));
-const order = ['Upload: C', 'B', 'A &lt;b&gt;run'].map(text => els.finishedList.innerHTML.indexOf(text));
+assert.strictEqual(els.finishedToggle.hidden, false);
+assert(els.finishedToggle.innerHTML.startsWith('Finished (3)') && els.finishedToggle.innerHTML.includes('1 failed'));
+const order = ['>C<', '>B (exit 1)<', '>A &lt;b&gt;run<'].map(text => els.finishedList.innerHTML.indexOf(text));
 assert(order.every(i => i >= 0) && order[0] < order[1] && order[1] < order[2], 'newest first, escaped');
+assert(/data-goto="video"><span class="when">17:05<\/span> ✔ <span class="result-type">Video<\/span><span class="result-label">A &lt;b&gt;run/.test(els.finishedList.innerHTML), 'its type before its title');
+assert(/data-goto="shorts" data-tab="uploaded">[\s\S]*?<span class="result-type">Upload</.test(els.finishedList.innerHTML), 'an upload goes to what was uploaded');
+// One tap takes you to that side's output.
+run("goToOutput('image')");
+assert.strictEqual(run('pipeline'), 'image');
+assert.strictEqual(context.document.body.dataset.page, 'output');
+run("setPipeline('shorts', false)");
+// Log on the left, Finished on the right, on one line: one open at a time.
+assert(/<div class="status-toggles" id="statusToggles">\s*<button[^>]*id="logToggle"[^>]*>Log<\/button>\s*<button[^>]*id="finishedToggle"/.test(html), 'Log, then Finished');
+assert(!html.includes('Expand to see the log'));
+run("showStatusPanel('log')");
+assert(els.logBox.open === true && els.finished.open === false);
+run("showStatusPanel('finished')");
+assert(els.logBox.open === false && els.finished.open === true, 'opening one closes the other');
+run('showStatusPanel(null)');
+assert(!els.logBox.open && !els.finished.open);
 run('renderFinished([], [])');
 assert.strictEqual(els.finished.hidden, true);
+assert.strictEqual(els.finishedToggle.hidden, true);
 assert(!script.includes("'Finished ✔'") && !script.includes('Upload finished') && !script.includes('Failed (exit'));
 
 // The header: a short status on Run, and a bar under it per job.
@@ -616,7 +634,7 @@ assert(/id="shutdown" aria-label="Shut down"[^>]*><svg/.test(html));
 // Queue and log live in Status, the queue first, and the footer no longer goes to them.
 const status = html.slice(html.indexOf('id="runCard"'), html.indexOf('id="optionsCard"'));
 assert(status.indexOf('id="runQueue"') > 0 && status.indexOf('id="runQueue"') < status.indexOf('id="logBox"') && status.indexOf('id="logBox"') < status.indexOf('id="log"'));
-assert(/<details class="log-box" id="logBox">\s*<summary>Expand to see/.test(status) && !/id="logBox" open/.test(html));
+assert(/<details class="log-box" id="logBox">\s*<summary>Log<\/summary>/.test(status) && !/id="logBox" open/.test(html), 'opened by the Log toggle above it');
 assert(/<a href="#optionsCard" data-page="generate">Generate<\/a>/.test(html) && !html.includes('href="#queueCard"') && !html.includes('href="#logCard"'));
 // The log is folded on a phone. On a desktop it is always open, with no heading to fold it by, beside the run at half the width.
 assert.strictEqual(els.logBox.open, false, 'folded on a phone');

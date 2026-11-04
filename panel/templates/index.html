@@ -101,13 +101,25 @@
   .run-sep { border-top: 1px solid var(--line); margin: 14px 0 12px; }
   .phone { font-size: .82rem; color: var(--muted); margin-top: 6px; }
   .finished, .misc { margin-top: 10px; font-size: .85rem; }
-  .finished summary { font-size: .8rem; font-weight: 500; color: var(--muted); }
+  .finished > summary, .log-box > summary { display: none; }
+  /* Log and Finished: two toggles on one line, one open at a time. */
+  .status-toggles { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 12px; }
+  .status-toggle { width: auto; margin: 0; padding: 4px 0; background: none; border: 0; color: var(--muted); font-size: .8rem; font-weight: 500; }
+  .status-toggle::after { content: "\203A"; display: inline-block; margin-left: 6px; transition: transform .15s; }
+  .status-toggle[aria-expanded="true"] { color: var(--text); }
+  .status-toggle[aria-expanded="true"]::after { transform: rotate(90deg); }
+  #finishedToggle { margin-left: auto; }
+  .status-toggle .failed { color: var(--err); }
+  .finished .results .result { display: flex; align-items: baseline; gap: 6px; width: 100%; margin: 0; padding: 3px 0; background: none; border: 0;
+    color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .finished .results .result:hover .result-label { text-decoration: underline; }
+  .result-type { flex: none; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; font-size: .7rem; color: var(--text); }
+  .result-label { min-width: 0; overflow-wrap: anywhere; }
   .misc[hidden] { display: none; }
   #statusHead { cursor: pointer; user-select: none; }
   .status-chevron { display: inline-block; transition: transform .15s; }
   #statusHead[aria-expanded="true"] .status-chevron { transform: rotate(90deg); }
-  .finished .results div { padding: 2px 0; }
-  .finished .failed, .finished summary .failed { color: var(--err); }
+  .finished .failed { color: var(--err); }
   .phone code { color: var(--text); background: var(--panel-2); padding: 2px 6px; border-radius: 6px; user-select: all; }
   .vhead { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
   .tabs { display: flex; gap: 6px; flex: 1 1 auto; }
@@ -324,8 +336,7 @@
   .form-actions { margin-top: 16px; }
   .form-actions .btns { margin-top: 0; }
   .form-actions #go { margin-top: 0; }
-  .log-box { margin-top: 12px; font-size: .85rem; }
-  .log-box summary { color: var(--muted); }
+  .log-box { margin-top: 8px; font-size: .85rem; }
   .current-work { font-size: .95rem; font-weight: 600; margin-bottom: 8px; overflow-wrap: anywhere; }
   .run-card .btns:empty { display: none; }
   .status-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -380,15 +391,16 @@
     /* Status stays in sight above the rest, half what's running and half its log. */
     .run-card {
       grid-column: 1 / -1; position: sticky; top: 0; z-index: 5; max-height: 50vh; overflow: auto;
-      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto auto 1fr; gap: 0 24px;
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto auto auto 1fr; gap: 0 24px;
     }
     .run-card > .status-head { grid-column: 1 / -1; grid-row: 1; margin-bottom: 8px; }
     .run-card > .status-main { grid-column: 1; grid-row: 2; }
-    .run-card > .status-foot { grid-column: 1; grid-row: 3; }
-    .run-card > .log-box { grid-column: 2; grid-row: 2 / 4; position: relative; min-height: 240px; margin-top: 0; }
+    .run-card > .status-toggles { grid-column: 1; grid-row: 3; }
+    .run-card > .status-foot { grid-column: 1; grid-row: 4; }
+    .run-card > .log-box { grid-column: 2; grid-row: 2 / 5; position: relative; min-height: 240px; margin-top: 0; }
+    #logToggle { display: none; }
     .run-actions { margin-bottom: 0; }
     /* Always open here, and as tall as what's beside it: it scrolls rather than stretching the card. */
-    .log-box > summary { display: none; }
     .log-panes { position: absolute; inset: 0; display: flex; flex-direction: column; }
     .log-panes .q-group:first-child { margin-top: 0; }
     .log-panes .log { flex: 2 1 0; min-height: 0; max-height: none; }
@@ -534,8 +546,12 @@
     <button type="button" class="danger" id="stop">Stop all</button>
   </div>
   </div>
+  <div class="status-toggles" id="statusToggles">
+    <button type="button" class="status-toggle" id="logToggle" aria-expanded="false" aria-controls="logBox">Log</button>
+    <button type="button" class="status-toggle" id="finishedToggle" aria-expanded="false" aria-controls="finished" hidden></button>
+  </div>
   <details class="log-box" id="logBox">
-    <summary>Expand to see the log</summary>
+    <summary>Log</summary>
     <div class="log-panes">
       <div class="q-group">Generation</div>
       <div class="log" id="log"><span class="empty-log">No run yet.</span></div>
@@ -545,7 +561,7 @@
   </details>
   <div class="status-foot">
   <details class="finished" id="finished" hidden>
-    <summary id="finishedTitle"></summary>
+    <summary id="finishedTitle" hidden></summary>
     <div class="hint results" id="finishedList"></div>
   </details>
   <div class="misc" id="misc" hidden>
@@ -2305,16 +2321,41 @@ function renderQueue(el, q, doneIn) {
 }
 // Every run and upload that has ended, in one list, newest first.
 function renderFinished(runs, uploads) {
-  const all = [...runs.map(r => ({ ...r, kind: '' })), ...uploads.map(r => ({ ...r, kind: 'Upload: ' }))]
+  const all = [...runs.map(r => ({ ...r, type: SIDE_NAMES[r.pipeline] || 'Shorts', side: r.pipeline || 'shorts' })),
+    ...uploads.map(r => ({ ...r, type: 'Upload', side: 'shorts', tab: r.outcome === 'done' ? 'uploaded' : 'output' }))]
     .sort((a, b) => (b.at || '').localeCompare(a.at || ''));
-  $('finished').hidden = !all.length;
-  if (!all.length) return;
+  $('finished').hidden = $('finishedToggle').hidden = !all.length;
+  if (!all.length) {
+    showStatusPanel($('logBox').open && !WIDE.matches ? 'log' : null);
+    return;
+  }
   const failed = all.filter(r => r.outcome === 'failed').length;
   const title = `Finished (${all.length})${failed ? ` · <span class="failed">${failed} failed</span>` : ''}`;
-  const list = all.map(r => `<div class="${r.outcome === 'failed' ? 'failed' : ''}">${r.at} ${RESULT_MARKS[r.outcome]}: ${r.kind}${esc(r.label)}${r.note ? ` (${esc(r.note)})` : ''}</div>`).join('');
-  if ($('finishedTitle').innerHTML !== title) $('finishedTitle').innerHTML = title;
+  const list = all.map(r => `<button type="button" class="result${r.outcome === 'failed' ? ' failed' : ''}" data-goto="${esc(r.side)}"${r.tab ? ` data-tab="${r.tab}"` : ''}>`
+    + `<span class="when">${r.at}</span> ${RESULT_MARKS[r.outcome]} <span class="result-type">${r.type}</span>`
+    + `<span class="result-label">${esc(r.label)}${r.note ? ` (${esc(r.note)})` : ''}</span></button>`).join('');
+  if ($('finishedToggle').innerHTML !== title) $('finishedToggle').innerHTML = title;
   if ($('finishedList').dataset.html !== list) { $('finishedList').innerHTML = list; $('finishedList').dataset.html = list; }
 }
+// Log or Finished: one open at a time. A desktop always has the log beside the run, so only Finished opens and closes there.
+function showStatusPanel(which) {
+  if (!WIDE.matches) $('logBox').open = which === 'log';
+  $('finished').open = which === 'finished';
+  $('logToggle').setAttribute('aria-expanded', String($('logBox').open && !WIDE.matches));
+  $('finishedToggle').setAttribute('aria-expanded', String(which === 'finished'));
+}
+$('logToggle').addEventListener('click', () => showStatusPanel($('logBox').open ? null : 'log'));
+$('finishedToggle').addEventListener('click', () => showStatusPanel($('finished').open ? null : 'finished'));
+// A result takes you to what it made: its side's output.
+function goToOutput(side, tab) {
+  if (side !== pipeline) setPipeline(side);
+  if (tab && side === 'shorts') setTab(tab);
+  if (WIDE.matches) $('videosCard').scrollIntoView({ behavior: 'smooth' }); else showPage('output');
+}
+$('finishedList').addEventListener('click', e => {
+  const result = e.target.closest && e.target.closest('[data-goto]');
+  if (result) goToOutput(result.dataset.goto, result.dataset.tab);
+});
 function whyHtml(outcome) {
   return `<details class="why"><summary>Why</summary><div class="why-text">${esc(outcome.why)}</div></details>`;
 }

@@ -417,7 +417,7 @@ class JobQueue:
         self._record(item, "skipped", error)
 
     def _record(self, item, outcome, note=None):
-        self.results.append({"label": item["label"], "outcome": outcome, "note": note,
+        self.results.append({"label": item["label"], "outcome": outcome, "note": note, "pipeline": item.get("pipeline"),
                              "at": datetime.now().strftime("%H:%M")})
         del self.results[:-self.KEPT_RESULTS]
 
