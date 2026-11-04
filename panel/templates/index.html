@@ -163,7 +163,7 @@
   /* A film's poster says it plays. */
   .film-cover .play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff;
     font-size: 1.4rem; text-shadow: 0 1px 6px rgba(0, 0, 0, .8); pointer-events: none; }
-  #viewerVideo { display: block; max-width: calc(100vw - 24px); max-height: calc(100dvh - 120px); border-radius: 8px; background: #000; }
+  #viewerVideo { display: block; max-width: calc(100vw - 24px); max-height: calc(100dvh - 180px); border-radius: 8px; background: #000; }
   #viewerVideo.from-right { animation: viewer-from-right .2s ease; }
   #viewerVideo.from-left { animation: viewer-from-left .2s ease; }
   .vid { flex: 0 0 78%; min-width: 0; scroll-snap-align: center; display: flex; flex-direction: column; }
@@ -266,7 +266,9 @@
     display: none; flex-direction: column; align-items: center; gap: 10px; overflow: visible; }
   dialog.viewer[open] { display: flex; animation: viewer-in .2s ease; }
   dialog.viewer::backdrop { background: rgba(0, 0, 0, .85); }
-  #viewerImage { display: block; max-width: calc(100vw - 24px); max-height: calc(100dvh - 120px); object-fit: contain; border-radius: 8px; background: #000;
+  /* Its own display would otherwise beat [hidden]: after a film, the video showed under the next image. */
+  #viewerImage[hidden], #viewerVideo[hidden] { display: none !important; }
+  #viewerImage { display: block; max-width: calc(100vw - 24px); max-height: calc(100dvh - 180px); object-fit: contain; border-radius: 8px; background: #000;
     touch-action: pan-y pinch-zoom; user-select: none; -webkit-user-drag: none; }
   /* The next image slides in from the side it was swiped towards. */
   #viewerImage.from-right { animation: viewer-from-right .2s ease; }
@@ -275,7 +277,9 @@
   @keyframes viewer-from-left { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }
   @media (prefers-reduced-motion: reduce) { #viewerImage.from-right, #viewerImage.from-left { animation: none; } }
   .viewer-bar { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 8px; }
-  .viewer-title { color: #ddd; font-size: .85rem; text-align: center; overflow-wrap: anywhere; }
+  /* At most two lines, so a long title can't push the buttons off the screen. */
+  .viewer-title { color: #ddd; font-size: .85rem; text-align: center; overflow-wrap: anywhere;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
   .viewer-title:empty { display: none; }
   .viewer-actions { display: flex; gap: 8px; }
   dialog.viewer .viewer-actions > * { flex: 1 1 0; min-width: 96px; height: 40px; margin: 0; padding: 0 16px; box-sizing: border-box;
@@ -331,6 +335,8 @@
   details.why summary { cursor: pointer; width: max-content; }
   .why-text { margin-top: 3px; white-space: pre-line; overflow-wrap: anywhere; }
   .image-set .meta { color: var(--muted); font-size: .74rem; }
+  .meta.loras { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+  .meta.loras.open { white-space: normal; overflow-wrap: anywhere; }
   .image-set-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
   /* Pictures wrap beside the buttons, rather than hiding along a line: a set can be a hundred. */
   .image-grid { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; }
@@ -1880,9 +1886,16 @@ function imageOptionsOnly() {
 // The sets made so far. Small pictures, because a set of big PNGs would crawl over a phone connection.
 let imageSets = [];
 // The LoRAs it was made with, on a line of their own under its details.
+// One line, cut short with … when it doesn't fit; a tap shows the whole of it.
 function lorasLine(loras) {
-  return loras && loras.length ? `<div class="meta loras">LoRA: ${loras.map(esc).join(', ')}</div>` : '';
+  if (!loras || !loras.length) return '';
+  const text = `LoRA: ${loras.map(esc).join(', ')}`;
+  return `<div class="meta loras" role="button" tabindex="0" title="${text}">${text}</div>`;
 }
+document.addEventListener('click', e => {
+  const line = e.target.closest && e.target.closest('.meta.loras');
+  if (line) line.classList.toggle('open');
+});
 const ICON_SVG = path => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
 const ICONS = {
   download: ICON_SVG('<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>'),
@@ -2202,7 +2215,7 @@ function filmHtml(v) {
     <h3>${v.title || v.topic ? esc(v.title || v.topic) : folder === 'video' ? name : '<span style="color:var(--muted)">No topic recorded</span>'}</h3>
     <div class="meta" title="${name}">${[v.model && esc(v.model), v.created, `${v.size_mb} MB`].filter(Boolean).join(' · ')}</div>${lorasLine(v.loras)}
     <div class="image-set-row album">
-      <a href="/videos/${folder}/${url}" class="album-cover film-cover" data-play-film="${name}" title="Play"><img loading="lazy" alt="" src="/posters/${folder}/${url}"><span class="play">▶</span></a>
+      <a href="/videos/${folder}/${url}" class="album-cover film-cover" data-play-film="${name}" title="Play"><img loading="lazy" alt="" src="${v.run && folder === 'video' ? `/runs/${encodeURIComponent(v.run)}/image` : `/posters/${folder}/${url}`}" onerror="this.onerror=null;this.src='/posters/${folder}/${url}'"><span class="play">▶</span></a>
       <div class="album-side">${actions}</div>
     </div>
   </div>`;

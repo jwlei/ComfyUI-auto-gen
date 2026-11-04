@@ -639,9 +639,9 @@ assert(/dialog\.viewer \.viewer-actions > \* \{ flex: 1 1 0; min-width: 96px; he
 assert(/\.image-set-actions button\.armed, \.acts button\.armed[^{]*\{\s*background: var\(--err\) !important;/.test(html), 'Confirm is red in Output too');
 context.withLoras = { ...context.oneImage0 = { id: 'image_2', label: 'L', total: 1, size: '1x1', when: 'now', images: [] }, loras: ['KNPV3_1 (0.8)', '<b>x'] };
 const loraHtml = run('imageSetHtml(withLoras)');
-assert(/<\/div><div class="meta loras">LoRA: KNPV3_1 \(0\.8\), &lt;b&gt;x<\/div>/.test(loraHtml), 'LoRAs on a line of their own, escaped');
+assert(/<\/div><div class="meta loras"[^>]*>LoRA: KNPV3_1 \(0\.8\), &lt;b&gt;x<\/div>/.test(loraHtml), 'LoRAs on a line of their own, escaped');
 assert(!run('imageSetHtml(oneImage0)').includes('LoRA'), 'none, no line');
-assert(run("filmHtml({ name: 'f.mp4', created: 'now', size_mb: 1, loras: ['a'] })").includes('<div class="meta loras">LoRA: a</div>'), 'films too');
+assert(run("filmHtml({ name: 'f.mp4', created: 'now', size_mb: 1, loras: ['a'] })").includes('>LoRA: a</div>'), 'films too');
 // A run that stopped short says so under Stopped runs: a small word on its title's line, and why under a fold.
 // Output is only what was made.
 run(`renderStopped([{ id: 'run_1', pipeline: 'video', label: 'Jungle Flight', detail: 'Plan ready', when: 'now', estimate: 60, clips: 0,
@@ -726,6 +726,13 @@ assert.strictEqual(els.viewerVideo.src, '/videos/video/b.mp4');
 assert.strictEqual(run('stepViewer(1)'), false, 'nothing after the last');
 run('closeViewer()');
 run(`folder = 'output'`);
+
+// The viewer never shows both: [hidden] wins over each one's own display.
+assert(/#viewerImage\[hidden\], #viewerVideo\[hidden\] \{ display: none !important; \}/.test(html));
+assert(/\.viewer-title \{[^}]*-webkit-line-clamp: 2/.test(html), 'a long title stays on two lines, the buttons in view');
+// LoRAs on one line, cut short, the whole of it a tap away.
+assert(/class="meta loras" role="button" tabindex="0" title="LoRA: a, b">LoRA: a, b<\/div>/.test(run("lorasLine(['a', 'b'])")));
+assert(/\.meta\.loras \{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis;/.test(html) && /\.meta\.loras\.open \{ white-space: normal;/.test(html));
 
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/html \{ overflow-x: clip; \}/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),
