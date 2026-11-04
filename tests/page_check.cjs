@@ -306,15 +306,22 @@ context.imageRun = imageRun;
 const imageDialog = run('shotsHtml(imageRun)');
 assert(!imageDialog.includes('<script>'), 'prompts are escaped');
 assert(imageDialog.includes('data-redo="1"') && !imageDialog.includes('data-redo="2"') && imageDialog.includes('Make the 1 left') && imageDialog.includes('data-delete-image="2"'));
-// A set's prompts: a carousel to swipe through, one image to a page, its count, and no long hint; the buttons in the middle.
-assert(/<div class="shots-list carousel" id="shotsCarousel">/.test(imageDialog) && imageDialog.includes('1 of 2 · swipe for the others'));
-assert(!imageDialog.includes('Making an image again leaves') && imageDialog.includes('<div class="shots-foot centred">'));
-assert(/\.shots-list\.carousel \{ display: flex;[^}]*scroll-snap-type: x mandatory/.test(html) && /\.shots-list\.carousel > \.shot \{ flex: 0 0 100%/.test(html));
+// A set's prompts: a carousel, its count on the right of the title, the original prompt behind the title; small buttons under it.
+assert(/<div class="shots-list carousel" id="shotsCarousel">/.test(imageDialog) && /<button type="button" class="shots-title" data-fold="briefFold"[^>]*>T<\/button>\s*<span class="shots-count" id="shotsCount">1 of 2<\/span>/.test(imageDialog));
+assert(/<div class="seed-fold brief-fold" id="briefFold" hidden>\s*<div class="fold-text">"b"<\/div>/.test(imageDialog), 'the original prompt, a tap away');
+assert(!imageDialog.includes('Making an image again leaves') && imageDialog.includes('<div class="shots-foot centred small">') && !/shots-foot[^>]*>[^<]*<button[^>]*data-save/.test(imageDialog));
+assert(/\.shots-foot button \{ flex: 0 1 auto; min-width: 96px; padding: 6px 18px; font-size: \.82rem;/.test(html), 'small buttons, as Quota\'s Close');
 assert(imageDialog.includes('<span class="finished">finished</span>') && !imageDialog.includes('>made<') && /\.shot-title \.finished \{ color: var\(--ok\); \}/.test(html), 'finished, in green');
-// The seed, quietly on the right of Make again and Delete, grows up out of its chevron.
-assert(/<div class="shot-actions">\s*<button type="button" data-redo="1">Make again<\/button><button type="button" data-delete-image="1">Delete<\/button>\s*<button type="button" class="seed-toggle" data-seed-toggle="1" aria-expanded="false"[^>]*>Seed<\/button>\s*<div class="seed-fold" id="seedFold_1" hidden>\s*<div class="seed-line">/.test(imageDialog));
-assert(/\.seed-fold \{[^}]*bottom: calc\(100% \+ 6px\)/.test(html) && /\.seed-toggle \{ position: absolute; right: 0;/.test(html));
-assert(/\$\('shotsDialog'\)\.addEventListener\('click', e => \{\s*if \(e\.target\.closest && \(e\.target\.closest\('\.seed-fold'\) \|\| e\.target\.closest\('\[data-seed-toggle\]'\)\)\) return;\s*closeSeedFolds\(\);/.test(script),
+// Each image: make again, save, delete as icons on the left; its seed on the right, in line with them.
+assert(/<div class="shot-actions-left"><button type="button" class="icon-btn" data-redo="1"[^>]*aria-label="Make again"><svg[\s\S]*?data-save="1"[^>]*aria-label="Save the prompts"><svg[\s\S]*?class="icon-btn del" data-delete-image="1"/.test(imageDialog));
+assert(/<div class="shot-actions-right">\s*<button type="button" class="icon-btn" data-fold="seedFold_1"[^>]*aria-label="Seed"><svg[\s\S]*?<div class="seed-fold" id="seedFold_1" hidden>\s*<div class="seed-line">/.test(imageDialog));
+assert(!imageDialog.includes('enhancedFold_'), 'nothing to show when no enhancer wrote it');
+context.imageRun.shots[0].enhanced_prompt = 'A <b>bright</b> lighthouse';
+const withEnhanced = run('shotsHtml(imageRun)');
+assert(/<div class="shot-actions-right">\s*<button type="button" class="icon-btn" data-fold="enhancedFold_1"[\s\S]*?A &lt;b&gt;bright[\s\S]*?data-fold="seedFold_1"/.test(withEnhanced), 'what the enhancer wrote, left of the seed');
+delete context.imageRun.shots[0].enhanced_prompt;
+assert(/dialog\.viewer \.viewer-actions > \* \{[^}]*height: 32px;/.test(html), 'the viewer\'s buttons small too');
+assert(/\$\('shotsDialog'\)\.addEventListener\('click', e => \{\s*if \(e\.target\.closest && \(e\.target\.closest\('\.seed-fold'\) \|\| e\.target\.closest\('\[data-fold\]'\)\)\) return;\s*closeSeedFolds\(\);/.test(script),
   'a tap anywhere else puts the seed away');
 assert.strictEqual(run("runUrl('image_1')"), '/image-runs/image_1');
 assert.strictEqual(run("runUrl('run_1')"), '/runs/run_1');
@@ -633,7 +640,7 @@ run("showWork('Video: First')");
 assert(els.currentWork.hidden === false && els.currentWork.textContent === 'Video: First');
 assert(/nextUp \? `\$\{SIDE_NAMES\[queue\.items\[0\]\.pipeline\]/.test(script), 'between two jobs, the next one already shows');
 assert(/#currentWork\.arrive \{ animation: work-arrive/.test(html) && /\.queue-item\.leaving \{[^}]*animation: queue-leave/.test(html));
-assert(/dialog\.viewer \.viewer-actions > \* \{ flex: 1 1 0; min-width: 96px; height: 40px; margin: 0;/.test(html), 'Download, Delete and Close are one size');
+assert(/dialog\.viewer \.viewer-actions > \* \{ flex: 1 1 0; min-width: 96px; height: 32px; margin: 0;/.test(html), 'Download, Delete and Close are one size');
 assert(/\.image-set-actions button\.armed, \.acts button\.armed[^{]*\{\s*background: var\(--err\) !important;/.test(html), 'Confirm is red in Output too');
 context.withLoras = { ...context.oneImage0 = { id: 'image_2', label: 'L', total: 1, size: '1x1', when: 'now', images: [] }, loras: ['KNPV3_1 (0.8)', '<b>x'] };
 const loraHtml = run('imageSetHtml(withLoras)');

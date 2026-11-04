@@ -311,9 +311,9 @@
     display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
   .viewer-title:empty { display: none; }
   .viewer-actions { display: flex; gap: 8px; }
-  dialog.viewer .viewer-actions > * { flex: 1 1 0; min-width: 96px; height: 40px; margin: 0; padding: 0 16px; box-sizing: border-box;
+  dialog.viewer .viewer-actions > * { flex: 1 1 0; min-width: 96px; height: 32px; margin: 0; padding: 0 14px; box-sizing: border-box;
     display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 10px;
-    font-size: .9rem; font-weight: 600; white-space: nowrap; }
+    font-size: .82rem; font-weight: 600; white-space: nowrap; border-radius: 999px; }
   dialog.viewer .viewer-actions > a.button { background: var(--accent); border-color: var(--accent); color: #fff; text-decoration: none; }
   dialog.viewer .viewer-actions > button { background: var(--panel-2); color: var(--text); }
   dialog.viewer .viewer-actions > button.del { color: #ff6b6b; }
@@ -341,12 +341,28 @@
   .shots-foot.centred { justify-content: center; }
   .shots-foot.centred button { flex: 0 1 auto; padding: 10px 18px; }
   .shot-title .finished { color: var(--ok); }
+  /* The set's head: its title opens the original prompt, where you are on the right. */
+  .shots-head { position: relative; }
+  .shots-head-line { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .shots-title { width: auto; margin: 0; padding: 0; background: none; border: 0; color: var(--text); font-size: 1.05rem; font-weight: 700; text-align: left; }
+  .shots-title::after { content: "\203A"; display: inline-block; margin-left: 6px; color: var(--muted); transform: rotate(90deg); }
+  .shots-head-line .shots-count { flex: none; margin: 0; }
+  .brief-fold { top: calc(100% - 4px); bottom: auto; left: 16px; right: 16px; width: auto; transform-origin: top left; }
+  .fold-text { margin-top: 2px; font-size: .85rem; white-space: pre-line; overflow-wrap: anywhere; }
+  /* Each image's icons: make again, save and delete; on the right what the enhancer wrote, and its seed. */
+  .shot-actions { justify-content: space-between; }
+  .shot-actions-left, .shot-actions-right { display: flex; gap: 6px; align-items: center; }
+  .shot-actions .icon-btn { flex: none; width: 40px; height: 32px; margin: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+  .shot-actions .icon-btn.del { background: transparent; color: var(--muted); }
+  .shot-actions .icon-btn[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+  .shot-actions-right .seed-fold { right: 0; }
+  /* Buttons in every box over the page: small, as Quota's Close. */
+  .shots-foot.small { gap: 8px; padding: 10px 16px; }
+  .shots-foot.small button, .shots-foot button { flex: 0 1 auto; min-width: 96px; padding: 6px 18px; font-size: .82rem; font-weight: 600; border-radius: 999px; }
   /* Make again and Delete in the middle; the seed, quietly, on the right: it grows up out of its chevron when wanted. */
-  .shot-actions { position: relative; display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 8px; }
+  .shot-actions { position: relative; display: flex; align-items: center; gap: 8px; margin-top: 8px; }
   .shot-actions > button:not(.seed-toggle) { width: auto; margin: 0; padding: 6px 12px; font-size: .8rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
-  .seed-toggle { position: absolute; right: 0; width: auto; margin: 0; padding: 4px 6px; background: none; border: 0; color: var(--muted); font-size: .76rem; font-weight: 500; }
-  .seed-toggle::after { content: "\203A"; display: inline-block; margin-left: 5px; transform: rotate(-90deg); transition: transform .15s; }
-  .seed-toggle[aria-expanded="true"]::after { transform: rotate(90deg); }
   .seed-fold { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 2; width: min(260px, 100%); padding: 8px; background: var(--panel);
     border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); transform-origin: bottom right; animation: menu-in .2s ease; }
   .seed-fold[hidden] { display: none; }
@@ -1946,6 +1962,9 @@ const ICONS = {
   prompts: ICON_SVG('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>'),
   trash: ICON_SVG('<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/>'),
   check: ICON_SVG('<path d="m5 12 5 5 9-10"/>'),
+  save: ICON_SVG('<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4"/><path d="M8 20v-6h8v6"/>'),
+  seed: ICON_SVG('<path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/>'),
+  enhanced: ICON_SVG('<path d="M12 3l1.8 4.6L18 9.4l-4.2 1.8L12 16l-1.8-4.8L6 9.4l4.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>'),
   upload: ICON_SVG('<path d="M12 20V9"/><path d="m7 14 5-5 5 5"/><path d="M5 4h14"/>'),
   again: ICON_SVG('<path d="M4 12a8 8 0 0 1 13.7-5.7L20 8.5"/><path d="M20 4v4.5h-4.5"/><path d="M20 12a8 8 0 0 1-13.7 5.7L4 15.5"/><path d="M4 20v-4.5h4.5"/>'),
 };
@@ -2397,16 +2416,23 @@ function runUrl(id) { return `${id.startsWith('image_') ? '/image-runs' : '/runs
 function imageShotHtml(run, shot, i) {
   const number = i + 1, url = `/image-runs/${encodeURIComponent(run.id)}`;
   const picture = shot.rendered ? `<a href="${url}/files/${number}?v=${shot.version}" target="_blank" rel="noopener"><img class="shot-image" loading="lazy" alt="Image ${number}" src="${url}/thumbnails/${number}?v=${shot.version}"></a>` : '';
-  const buttons = run.busy ? '' : `${shot.rendered ? `<button type="button" data-redo="${number}">Make again</button>` : ''}<button type="button" data-delete-image="${number}">Delete</button>`;
+  const icon = (data, label, svg, extra = '') => `<button type="button" class="icon-btn${extra}" ${data} title="${label}" aria-label="${label}">${svg}</button>`;
+  const left = run.busy ? '' : (shot.rendered ? icon(`data-redo="${number}"`, 'Make again', ICONS.again) : '')
+    + icon('data-save="1"', 'Save the prompts', ICONS.save) + icon(`data-delete-image="${number}"`, 'Delete', ICONS.trash, ' del');
+  const enhanced = shot.enhanced_prompt ? icon(`data-fold="enhancedFold_${number}" aria-expanded="false"`, 'What the prompt enhancer wrote', ICONS.enhanced)
+    + `<div class="seed-fold" id="enhancedFold_${number}" hidden><div class="hint">What the prompt enhancer wrote</div><div class="fold-text">${esc(shot.enhanced_prompt)}</div></div>` : '';
   return `
   <div class="shot">
     <div class="shot-title"><b>${number}. ${esc(shot.title)}</b>${shot.rendered ? '<span class="finished">finished</span>' : '<span>not made yet</span>'}</div>
     ${picture}
     <textarea aria-label="Prompt for image ${number}" ${run.busy ? 'readonly' : ''}>${esc(shot.prompt)}</textarea>
     <div class="shot-actions">
-      ${buttons}
-      <button type="button" class="seed-toggle" data-seed-toggle="${number}" aria-expanded="false" aria-controls="seedFold_${number}">Seed</button>
-      <div class="seed-fold" id="seedFold_${number}" hidden>${shotSeedHtml(run, shot, i, 'image')}</div>
+      <div class="shot-actions-left">${left}</div>
+      <div class="shot-actions-right">
+        ${enhanced}
+        ${icon(`data-fold="seedFold_${number}" aria-expanded="false"`, 'Seed', ICONS.seed)}
+        <div class="seed-fold" id="seedFold_${number}" hidden>${shotSeedHtml(run, shot, i, 'image')}</div>
+      </div>
     </div>
   </div>`;
 }
@@ -2414,16 +2440,20 @@ function imageShotsHtml(run) {
   const left = run.shots.filter(shot => !shot.rendered).length;
   const note = run.busy ? '<div class="hint">This run is going or queued, so its prompts can\'t change right now.</div>' : '';
   const go = !left || run.busy ? '' : `<button type="button" data-render="1">${left === run.shots.length ? 'Make the images' : `Make the ${left} left`}</button>`;
-  const save = run.busy ? '' : '<button type="button" class="plain" data-save="1">Save prompts</button>';
   return `
   <div class="shots-head">
-    <h2>${esc(run.title)}</h2>
-    <div class="hint">"${esc(run.brief)}" · ${run.direct ? 'your own prompt' : `written by ${esc(run.llm)}`} · ${esc(run.size)}</div>
+    <div class="shots-head-line">
+      <button type="button" class="shots-title" data-fold="briefFold" aria-expanded="false" title="What it was made from">${esc(run.title)}</button>
+      ${run.shots.length > 1 ? `<span class="shots-count" id="shotsCount">1 of ${run.shots.length}</span>` : ''}
+    </div>
+    <div class="seed-fold brief-fold" id="briefFold" hidden>
+      <div class="fold-text">"${esc(run.brief)}"</div>
+      <div class="hint">${run.direct ? 'Your own prompt' : `Written by ${esc(run.llm)}`} · ${esc(run.size)}</div>
+    </div>
     ${note}
-    ${run.shots.length > 1 ? `<div class="shots-count" id="shotsCount">1 of ${run.shots.length} · swipe for the others</div>` : ''}
   </div>
   <div class="shots-list carousel" id="shotsCarousel">${run.shots.map((shot, i) => imageShotHtml(run, shot, i)).join('')}</div>
-  <div class="shots-foot centred">${go}${save}<button type="button" class="plain" data-close="1">Close</button></div>`;
+  <div class="shots-foot centred small">${go}<button type="button" class="plain" data-close="1">Close</button></div>`;
 }
 function shotsHtml(run) {
   if (run.is_image) return imageShotsHtml(run);
@@ -2459,6 +2489,7 @@ async function openShots(id) {
     carousel.addEventListener('scroll', () => {
       const at = Math.round(carousel.scrollLeft / Math.max(carousel.clientWidth, 1)) + 1;
       $('shotsCount').textContent = `${at} of ${data.shots.length}`;
+      closeSeedFolds();
     }, { passive: true });
   }
 }
@@ -2499,16 +2530,25 @@ $('shotsBody').addEventListener('input', () => { shotsDirty = true; });
 $('shotsBody').addEventListener('click', async e => {
   const d = e.target.dataset || {};
   const seedInput = e.target.closest('.seed-line')?.querySelector('[data-seed]');
-  if (d.seedToggle) {
-    const fold = $(`seedFold_${d.seedToggle}`), open = fold.hidden;
+  const toggle = e.target.closest && e.target.closest('[data-fold]');
+  if (toggle) {
+    const fold = $(toggle.dataset.fold), open = fold.hidden;
     closeSeedFolds();
     fold.hidden = !open;
-    e.target.setAttribute('aria-expanded', String(open));
-  } else if (d.seedRoll) {
+    toggle.setAttribute('aria-expanded', String(open));
+    return;
+  }
+  if (d.seedRoll) {
     seedInput.value = randomSeed();
     shotsDirty = true;
   } else if (d.close) closeShots();
-  else if (d.save) await saveShots();
+  else if (d.save) {
+    // Saved: a tick for a moment where the button was.
+    if (await saveShots()) {
+      e.target.innerHTML = ICONS.check;
+      setTimeout(() => { e.target.innerHTML = ICONS.save; }, 1200);
+    }
+  }
   else if (d.render) {
     if (await saveShots()) runSaved(`/runs/${shotsRun.id}/continue`);
   } else if (d.deleteImage) {
@@ -2533,11 +2573,11 @@ $('shotsBody').addEventListener('click', async e => {
 });
 function closeSeedFolds() {
   $('shotsBody').querySelectorAll('.seed-fold').forEach(fold => { fold.hidden = true; });
-  $('shotsBody').querySelectorAll('[data-seed-toggle]').forEach(toggle => toggle.setAttribute('aria-expanded', 'false'));
+  $('shotsBody').querySelectorAll('[data-fold]').forEach(toggle => toggle.setAttribute('aria-expanded', 'false'));
 }
-// A tap anywhere else, even outside the dialog, puts an open seed away.
+// A tap anywhere else, even outside the dialog, puts an open fold away.
 $('shotsDialog').addEventListener('click', e => {
-  if (e.target.closest && (e.target.closest('.seed-fold') || e.target.closest('[data-seed-toggle]'))) return;
+  if (e.target.closest && (e.target.closest('.seed-fold') || e.target.closest('[data-fold]'))) return;
   closeSeedFolds();
 });
 // Esc would otherwise close it without asking about unsaved changes.
