@@ -750,7 +750,8 @@ assert.strictEqual(els.imageAspect.value, 'custom', 'a size typed in stays');
 els.imageAspect.value = 'image';
 
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
-assert(/html \{ overflow-x: clip; \}/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),
+assert(/maximum-scale=1, user-scalable=no/.test(base) && /html \{ overflow-x: clip; touch-action: manipulation; \}/.test(base), 'no zooming the page out from under the footer');
+assert(/html \{ overflow-x: clip;/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),
   'nothing makes a phone page wider than its screen, so the footer stays put');
 assert(/\.check > span \{ min-width: 0; overflow-wrap: anywhere; \}/.test(html) && /\.option-choice \{[^}]*max-width: 100%/.test(html), 'options wrap rather than widen it');
 assert(/JUMPS\.filter\(a => top\(a\) <= line\)\.sort\(/.test(script), 'by position, not the footer order');

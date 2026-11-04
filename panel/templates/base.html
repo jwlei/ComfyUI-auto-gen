@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- No zooming: zoomed in, the page slides under the fixed footer and the footer under the browser's own bar. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title>{% block title %}ComfyUI auto-gen{% endblock %}</title>
 <style>
@@ -19,7 +20,7 @@
   }
   * { box-sizing: border-box; }
   /* Nothing may make the page wider than the screen: a phone would shrink it, and the fixed footer slide off. */
-  html { overflow-x: clip; }
+  html { overflow-x: clip; touch-action: manipulation; }  /* No double-tap zoom either */
   input, select, textarea { max-width: 100%; }
   body {
     margin: 0;
