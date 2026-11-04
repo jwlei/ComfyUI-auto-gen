@@ -1283,7 +1283,9 @@ document.addEventListener('click', async e => {
 function wirePresets() {
   for (const side of Object.keys(SIDE_FORMS)) {
     $(`${side}Preset`).addEventListener('change', e => { if (e.target.value) applyPreset(side, e.target.value); });
-    for (const kind of ['change', 'input']) $(SIDE_FORMS[side]).addEventListener(kind, () => syncPresets(side));
+    // Not for the picker itself: picking fires "input" before "change", and checking then put it back to None
+    // before the preset it named was set.
+    for (const kind of ['change', 'input']) $(SIDE_FORMS[side]).addEventListener(kind, e => { if (e.target !== $(`${side}Preset`)) syncPresets(side); });
   }
 }
 

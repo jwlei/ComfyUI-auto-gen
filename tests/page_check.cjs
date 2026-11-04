@@ -828,6 +828,8 @@ assert(/<div class="estimate-line"><span id="estimateTotal"><\/span><span id="es
 assert(!html.includes('own switches, as it was saved') && !html.includes('Lower renders faster') && !html.includes('Stops after the prompts are written')
   && !html.includes('makes the same set again') && (html.match(/<span>Preview run/g) || []).length === 2, 'fewer hints; Try one first is Preview run');
 
+assert(/addEventListener\(kind, e => \{ if \(e\.target !== \$\(`\$\{side\}Preset`\)\) syncPresets\(side\); \}\)/.test(script), 'picking a preset is not undone by its own input event');
+
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/maximum-scale=1, user-scalable=no/.test(base) && /html \{ overflow-x: clip; touch-action: manipulation; \}/.test(base), 'no zooming the page out from under the footer');
 assert(/html \{ overflow-x: clip;/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),
