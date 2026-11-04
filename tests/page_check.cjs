@@ -293,6 +293,14 @@ context.imageRun = imageRun;
 const imageDialog = run('shotsHtml(imageRun)');
 assert(!imageDialog.includes('<script>'), 'prompts are escaped');
 assert(imageDialog.includes('data-redo="1"') && !imageDialog.includes('data-redo="2"') && imageDialog.includes('Make the 1 left') && imageDialog.includes('data-delete-image="2"'));
+// A set's prompts: a carousel to swipe through, one image to a page, its count, and no long hint; the buttons in the middle.
+assert(/<div class="shots-list carousel" id="shotsCarousel">/.test(imageDialog) && imageDialog.includes('1 of 2 · swipe for the others'));
+assert(!imageDialog.includes('Making an image again leaves') && imageDialog.includes('<div class="shots-foot centred">'));
+assert(/\.shots-list\.carousel \{ display: flex;[^}]*scroll-snap-type: x mandatory/.test(html) && /\.shots-list\.carousel > \.shot \{ flex: 0 0 100%/.test(html));
+assert(imageDialog.includes('<span class="finished">finished</span>') && !imageDialog.includes('>made<') && /\.shot-title \.finished \{ color: var\(--ok\); \}/.test(html), 'finished, in green');
+// The seed, quietly on the right of Make again and Delete, grows up out of its chevron.
+assert(/<div class="shot-actions">\s*<button type="button" data-redo="1">Make again<\/button><button type="button" data-delete-image="1">Delete<\/button>\s*<button type="button" class="seed-toggle" data-seed-toggle="1" aria-expanded="false"[^>]*>Seed<\/button>\s*<div class="seed-fold" id="seedFold_1" hidden>\s*<div class="seed-line">/.test(imageDialog));
+assert(/\.seed-fold \{[^}]*bottom: calc\(100% \+ 6px\)/.test(html) && /\.seed-toggle \{ position: absolute; right: 0;/.test(html));
 assert.strictEqual(run("runUrl('image_1')"), '/image-runs/image_1');
 assert.strictEqual(run("runUrl('run_1')"), '/runs/run_1');
 const picked = (aspect, megapixels, source) => {
