@@ -93,6 +93,13 @@ def build_options(form):
         return None, f"Film length must be {planner.MIN_FILM_SECONDS}-{planner.MAX_FILM_SECONDS} seconds."
     flags += ["--duration", str(seconds)]
 
+    clip = (form.get("clip_seconds") or "").strip()
+    if clip:
+        match = re.fullmatch(r"(\d{1,2})-(\d{1,2})", clip)
+        if not match or not 1 <= int(match.group(1)) <= int(match.group(2)) <= 60:
+            return None, "Clip length must be like 5-8, in seconds."
+        flags += ["--clip-seconds", clip]
+
     start = form.get("start") or "chain"
     if start not in ("chain", "image"):
         return None, "Unknown start mode."

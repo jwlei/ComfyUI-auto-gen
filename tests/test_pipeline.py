@@ -374,6 +374,14 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(planner.shot_count(15, h3_prompt.MODEL), 1, "one H3 clip holds 15 seconds")
         self.assertEqual(planner.fit_durations([15, 15], 30, h3_prompt.MODEL), [15, 15])
         self.assertEqual(planner.fit_durations([15, 15], 30), [10, 10], "past what LTX makes, then short of the film")
+
+    def test_a_clip_length_chosen_within_the_models(self):
+        self.assertEqual(planner.clip_seconds(h3_prompt.MODEL, (6, 9)), (6, 9, 8))
+        self.assertEqual(planner.clip_seconds(None, (2, 30)), (5, 10, 8), "held to what LTX makes")
+        self.assertEqual(planner.clip_seconds(wan_prompt.MODEL, (8, 9)), planner.clip_seconds(wan_prompt.MODEL), "nothing of it fits: the model's own")
+        self.assertEqual(planner.shot_count(60, h3_prompt.MODEL, (5, 6)), 10, "short clips: more of them (60 at 6 each)")
+        self.assertEqual(planner.shot_count(60, h3_prompt.MODEL), 5, "against 5 at H3's own 12")
+        self.assertTrue(all(5 <= s <= 6 for s in planner.fit_durations([8] * 10, 60, h3_prompt.MODEL, (5, 6))))
         self.assertIn("a whole number from 5 to 15", planner._instructions("x", 60, "image", 1, h3_prompt.MODEL))
         self.assertIn("a whole number from 3 to 5", planner._instructions("x", 60, "chain", 1, wan_prompt.MODEL))
 

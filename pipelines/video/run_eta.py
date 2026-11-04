@@ -49,7 +49,9 @@ class RunEta:
             self.film_seconds = int(_option(argv, "--duration", 0))
         except ValueError:
             self.film_seconds = 0
-        self.shots = shot_count(self.film_seconds, self.video_model)
+        clip = re.fullmatch(r"(\d+)-(\d+)", str(_option(argv, "--clip-seconds", "")))
+        self.clip_range = (int(clip.group(1)), int(clip.group(2))) if clip else None
+        self.shots = shot_count(self.film_seconds, self.video_model, self.clip_range)
         self.size_share = _size_share(argv)
         self.size = _option(argv, "--size", None)
         self.kept_stages = ()
@@ -195,7 +197,7 @@ class RunEta:
         steps = [{"name": name, "seconds": round(self._stage_seconds(name))} for name in self.names]
         return {"steps": steps, "total": sum(step["seconds"] for step in steps),
                 "clips": self.shots,
-                "clip_seconds": round(self.film_seconds / self.shots) if self.film_seconds else clip_seconds(self.video_model)[2],
+                "clip_seconds": round(self.film_seconds / self.shots) if self.film_seconds else clip_seconds(self.video_model, self.clip_range)[2],
                 "clip_render": round(self._render_seconds(self.film_seconds / self.shots)) if self.film_seconds else 0,
                 "timed": self.timings.timed(self.render_keys)}
 

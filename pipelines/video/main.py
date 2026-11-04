@@ -87,6 +87,8 @@ def parse_args(argv=None):
     parser.add_argument("--seed", type=parse_seed, help="The first clip's seed. Each clip after it gets the next one, so the film "
                                                        "can be made again. Default: a random seed for every clip.")
     parser.add_argument("--plan-only", action="store_true", help="Write the prompts and stop before rendering.")
+    parser.add_argument("--clip-seconds", type=parse_clip_seconds, default=None, metavar="MIN-MAX",
+                        help="How long each clip is, such as 5-8, within what the video model makes (its own range otherwise).")
     parser.add_argument("--first-only", action="store_true", help="Render the first clip and stop, to see it before rendering the rest.")
     parser.add_argument("--resume", metavar="RUN", help="Continue a saved run, with its original options.")
     parser.add_argument("--redo", type=int, metavar="SHOT", help="With --resume: render this shot again (chained: and every shot after it).")
@@ -114,6 +116,13 @@ def parse_args(argv=None):
 def fmt_time(seconds):
     minutes = round(seconds / 60)
     return f"{minutes // 60}h {minutes % 60:02d}m" if minutes >= 60 else f"{minutes} min"
+
+
+def parse_clip_seconds(text):
+    match = re.fullmatch(r"(\d{1,2})-(\d{1,2})", text or "")
+    if not match or not 1 <= int(match.group(1)) <= int(match.group(2)) <= 60:
+        raise argparse.ArgumentTypeError(f"'{text}' is not a clip length: use MIN-MAX in seconds, such as 5-8.")
+    return int(match.group(1)), int(match.group(2))
 
 
 def print_stage(name, stages):
@@ -242,14 +251,14 @@ def plan_run(args, stages):
     brief = args.prompt + (f"\n\nThe film is narrated, and the shots follow this narration in order: {args.narration}" if args.narration else "")
     print(f"🗂️ Run folder: {state.id}")
 
-    shortest, longest, _ = planner.clip_seconds(video_model)
-    print(f"🧠 {llm} is writing {planner.shot_count(state.seconds, video_model)} prompts for a {state.seconds}s film at "
+    shortest, longest, _ = planner.clip_seconds(video_model, args.clip_seconds)
+    print(f"🧠 {llm} is writing {planner.shot_count(state.seconds, video_model, args.clip_seconds)} prompts for a {state.seconds}s film at "
           f"{width}x{height}, {shortest}-{longest}s a clip...")
     if image_2_in_words:
         print("🖼️ This workflow's clips take one image, so image 2 only reaches them through what the prompts say.")
     title, shots = planner.plan_film([media.preview_jpeg(image) for image in images], brief, state.seconds, state.start, llm,
                                      video_model, args.image_roles, media.preview_jpeg(image_2_in_words) if image_2_in_words else None,
-                                     state.references())
+                                     state.references(), chosen=args.clip_seconds)
     for image, path in zip(images, state.image_paths):
         media.save_input(image, path)
     for index, shot in enumerate(shots):

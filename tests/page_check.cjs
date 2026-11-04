@@ -832,6 +832,27 @@ assert(/addEventListener\(kind, e => \{ if \(e\.target !== \$\(`\$\{side\}Preset
 
 assert(!/\.stick \{[^}]*contain: paint/.test(html), 'nothing clips the menu that grows up out of the footer');
 
+// Prompt settings under their own heading, right below Generation; Shorts' voice with its avatar; no Advanced.
+for (const [form, generation, prompt] of [['formImage', 'imageGeneration', 'imagePromptSection'], ['formVideo', 'videoGeneration', 'videoPromptSection'], ['formShorts', 'formTopic', 'shortsPrompt']]) {
+  const g = html.indexOf(`id="${generation}"`), p = html.lastIndexOf('<details', html.indexOf(`id="${prompt}"`));
+  assert(g > 0 && p > g && html.slice(html.indexOf('</details>', g), p).replace(/<\/details>|\s/g, '') === '', `${form}: Prompt right below Generation`);
+}
+assert(/id="imagePromptSection">\s*<summary class="section-title">Prompt<\/summary>[\s\S]*?id="imagePrompt"[\s\S]*?id="imageLlm"[\s\S]*?id="imageReview"[\s\S]*?<\/details>/.test(html));
+assert(/id="videoPromptSection">\s*<summary class="section-title">Prompt<\/summary>[\s\S]*?id="prompt"[\s\S]*?id="llm"[\s\S]*?id="review"[\s\S]*?<\/details>/.test(html));
+assert(/<summary class="section-title">Avatar<\/summary>\s*<label for="voice">Narrator<\/label>/.test(html) && !html.includes('id="formVoice"') && !html.includes('id="formAdvanced"') && !html.includes('name="fail_fast"'));
+// Video's clip length: a range within the model's; at its full span nothing is chosen.
+assert(/<div class="range" id="videoClipRange">/.test(html) && /<input id="videoClipSeconds" name="clip_seconds" hidden>/.test(html));
+run(`workflowClips = { 'h3.json': [5, 15, 12] }`);
+els.videoWorkflow.value = 'h3.json';
+els.videoClipSeconds.value = '';
+assert.deepStrictEqual(JSON.parse(run('JSON.stringify(videoClips())')), [5, 15, 12], "the model's own, nothing chosen");
+els.videoClipSeconds.value = '6-9';
+assert.deepStrictEqual(JSON.parse(run('JSON.stringify(videoClips())')), [6, 9, 8], 'within what was chosen, its middle the usual');
+els.videoClipSeconds.value = '2-30';
+assert.deepStrictEqual(JSON.parse(run('JSON.stringify(videoClips())')), [5, 15, 10], 'held to what the model makes');
+els.videoClipSeconds.value = '';
+els.videoWorkflow.value = '';
+
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/maximum-scale=1, user-scalable=no/.test(base) && /html \{ overflow-x: clip; touch-action: manipulation; \}/.test(base), 'no zooming the page out from under the footer');
 assert(/html \{ overflow-x: clip;/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),

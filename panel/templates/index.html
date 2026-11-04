@@ -780,20 +780,15 @@
         <button type="button" class="ghost" id="comfyStart" title="Only ComfyUI can list what's saved in it." hidden>Start ComfyUI</button>
       </div>
 
-      <label for="topic">Topic</label>
-      <input id="topic" name="topic" placeholder="e.g. Why the Sahara was once green" autocomplete="off">
-      <div class="hint">Leave empty for an AI pick. Topics already made aren't repeated.</div>
-
       <label for="runs">How many videos</label>
       <input id="runs" name="runs" type="number" min="1" max="10" value="1" inputmode="numeric">
     </details>
 
-    <details class="section" id="formVoice">
-      <summary class="section-title">Voice</summary>
-      <label for="voice">Narrator</label>
-      <select id="voice" name="voice">
-        {% for value, label in voices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
-      </select>
+    <details class="section" id="shortsPrompt">
+      <summary class="section-title">Prompt</summary>
+      <label for="topic">Topic</label>
+      <input id="topic" name="topic" placeholder="e.g. Why the Sahara was once green" autocomplete="off">
+      <div class="hint">Leave empty for an AI pick. Topics already made aren't repeated.</div>
     </details>
     <details class="section" id="shortsOptions" hidden>
       <summary class="section-title">Workflow options</summary>
@@ -803,7 +798,11 @@
 
   <div class="form-col">
     <details class="section" id="formAvatar">
-      <summary class="section-title">Avatar (presenter)</summary>
+      <summary class="section-title">Avatar</summary>
+      <label for="voice">Narrator</label>
+      <select id="voice" name="voice">
+        {% for value, label in voices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+      </select>
       <label for="avatar_clips">When she appears</label>
       <select id="avatar_clips" name="avatar_clips">
         <option value="auto">Auto — opens the video, then the scenes with the weakest stock footage</option>
@@ -861,23 +860,6 @@
       <div class="hint">YouTube forces uploads from an unverified Google app to private.</div>
     </details>
 
-    <details class="section" id="formAdvanced">
-      <summary class="section-title">Advanced</summary>
-        <label for="output">File name (single video only)</label>
-        <input id="output" name="output" placeholder="short_YYYYMMDD_HHMMSS_model.mp4" autocomplete="off">
-
-        <label class="check">
-          <input type="checkbox" name="fail_fast">
-          <span>Stop the batch at the first failed video
-          </span>
-        </label>
-        <label class="check">
-          <input type="checkbox" name="keep_cache">
-          <span>Keep intermediate files
-            <div class="hint">Normally deleted after each video.</div>
-          </span>
-        </label>
-    </details>
   </div>
 
 </form>
@@ -930,14 +912,17 @@
     </div>
     <div class="hint" id="audioHint" hidden>The film is as long as the audio. A workflow with Load Audio gets it per clip.</div>
 
-    <label for="prompt">What should happen</label>
-    <textarea id="prompt" name="prompt" placeholder="e.g. A storm rolls in over the harbour and the fishing boats race home"></textarea>
-    <div class="hint">A sentence or two is enough.</div>
-
     <div id="durationBox">
     <div class="range-head" style="margin-top:12px"><label for="duration">Film length</label><output id="durationText"></output></div>
     <input id="duration" name="duration" type="range" min="{{ film_limits[0] }}" max="{{ film_limits[1] }}" step="5" value="{{ film_limits[2] }}">
     </div>
+    <div class="range-head" style="margin-top:12px"><label>Clip length</label><output id="videoClipText"></output></div>
+    <div class="range" id="videoClipRange">
+      <div class="fill"></div>
+      <input type="range" min="5" max="10" value="5" aria-label="Shortest clip in seconds">
+      <input type="range" min="5" max="10" value="10" aria-label="Longest clip in seconds">
+    </div>
+    <input id="videoClipSeconds" name="clip_seconds" hidden>
 
     <label for="sizePreset">Resolution</label>
     <select id="sizePreset">
@@ -960,6 +945,22 @@
     </div>
   </details>
 
+  <details class="section" id="videoPromptSection">
+    <summary class="section-title">Prompt</summary>
+    <label for="prompt">What should happen</label>
+    <textarea id="prompt" name="prompt" placeholder="e.g. A storm rolls in over the harbour and the fishing boats race home"></textarea>
+    <div class="hint">A sentence or two is enough.</div>
+    <label for="llm">Who writes the prompts</label>
+    <select id="llm" name="llm">
+      {% for llm in llms %}<option value="{{ llm.name }}" {% if not llm.ready %}disabled{% endif %}>{{ llm.label }}{% if not llm.ready %} (no key in .env){% endif %}</option>{% endfor %}
+    </select>
+    <label class="check">
+      <input type="checkbox" name="review" id="review">
+      <span>Let me read the prompts before rendering
+      </span>
+    </label>
+  </details>
+
   <details class="section" id="videoOptions" hidden>
     <summary class="section-title">Workflow options</summary>
     <div id="videoOptionsBox"></div>
@@ -967,10 +968,6 @@
 
   <details class="section" id="videoHow">
     <summary class="section-title">How</summary>
-    <label for="llm">Who writes the prompts</label>
-    <select id="llm" name="llm">
-      {% for llm in llms %}<option value="{{ llm.name }}" {% if not llm.ready %}disabled{% endif %}>{{ llm.label }}{% if not llm.ready %} (no key in .env){% endif %}</option>{% endfor %}
-    </select>
 
     <label for="start">How clips connect</label>
     <select id="start" name="start">
@@ -979,11 +976,6 @@
     </select>
     <div class="hint">Redoing a shot in a continuous take also redoes the ones after it.</div>
 
-    <label class="check">
-      <input type="checkbox" name="review" id="review">
-      <span>Let me read the prompts before rendering
-      </span>
-    </label>
     <label class="check">
       <input type="checkbox" name="try_first">
       <span>Preview run
@@ -1012,6 +1004,12 @@
 
     <div id="imageSources"></div>
 
+    <label for="imageCount">How many images</label>
+    <input id="imageCount" name="count" type="number" min="1" max="{{ image_most }}" value="1" inputmode="numeric">
+  </details>
+
+  <details class="section" id="imagePromptSection">
+    <summary class="section-title">Prompt</summary>
     <label for="imagePromptMode">Prompts</label>
     <select id="imagePromptMode" name="prompt_mode">
       <option value="llm">The LLM writes one per image, from what I say</option>
@@ -1020,9 +1018,18 @@
     <label for="imagePrompt" id="imagePromptLabel">What you want</label>
     <textarea id="imagePrompt" name="prompt"></textarea>
     <div class="hint" id="imagePromptHint"></div>
-
-    <label for="imageCount">How many images</label>
-    <input id="imageCount" name="count" type="number" min="1" max="{{ image_most }}" value="1" inputmode="numeric">
+    <div id="imageLlmBox">
+      <label for="imageLlm">Who writes the prompts</label>
+      <select id="imageLlm" name="llm">
+        {% for llm in image_llms %}<option value="{{ llm.name }}" {% if not llm.ready %}disabled{% endif %}>{{ llm.label }}{% if not llm.ready %} (no key in .env){% endif %}</option>{% endfor %}
+      </select>
+      <label class="check" id="imageReviewBox">
+        <input type="checkbox" name="review" id="imageReview">
+        <span>Let me read the prompts before rendering
+        </span>
+      </label>
+    </div>
+    <div class="hint" id="imageHowDirect" hidden>Your prompt goes in as it is, so each image differs only by its seed.</div>
   </details>
 
   <details class="section" id="imageResolution">
@@ -1072,18 +1079,6 @@
 
   <details class="section" id="imageHow">
     <summary class="section-title">How</summary>
-    <div id="imageLlmBox">
-      <label for="imageLlm">Who writes the prompts</label>
-      <select id="imageLlm" name="llm">
-        {% for llm in image_llms %}<option value="{{ llm.name }}" {% if not llm.ready %}disabled{% endif %}>{{ llm.label }}{% if not llm.ready %} (no key in .env){% endif %}</option>{% endfor %}
-      </select>
-      <label class="check" id="imageReviewBox">
-        <input type="checkbox" name="review" id="imageReview">
-        <span>Let me read the prompts before rendering
-        </span>
-      </label>
-    </div>
-    <div class="hint" id="imageHowDirect" hidden>Your prompt goes in as it is, so each image differs only by its seed.</div>
     <label class="check">
       <input type="checkbox" name="try_first">
       <span>Preview run
@@ -1795,8 +1790,28 @@ $('statusHead').addEventListener('keydown', e => {
 });
 
 function clipCount(n) { return `${n} ${n === 1 ? 'clip' : 'clips'}`; }
-// As the planner counts them: the shortest, longest and usual clip on the workflow's video model.
-function videoClips() { return workflowClips[$('videoWorkflow').value] || BUILT_IN_CLIPS; }
+// As the planner counts them: the shortest, longest and usual clip on the workflow's video model...
+function modelClips() { return workflowClips[$('videoWorkflow').value] || BUILT_IN_CLIPS; }
+// ...within the clip length chosen (pipelines/video/planner.py clip_seconds, the same sums).
+function videoClips() {
+  const [shortest, longest, usual] = modelClips(), chosen = /^(\d+)-(\d+)$/.exec($('videoClipSeconds').value || '');
+  if (!chosen) return [shortest, longest, usual];
+  const low = Math.max(shortest, +chosen[1]), high = Math.min(longest, +chosen[2]);
+  return low <= high ? [low, high, Math.min(high, Math.max(low, Math.floor((low + high + 1) / 2)))] : [shortest, longest, usual];
+}
+// The slider spans what the model makes; at its full span nothing is chosen, and the model's own usual length holds.
+function syncVideoClips(moved) {
+  const [shortest, longest] = modelClips(), box = $('videoClipRange'), [low, high] = box.querySelectorAll('input');
+  for (const input of [low, high]) { input.min = shortest; input.max = longest; }
+  if (!moved) {
+    const chosen = /^(\d+)-(\d+)$/.exec($('videoClipSeconds').value || '');
+    low.value = chosen ? chosen[1] : shortest;
+    high.value = chosen ? chosen[2] : longest;
+  }
+  const [from, to] = syncRange('videoClipRange', moved);
+  $('videoClipSeconds').value = from <= shortest && to >= longest ? '' : `${from}-${to}`;
+  $('videoClipText').textContent = `${from}-${to}s`;
+}
 function shotCount(seconds) {
   const [shortest, longest, usual] = videoClips();
   const count = Math.max(Math.ceil(seconds / longest), Math.round(seconds / usual), 1);
@@ -1816,6 +1831,7 @@ function syncAudio() {
   $('durationBox').classList.toggle('hidden', mode !== 'none');
 }
 function syncVideoForm() {
+  syncVideoClips();
   syncImageInput();
   syncOptions('videoOptions', 'videoOptionsBox', (workflowTakes[$('videoWorkflow').value] || {}).options || [], $('videoWorkflow').value);
   syncMediaInput();
@@ -1826,6 +1842,7 @@ function syncVideoForm() {
 }
 $('formVideo').addEventListener('change', () => { syncVideoForm(); saveVideoForm(); });
 $('duration').addEventListener('input', syncVideoForm);
+$('videoClipRange').addEventListener('input', e => { syncVideoClips(e.target); syncVideoForm(); saveVideoForm(); });
 $('imageBoxes').addEventListener('change', e => showImage(e.target.closest('.image-box')));
 $('imageBoxes').addEventListener('click', e => {
   if (!e.target.dataset.clear) return;
@@ -3304,7 +3321,7 @@ let stoppedCount = 0, wasRunning = false, uploadRunning = false, runsQueued = 0,
 const POLL_TIMEOUT = 8000;
 let pollNumber = 0, serverStarted = null;
 function formInProgress() {
-  return $('shotsDialog').open || ['topic', 'output', 'prompt', 'narration', 'imagePrompt'].some(id => $(id).value);
+  return $('shotsDialog').open || ['topic', 'prompt', 'narration', 'imagePrompt'].some(id => $(id).value);
 }
 // One part of the page's update: if it throws, the rest still updates, and the console says what went wrong.
 // Before, one error anywhere left the queue and everything after it as it was until the page was reloaded.
@@ -3503,7 +3520,6 @@ async function startJob(url, later = false) {
   } else if (body.queued) {
     // The options stay for the next job, but a topic and file name belong to this one.
     $('topic').value = '';
-    $('output').value = '';
     queuePlan();
   } else {
     autoScroll = true;
