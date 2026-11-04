@@ -12,7 +12,7 @@ from core.gemini import _generate
 from pipelines.video import h3_prompt, roles, wan_prompt
 
 # Who can write the plan: (name, what the panel calls it).
-LLMS = (("gemini", "Gemini (free tier)"), ("claude", "Claude Opus 5.5 (paid per use)"))
+LLMS = (("gemini", "Gemini (free tier)"), ("claude", "Claude Opus 5.5 (API)"))
 
 DEFAULT_CLAUDE_MODEL = "claude-opus-5-5"
 # Its default is 'medium'. A film's worth of prompts that have to fit together earns more thought.

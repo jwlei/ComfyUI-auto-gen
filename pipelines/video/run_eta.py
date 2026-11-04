@@ -45,6 +45,7 @@ class RunEta:
         self.options = options_in_env(env)
         self.llm = _option(argv, "--llm", None)
         self.plan_only = "--plan-only" in argv
+        self.direct = "--direct" in argv
         try:
             self.film_seconds = int(_option(argv, "--duration", 0))
         except ValueError:
@@ -182,7 +183,7 @@ class RunEta:
         if name == "Stitching":
             return self.shots * self.timings.step("part")
         if name == "Plan":
-            return self.timings.step(self._plan_keys())
+            return 0 if self.direct else self.timings.step(self._plan_keys())
         return self.timings.step(name, 0)
 
     def _current_left(self, now):

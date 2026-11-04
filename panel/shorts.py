@@ -128,6 +128,11 @@ def build_run(form):
 
     # The panel always renders her with ComfyUI; the looped avatars.mp4 is left to the command line.
     env["AVATAR_SOURCE"] = "comfyui"
+    size = (form.get("avatar_size") or "").strip().lower()
+    if size:
+        if size not in dict(AVATAR_SIZES):
+            return None, None, "Unknown resolution."
+        env["AVATAR_SIZE"] = size
 
     style = form.get("avatar_style") or "lipsync"
     if style not in AVATAR_STYLES:
@@ -351,9 +356,15 @@ def captions():
     return lambda name: {"topic": history.get(name, {}).get("topic"), "model": history.get(name, {}).get("model")}
 
 
+# The avatar clips' size: the finished Short is always 1080x1920, cropped and scaled from them.
+AVATAR_SIZES = (("576x1024", "576x1024 (faster)"), ("736x1280", "736x1280 (usual)"), ("1088x1920", "1088x1920 (full size, slower)"))
+
+
 def context():
     return {
         "voices": VOICES,
+        "avatar_sizes": AVATAR_SIZES,
+        "default_avatar_size": (os.getenv("AVATAR_SIZE") or "736x1280").lower(),
         "defaults": {
             "avatar_clips": (os.getenv("AVATAR_CLIPS") or "auto").lower(),
             "avatar_clips_min": avatar_clip_range()[0],

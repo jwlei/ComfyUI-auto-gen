@@ -511,8 +511,11 @@
   .form-actions .btns { margin-top: 0; }
   .form-actions #go { margin-top: 0; }
   /* Start later: quiet, centred under the button. */
-  .start-later { display: block; width: auto; margin: 8px auto 0; padding: 2px 8px; background: none; border: 0; color: var(--muted);
-    font-size: .8rem; font-weight: 600; }
+  .go-under { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 8px; }
+  .go-under .preview-run { margin: 0; font-size: .8rem; color: var(--muted); }
+  .go-under .preview-run input { width: 16px; height: 16px; margin: 0; }
+  .start-later { width: auto; margin: 0 0 0 auto; padding: 2px 8px; background: none; border: 0; color: var(--muted); font-size: .8rem; font-weight: 600; }
+  body.on-shorts .not-shorts { display: none !important; }
   .log-box { margin-top: 8px; font-size: .85rem; }
   .current-work { font-size: .95rem; font-weight: 600; margin-bottom: 8px; overflow-wrap: anywhere; }
   .run-card .btns:empty { display: none; }
@@ -782,6 +785,10 @@
 
       <label for="runs">How many videos</label>
       <input id="runs" name="runs" type="number" min="1" max="10" value="1" inputmode="numeric">
+      <label for="avatarSize">Resolution</label>
+      <select id="avatarSize" name="avatar_size">
+        {% for value, label in avatar_sizes %}<option value="{{ value }}"{% if value == default_avatar_size %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
     </details>
 
     <details class="section" id="shortsPrompt">
@@ -937,23 +944,24 @@
     </select>
     <input id="size" name="size" placeholder="Such as 1280x736, rounded to multiples of 32" autocomplete="off" style="margin-top:8px" hidden>
 
-    <label for="videoSeed">Seed</label>
-    <div class="seed-line">
-      <input id="videoSeed" name="seed" inputmode="numeric" autocomplete="off" placeholder="Random" pattern="[0-9]*">
-      <button type="button" class="ghost" data-seed-pick="videoSeed" title="Pick a random seed to keep" aria-label="Pick a random seed to keep"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg></button>
-      <button type="button" class="ghost" data-seed-clear="videoSeed" title="Back to random" aria-label="Back to a random seed every time">✕</button>
-    </div>
   </details>
 
   <details class="section" id="videoPromptSection">
     <summary class="section-title">Prompt</summary>
-    <label for="prompt">What should happen</label>
+    <label for="videoPromptMode">Prompts</label>
+    <select id="videoPromptMode" name="prompt_mode">
+      <option value="llm">LLM</option>
+      <option value="direct">Exact prompt</option>
+    </select>
+    <label for="prompt" id="videoPromptLabel">What should happen</label>
     <textarea id="prompt" name="prompt" placeholder="e.g. A storm rolls in over the harbour and the fishing boats race home"></textarea>
-    <div class="hint">A sentence or two is enough.</div>
-    <label for="llm">Who writes the prompts</label>
+    <div class="hint" id="videoPromptHint">A sentence or two is enough.</div>
+    <div id="videoLlmBox">
+    <label for="llm">What writes the prompts</label>
     <select id="llm" name="llm">
       {% for llm in llms %}<option value="{{ llm.name }}" {% if not llm.ready %}disabled{% endif %}>{{ llm.label }}{% if not llm.ready %} (no key in .env){% endif %}</option>{% endfor %}
     </select>
+    </div>
     <label class="check">
       <input type="checkbox" name="review" id="review">
       <span>Let me read the prompts before rendering
@@ -967,7 +975,13 @@
   </details>
 
   <details class="section" id="videoHow">
-    <summary class="section-title">How</summary>
+    <summary class="section-title">Other</summary>
+    <label for="videoSeed">Seed</label>
+    <div class="seed-line">
+      <input id="videoSeed" name="seed" inputmode="numeric" autocomplete="off" placeholder="Random" pattern="[0-9]*">
+      <button type="button" class="ghost" data-seed-pick="videoSeed" title="Pick a random seed to keep" aria-label="Pick a random seed to keep"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg></button>
+      <button type="button" class="ghost" data-seed-clear="videoSeed" title="Back to random" aria-label="Back to a random seed every time">✕</button>
+    </div>
 
     <label for="start">How clips connect</label>
     <select id="start" name="start">
@@ -976,11 +990,6 @@
     </select>
     <div class="hint">Redoing a shot in a continuous take also redoes the ones after it.</div>
 
-    <label class="check">
-      <input type="checkbox" name="try_first">
-      <span>Preview run
-      </span>
-    </label>
   </details>
 </form>
 
@@ -1002,38 +1011,10 @@
       <div class="hint" id="imageWorkflowHint" hidden></div>
     </div>
 
-    <div id="imageSources"></div>
+    <div id="imageSourcesHome"><div id="imageSources"></div></div>
 
     <label for="imageCount">How many images</label>
     <input id="imageCount" name="count" type="number" min="1" max="{{ image_most }}" value="1" inputmode="numeric">
-  </details>
-
-  <details class="section" id="imagePromptSection">
-    <summary class="section-title">Prompt</summary>
-    <label for="imagePromptMode">Prompts</label>
-    <select id="imagePromptMode" name="prompt_mode">
-      <option value="llm">The LLM writes one per image, from what I say</option>
-      <option value="direct">Use my prompt, word for word</option>
-    </select>
-    <label for="imagePrompt" id="imagePromptLabel">What you want</label>
-    <textarea id="imagePrompt" name="prompt"></textarea>
-    <div class="hint" id="imagePromptHint"></div>
-    <div id="imageLlmBox">
-      <label for="imageLlm">Who writes the prompts</label>
-      <select id="imageLlm" name="llm">
-        {% for llm in image_llms %}<option value="{{ llm.name }}" {% if not llm.ready %}disabled{% endif %}>{{ llm.label }}{% if not llm.ready %} (no key in .env){% endif %}</option>{% endfor %}
-      </select>
-      <label class="check" id="imageReviewBox">
-        <input type="checkbox" name="review" id="imageReview">
-        <span>Let me read the prompts before rendering
-        </span>
-      </label>
-    </div>
-    <div class="hint" id="imageHowDirect" hidden>Your prompt goes in as it is, so each image differs only by its seed.</div>
-  </details>
-
-  <details class="section" id="imageResolution">
-    <summary class="section-title">Resolution</summary>
     <div id="imageSizeBox">
       <div class="row">
         <div>
@@ -1063,14 +1044,33 @@
       <input id="imageSize" name="size" placeholder="Such as 1920x1080" autocomplete="off" style="margin-top:8px" hidden>
     </div>
     <div class="hint" id="imageSizeHint"></div>
-
-    <label for="imageSeed">Seed</label>
-    <div class="seed-line">
-      <input id="imageSeed" name="seed" inputmode="numeric" autocomplete="off" placeholder="Random" pattern="[0-9]*">
-      <button type="button" class="ghost" data-seed-pick="imageSeed" title="Pick a random seed to keep" aria-label="Pick a random seed to keep"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg></button>
-      <button type="button" class="ghost" data-seed-clear="imageSeed" title="Back to random" aria-label="Back to a random seed every time">✕</button>
-    </div>
   </details>
+
+  <details class="section" id="imagePromptSection">
+    <summary class="section-title">Prompt</summary>
+    <label for="imagePromptMode">Prompts</label>
+    <select id="imagePromptMode" name="prompt_mode">
+      <option value="llm">LLM</option>
+      <option value="direct">Exact prompt</option>
+    </select>
+    <label for="imagePrompt" id="imagePromptLabel">What you want</label>
+    <textarea id="imagePrompt" name="prompt"></textarea>
+    <div class="hint" id="imagePromptHint"></div>
+    <div id="imageLlmBox">
+      <label for="imageLlm">What writes the prompts</label>
+      <select id="imageLlm" name="llm">
+        {% for llm in image_llms %}<option value="{{ llm.name }}" {% if not llm.ready %}disabled{% endif %}>{{ llm.label }}{% if not llm.ready %} (no key in .env){% endif %}</option>{% endfor %}
+      </select>
+      <div id="imageToPromptSlot"></div>
+      <label class="check" id="imageReviewBox">
+        <input type="checkbox" name="review" id="imageReview">
+        <span>Let me read the prompts before rendering
+        </span>
+      </label>
+    </div>
+    <div class="hint" id="imageHowDirect" hidden>Your prompt goes in as it is, so each image differs only by its seed.</div>
+  </details>
+
 
   <details class="section" id="imageOptions" hidden>
     <summary class="section-title">Workflow options</summary>
@@ -1078,12 +1078,13 @@
   </details>
 
   <details class="section" id="imageHow">
-    <summary class="section-title">How</summary>
-    <label class="check">
-      <input type="checkbox" name="try_first">
-      <span>Preview run
-      </span>
-    </label>
+    <summary class="section-title">Other</summary>
+    <label for="imageSeed">Seed</label>
+    <div class="seed-line">
+      <input id="imageSeed" name="seed" inputmode="numeric" autocomplete="off" placeholder="Random" pattern="[0-9]*">
+      <button type="button" class="ghost" data-seed-pick="imageSeed" title="Pick a random seed to keep" aria-label="Pick a random seed to keep"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg></button>
+      <button type="button" class="ghost" data-seed-clear="imageSeed" title="Back to random" aria-label="Back to a random seed every time">✕</button>
+    </div>
   </details>
 </form>
 
@@ -1123,7 +1124,10 @@
   <div class="btns">
     <button type="button" id="go">Generate</button>
   </div>
-  <button type="button" class="start-later" id="goLater" title="Into the queue, to start when you start it">Start later</button>
+  <div class="go-under">
+    <label class="check preview-run not-shorts"><input type="checkbox" name="try_first"><span>Preview run</span></label>
+    <button type="button" class="start-later" id="goLater" title="Into the queue, to start when you start it">Start later</button>
+  </div>
   <div class="err" id="formError" hidden></div>
   <div class="hint" id="formNote" hidden></div>
   <div class="estimate" id="estimate" hidden>
@@ -1832,6 +1836,11 @@ function syncAudio() {
 }
 function syncVideoForm() {
   syncVideoClips();
+  // Your prompt as it is, for every clip, or the LLM writing one per clip from it.
+  const direct = $('videoPromptMode').value === 'direct';
+  $('videoLlmBox').classList.toggle('hidden', direct);
+  $('videoPromptLabel').textContent = direct ? 'The prompt' : 'What should happen';
+  $('videoPromptHint').textContent = direct ? 'Every clip gets it as you wrote it, each on its own seed.' : 'A sentence or two is enough.';
   syncImageInput();
   syncOptions('videoOptions', 'videoOptionsBox', (workflowTakes[$('videoWorkflow').value] || {}).options || [], $('videoWorkflow').value);
   syncMediaInput();
@@ -2088,7 +2097,7 @@ for (const box of ['shortsOptionsBox', 'videoOptionsBox', 'imageOptionsBox']) {
 }
 function syncImageOptions() { syncOptions('imageOptions', 'imageOptionsBox', imageTakes().options || [], baseImageTakes().name); }
 // The workflow writing its own prompts, beside Gemini and Claude: its prompt enhancer, or image to prompt.
-const ROLE_LABELS = { prompt_enhancer: "The workflow's own prompt enhancer, in ComfyUI", image_to_prompt: 'The workflow, from your image (image to prompt)' };
+const ROLE_LABELS = { image_to_prompt: 'Image to prompt', prompt_enhancer: 'Prompt Enhancer' };
 function syncImageLlm() {
   const select = $('imageLlm');
   const roles = (baseImageTakes().options || []).filter(option => option.role && !option.problem);
@@ -2097,13 +2106,21 @@ function syncImageLlm() {
   select.dataset.roles = key;
   const wanted = select.value;
   for (const option of [...(select.options || [])].filter(option => option.dataset && option.dataset.role)) option.remove();
-  for (const role of roles) select.insertAdjacentHTML('beforeend', `<option value="${esc(role.id)}" data-role="1">${esc(ROLE_LABELS[role.id] || role.label)}</option>`);
-  if ([...(select.options || [])].some(option => option.value === wanted)) select.value = wanted;
+  const order = Object.keys(ROLE_LABELS);
+  for (const role of [...roles].sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))) {
+    select.insertAdjacentHTML('beforeend', `<option value="${esc(role.id)}" data-role="1">${esc(ROLE_LABELS[role.id] || role.label)}</option>`);
+  }
+  // A workflow with its own Prompt Enhancer: that, rather than Gemini, unless one of its own was chosen.
+  if (roles.some(role => role.id === 'prompt_enhancer') && !ROLE_LABELS[wanted]) select.value = 'prompt_enhancer';
+  else if ([...(select.options || [])].some(option => option.value === wanted)) select.value = wanted;
   else if (ROLE_LABELS[wanted]) select.value = IMAGE_DEFAULTS.llm;
 }
 function imageRole() { return ROLE_LABELS[$('imageLlm').value] && $('imagePromptMode').value === 'llm' ? $('imageLlm').value : null; }
 function syncImageForm() {
   syncImageLlm();
+  // For image to prompt, the image it describes goes right under that choice; otherwise back in Generation.
+  const slot = imageRole() === 'image_to_prompt' ? $('imageToPromptSlot') : $('imageSourcesHome');
+  if ($('imageSources').parentNode !== slot) slot.appendChild($('imageSources'));
   syncImageSources();
   syncImageOptions();
   syncImageSize();
@@ -2247,7 +2264,7 @@ async function sameAgain(id, position = null) {
   syncImageForm();
   saveImageForm();
   showFormError('');
-  $('imageGeneration').open = $('imageResolution').open = true;
+  $('imageGeneration').open = $('imagePromptSection').open = true;
   $('imageOptions').open = !$('imageOptions').hidden;
   if (WIDE.matches) $('optionsCard').scrollIntoView({ behavior: 'smooth' }); else showPage('generate');
 }

@@ -114,10 +114,14 @@ def build_options(form):
             return None, f"Unknown role for image {number}."
         flags += ["--image-role", role]
 
-    llm = form.get("llm") or planner.default_llm()
-    if llm not in dict(planner.LLMS):
-        return None, "Unknown LLM."
-    flags += ["--llm", llm]
+    if (form.get("prompt_mode") or "llm") == "direct":
+        # Your prompt as it is, for every clip: no LLM writes them.
+        flags.append("--direct")
+    else:
+        llm = form.get("llm") or planner.default_llm()
+        if llm not in dict(planner.LLMS):
+            return None, "Unknown LLM."
+        flags += ["--llm", llm]
 
     size = (form.get("size") or "").strip().lower()
     if size:
@@ -229,8 +233,9 @@ def generate():
     prompt = (request.form.get("prompt") or "").strip()
     if not prompt:
         return {"ok": False, "error": "Say what should happen in the video."}, 400
-    llm = flags[flags.index("--llm") + 1]
-    if not planner.llm_configured(llm):
+    # Your prompt as it is needs no LLM.
+    llm = flags[flags.index("--llm") + 1] if "--llm" in flags else None
+    if llm and not planner.llm_configured(llm):
         return {"ok": False, "error": f"{llm} has no credentials. See .env.example."}, 400
 
     voices = dict(VOICES)
@@ -294,7 +299,7 @@ def generate():
     plan_only = "--plan-only" in flags
     seconds = int(flags[flags.index("--duration") + 1])
     length = f"{seconds}s" if seconds < 60 else f"{seconds // 60}:{seconds % 60:02d}"
-    detail = ["film as long as its audio" if audio else f"{length} film", llm, "review the prompts first" if plan_only else "renders straight away"]
+    detail = ["film as long as its audio" if audio else f"{length} film", llm or "your prompt, every clip", "review the prompts first" if plan_only else "renders straight away"]
     if env:
         detail.append(request.form["workflow"].removesuffix(".json"))
     item = {"pipeline": "video", "label": queue_label(prompt), "detail": " · ".join(detail), "argv": argv, "env": env,

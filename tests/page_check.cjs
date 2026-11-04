@@ -785,7 +785,7 @@ assert(run("samePreset({ a: '1', b: true }, { b: true, a: '1' })") === true && r
 assert(/const PRESET_SKIP = \['prompt', 'narration', 'seed', 'topic', 'output', 'review'\];/.test(script), 'what each run is about stays out of a preset');
 
 // Try one first; start later; a note when something ends.
-assert((html.match(/<input type="checkbox" name="try_first">/g) || []).length === 2, 'Video and Image can try one first');
+assert((html.match(/<input type="checkbox" name="try_first">/g) || []).length === 1, 'one Preview run, under the button, for whichever form it is in');
 assert(/<button type="button" class="start-later" id="goLater"[^>]*>Start later<\/button>/.test(html) && !html.includes('type="time"'), 'Start later: a quiet button, no clock');
 run(`resultsSeen = null; announceResults([{ label: 'Old', outcome: 'done', t: 1 }])`);
 assert.notStrictEqual(els.toast && els.toast.hidden, false, 'what ended before the page opened is not news');
@@ -826,7 +826,7 @@ assert(/<div class="estimate-line"><span id="estimateTotal"><\/span><span id="es
   && script.includes('`Estimate: <b>${fmtEta(plan.total)}</b>`') && !script.includes('Estimated time:'), 'the estimate on one quiet line');
 
 assert(!html.includes('own switches, as it was saved') && !html.includes('Lower renders faster') && !html.includes('Stops after the prompts are written')
-  && !html.includes('makes the same set again') && (html.match(/<span>Preview run/g) || []).length === 2, 'fewer hints; Try one first is Preview run');
+  && !html.includes('makes the same set again') && (html.match(/<span>Preview run/g) || []).length === 1, 'fewer hints; Try one first is Preview run');
 
 assert(/addEventListener\(kind, e => \{ if \(e\.target !== \$\(`\$\{side\}Preset`\)\) syncPresets\(side\); \}\)/.test(script), 'picking a preset is not undone by its own input event');
 
@@ -852,6 +852,16 @@ els.videoClipSeconds.value = '2-30';
 assert.deepStrictEqual(JSON.parse(run('JSON.stringify(videoClips())')), [5, 15, 10], 'held to what the model makes');
 els.videoClipSeconds.value = '';
 els.videoWorkflow.value = '';
+
+// Names, places and defaults (the second batch of form changes).
+assert(html.includes('<option value="llm">LLM</option>') && html.includes('<option value="direct">Exact prompt</option>') && /id="videoPromptMode" name="prompt_mode"/.test(html));
+assert((html.match(/>What writes the prompts</g) || []).length === 2 && !html.includes('Who writes the prompts'));
+assert(script.includes("const ROLE_LABELS = { image_to_prompt: 'Image to prompt', prompt_enhancer: 'Prompt Enhancer' };"));
+assert(!html.includes('id="imageResolution"') && /id="imageGeneration"[\s\S]*?id="imageAspect"[\s\S]*?<\/details>/.test(html), 'Resolution in Generation');
+assert(/<summary class="section-title">Other<\/summary>\s*<label for="imageSeed">Seed<\/label>/.test(html) && /<summary class="section-title">Other<\/summary>\s*<label for="videoSeed">Seed<\/label>/.test(html), 'the seed under Other');
+assert(/<div class="go-under">\s*<label class="check preview-run not-shorts"><input type="checkbox" name="try_first"><span>Preview run<\/span><\/label>\s*<button type="button" class="start-later" id="goLater"/.test(html) && (html.match(/name="try_first"/g) || []).length === 1, 'Preview run under the button, left of Start later');
+assert(/<select id="avatarSize" name="avatar_size">/.test(html), 'Shorts has a resolution');
+assert(/<div id="imageToPromptSlot"><\/div>/.test(html) && /imageRole\(\) === 'image_to_prompt' \? \$\('imageToPromptSlot'\)/.test(script), "image to prompt's image right under the choice");
 
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/maximum-scale=1, user-scalable=no/.test(base) && /html \{ overflow-x: clip; touch-action: manipulation; \}/.test(base), 'no zooming the page out from under the footer');

@@ -11,7 +11,7 @@ from pipelines.shorts.paths import RUNS_DIR
 # Same order as main.py's STAGES, which can't be imported here: it pulls in the whole pipeline.
 STAGES = ("Topic & script", "Voice", "Stock footage", "Avatar clips", "Rendering scenes", "Stitching", "Upload")
 # What the panel sets per run rather than on the command line. A continued run keeps them.
-RUN_ENV = ("AVATAR_SOURCE", "COMFYUI_WORKFLOW", "COMFYUI_OPTIONS", "AVATAR_CLIPS_MIN", "AVATAR_CLIPS_MAX",
+RUN_ENV = ("AVATAR_SOURCE", "AVATAR_SIZE", "COMFYUI_WORKFLOW", "COMFYUI_OPTIONS", "AVATAR_CLIPS_MIN", "AVATAR_CLIPS_MAX",
            "AVATAR_MIN_SECONDS", "AVATAR_MAX_SECONDS")
 RUN_ID = re.compile(r"run_\d{8}_\d{6}_\d+")
 SAVE_ATTEMPTS = 5

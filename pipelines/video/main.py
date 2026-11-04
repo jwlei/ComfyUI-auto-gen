@@ -87,6 +87,7 @@ def parse_args(argv=None):
     parser.add_argument("--seed", type=parse_seed, help="The first clip's seed. Each clip after it gets the next one, so the film "
                                                        "can be made again. Default: a random seed for every clip.")
     parser.add_argument("--plan-only", action="store_true", help="Write the prompts and stop before rendering.")
+    parser.add_argument("--direct", action="store_true", help="Every clip gets the prompt as it is: no LLM writes them.")
     parser.add_argument("--clip-seconds", type=parse_clip_seconds, default=None, metavar="MIN-MAX",
                         help="How long each clip is, such as 5-8, within what the video model makes (its own range otherwise).")
     parser.add_argument("--first-only", action="store_true", help="Render the first clip and stop, to see it before rendering the rest.")
@@ -232,7 +233,7 @@ def plan_run(args, stages):
     start = args.start if takes["max_images"] == 1 else "image"
     width, height = args.size or media.render_size(*(images[0].size if images else media.DEFAULT_SHAPE))
     llm = args.llm or planner.default_llm()
-    if not planner.llm_configured(llm):
+    if not args.direct and not planner.llm_configured(llm):
         raise RuntimeError(f"{llm} has no credentials: see .env.example.")
     state = RunState.new(args.prompt, args.duration, start, width, height, llm,
                          os.getenv("COMFYUI_WORKFLOW") or None, len(images))
@@ -251,7 +252,20 @@ def plan_run(args, stages):
     brief = args.prompt + (f"\n\nThe film is narrated, and the shots follow this narration in order: {args.narration}" if args.narration else "")
     print(f"🗂️ Run folder: {state.id}")
 
-    shortest, longest, _ = planner.clip_seconds(video_model, args.clip_seconds)
+    shortest, longest, usual = planner.clip_seconds(video_model, args.clip_seconds)
+    if args.direct:
+        # Your prompt as it is, for every clip, at lengths that add up to the film.
+        count = planner.shot_count(state.seconds, video_model, args.clip_seconds)
+        lengths = planner.fit_durations([usual] * count, state.seconds, video_model, args.clip_seconds)
+        title = " ".join(args.prompt.split()[:6]) or "Untitled"
+        shots = [{"title": f"Clip {n}", "seconds": length, "prompt": args.prompt} for n, length in enumerate(lengths, 1)]
+        print(f"✍️ Your prompt for each of {count} clips, {shortest}-{longest}s a clip, at {width}x{height}.")
+        for image, path in zip(images, state.image_paths):
+            media.save_input(image, path)
+        for index, shot in enumerate(shots):
+            shot["seed"] = seeds.nth(args.seed, index)
+        state.update(title=title, shots=shots)
+        return state
     print(f"🧠 {llm} is writing {planner.shot_count(state.seconds, video_model, args.clip_seconds)} prompts for a {state.seconds}s film at "
           f"{width}x{height}, {shortest}-{longest}s a clip...")
     if image_2_in_words:

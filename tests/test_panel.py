@@ -492,6 +492,15 @@ class PanelTest(unittest.TestCase):
         # Its own lines stay under the plain words.
         self.assertIn("CUDA out of memory", say("❌ CUDA out of memory.")[1])
 
+    def test_an_exact_prompt_goes_to_every_clip_without_an_llm(self):
+        self.comfy.script = ["ok"] * 16
+        self.assertTrue(self.generate(prompt_mode="direct", prompt="A red kite over a grey sea", duration="20").get_json()["ok"])
+        self.wait_idle()
+        run = self.only_run()
+        self.assertEqual(self.claude.requests, [], "no LLM is asked")
+        self.assertTrue(run.shots and all(shot["prompt"] == "A red kite over a grey sea" for shot in run.shots))
+        self.assertEqual(sum(shot["seconds"] for shot in run.shots), 20)
+
     def test_discard(self):
         self.assertTrue(self.generate(review="1").get_json()["ok"])
         self.wait_idle()
