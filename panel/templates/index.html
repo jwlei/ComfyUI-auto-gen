@@ -793,11 +793,9 @@
       <select id="voice" name="voice">
         {% for value, label in voices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
       </select>
-      <div class="hint">A UK voice writes the script in UK spelling, a US voice in US spelling.</div>
     </details>
     <details class="section" id="shortsOptions" hidden>
       <summary class="section-title">Workflow options</summary>
-      <div class="hint">This workflow's own switches, as it was saved.</div>
       <div id="shortsOptionsBox"></div>
     </details>
   </div>
@@ -829,7 +827,6 @@
           <input type="range" name="avatar_seconds_min" min="2" max="10" value="3" aria-label="Shortest clip in seconds">
           <input type="range" name="avatar_seconds_max" min="2" max="10" value="6" aria-label="Longest clip in seconds">
         </div>
-        <div class="hint">A longer line cuts to stock footage while her voice carries on.</div>
         <div class="hint" id="avatarMix"></div>
 
         <label for="avatar_style">Style</label>
@@ -844,7 +841,6 @@
           <button type="button" class="ghost" data-seed-pick="shortsSeed" title="Pick a random seed to keep" aria-label="Pick a random seed to keep"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg></button>
           <button type="button" class="ghost" data-seed-clear="shortsSeed" title="Back to random" aria-label="Back to a random seed every time">✕</button>
         </div>
-        <div class="hint">Empty: a new random seed for every avatar clip. A number: avatar clip 1 uses it and each avatar clip after it the next one, so the same clips comes out again.</div>
       </div>
     </details>
 
@@ -954,7 +950,6 @@
       <option value="custom">Custom size</option>
     </select>
     <input id="size" name="size" placeholder="Such as 1280x736, rounded to multiples of 32" autocomplete="off" style="margin-top:8px" hidden>
-    <div class="hint">Lower renders faster. An image of another shape gets cropped.</div>
 
     <label for="videoSeed">Seed</label>
     <div class="seed-line">
@@ -962,12 +957,10 @@
       <button type="button" class="ghost" data-seed-pick="videoSeed" title="Pick a random seed to keep" aria-label="Pick a random seed to keep"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg></button>
       <button type="button" class="ghost" data-seed-clear="videoSeed" title="Back to random" aria-label="Back to a random seed every time">✕</button>
     </div>
-    <div class="hint">Empty: a new random seed for every clip. A number: clip 1 uses it and each clip after it the next one, so the same film comes out again. Each clip's seed shows under <b>Shots</b>.</div>
   </details>
 
   <details class="section" id="videoOptions" hidden>
     <summary class="section-title">Workflow options</summary>
-    <div class="hint">This workflow's own switches, as it was saved.</div>
     <div id="videoOptionsBox"></div>
   </details>
 
@@ -988,13 +981,11 @@
     <label class="check">
       <input type="checkbox" name="review" id="review">
       <span>Let me read the prompts before rendering
-        <div class="hint">Stops after the prompts are written, so you can change them.</div>
       </span>
     </label>
     <label class="check">
       <input type="checkbox" name="try_first">
-      <span>Try one first
-        <div class="hint">Renders the first clip and stops, so you can see it before the rest are paid for in time.</div>
+      <span>Preview run
       </span>
     </label>
   </details>
@@ -1071,12 +1062,10 @@
       <button type="button" class="ghost" data-seed-pick="imageSeed" title="Pick a random seed to keep" aria-label="Pick a random seed to keep"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg></button>
       <button type="button" class="ghost" data-seed-clear="imageSeed" title="Back to random" aria-label="Back to a random seed every time">✕</button>
     </div>
-    <div class="hint">Empty is random; a number makes the same set again.</div>
   </details>
 
   <details class="section" id="imageOptions" hidden>
     <summary class="section-title">Workflow options</summary>
-    <div class="hint">This workflow's own switches, as it was saved. The prompt and size are set above.</div>
     <div id="imageOptionsBox"></div>
   </details>
 
@@ -1090,15 +1079,13 @@
       <label class="check" id="imageReviewBox">
         <input type="checkbox" name="review" id="imageReview">
         <span>Let me read the prompts before rendering
-          <div class="hint">Stops after the prompts are written, so you can change them.</div>
         </span>
       </label>
     </div>
     <div class="hint" id="imageHowDirect" hidden>Your prompt goes in as it is, so each image differs only by its seed.</div>
     <label class="check">
       <input type="checkbox" name="try_first">
-      <span>Try one first
-        <div class="hint">Makes the first image and stops, so you can see it before the rest are made.</div>
+      <span>Preview run
       </span>
     </label>
   </details>

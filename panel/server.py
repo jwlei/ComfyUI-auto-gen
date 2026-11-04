@@ -945,7 +945,7 @@ def saved_runs():
 
 OUTCOME_FILE = "outcome.json"
 FIRST_ONLY = {"outcome": "first one made",
-              "why": "You asked to try one first, so it stopped after the first. Open Prompts to see it and change the rest, "
+              "why": "A preview run: it stopped after the first. Open Prompts to see it and change the rest, "
                      "or continue to make them."}
 NOT_RENDERED = {"outcome": "not rendered",
                 "why": "You asked to read the prompts first (Let me read the prompts before rendering), so it stopped once "
