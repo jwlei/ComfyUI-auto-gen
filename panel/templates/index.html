@@ -331,7 +331,12 @@
   #viewerImage.from-left { animation: viewer-from-left .2s ease; }
   @keyframes viewer-from-right { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
   @keyframes viewer-from-left { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }
-  @media (prefers-reduced-motion: reduce) { #viewerImage.from-right, #viewerImage.from-left { animation: none; } }
+  /* Another set comes in from below or above, as the list scrolls. */
+  #viewerImage.from-below { animation: viewer-from-below .22s ease; }
+  #viewerImage.from-above { animation: viewer-from-above .22s ease; }
+  @keyframes viewer-from-below { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: none; } }
+  @keyframes viewer-from-above { from { opacity: 0; transform: translateY(-28px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { #viewerImage.from-right, #viewerImage.from-left, #viewerImage.from-below, #viewerImage.from-above { animation: none; } }
   /* The whole preview is one rounded card: the picture, and under it its title and buttons. */
   .viewer-bar { width: 100%; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 0 0; box-sizing: border-box; }
   /* At most two lines, so a long title can't push the buttons off the screen. */
@@ -2494,12 +2499,29 @@ $('imageViewer').addEventListener('touchend', e => {
   if (!swipeFrom || !e.changedTouches.length || zoom.scale > 1) return;
   const dx = e.changedTouches[0].clientX - swipeFrom.x, dy = e.changedTouches[0].clientY - swipeFrom.y;
   swipeFrom = null;
-  // Sideways, and far enough to mean it: a tap or a scroll isn't a swipe.
+  // Sideways, and far enough to mean it: a tap or a scroll isn't a swipe. Up and down: the next or the previous set.
   if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) stepViewer(dx < 0 ? 1 : -1);
+  else if (Math.abs(dy) > 60 && Math.abs(dy) > Math.abs(dx) * 1.5) stepSet(dy < 0 ? 1 : -1);
 });
+// The set after or before this one in Output (as filtered), from its first picture.
+function stepSet(by) {
+  if (!viewing || viewing.film) return false;
+  const sets = filtered(imageSets).filter(set => set.images.length);
+  const next = sets[sets.findIndex(set => set.id === viewing.id) + by];
+  if (!next) return false;
+  disarm($('viewerDelete'));
+  const image = $('viewerImage');
+  image.classList.remove('from-right', 'from-left', 'from-below', 'from-above');
+  void image.offsetWidth;  // So it plays again
+  image.classList.add(by > 0 ? 'from-below' : 'from-above');
+  openViewer(next.id, next.images[0].position);
+  return true;
+}
 $('imageViewer').addEventListener('keydown', e => {
   if (e.key === 'ArrowRight' && stepViewer(1)) e.preventDefault();
   else if (e.key === 'ArrowLeft' && stepViewer(-1)) e.preventDefault();
+  else if (e.key === 'ArrowDown' && stepSet(1)) e.preventDefault();
+  else if (e.key === 'ArrowUp' && stepSet(-1)) e.preventDefault();
 });
 function closeViewer() {
   if ($('imageViewer').open) $('imageViewer').close();

@@ -811,6 +811,17 @@ assert(/data-title="Queue"/.test(html) && !script.includes('Now: ${esc(q.current
 
 assert(html.indexOf('id="statusText"') < html.indexOf('id="currentWork"') && html.indexOf('id="gpuLine"') < html.indexOf('id="currentWork"'), 'running and the GPU above the title');
 
+// Up and down in the viewer: the next or the previous set, from its first picture; none past the ends.
+run(`imageSets = [{ id: 'image_a', images: [{ position: 1, title: 'A1', version: 1 }, { position: 2, title: 'A2', version: 1 }] },
+  { id: 'image_b', images: [{ position: 3, title: 'B3', version: 1 }] }]; outputFilter = ''`);
+run("openViewer('image_a', 2)");
+assert.strictEqual(run('stepSet(1)'), true);
+assert.deepStrictEqual(JSON.parse(run('JSON.stringify(viewing)')), { id: 'image_b', position: 3 }, 'the next set, from its first picture');
+assert.strictEqual(run('stepSet(1)'), false, 'nothing after the last');
+assert.strictEqual(run('stepSet(-1)'), true);
+assert.strictEqual(run('viewing.id'), 'image_a');
+run('closeViewer()');
+
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/maximum-scale=1, user-scalable=no/.test(base) && /html \{ overflow-x: clip; touch-action: manipulation; \}/.test(base), 'no zooming the page out from under the footer');
 assert(/html \{ overflow-x: clip;/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),
