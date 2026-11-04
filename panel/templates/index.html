@@ -253,8 +253,17 @@
     background: var(--bg); border-top: 1px solid var(--line);
   }
   /* The bars over the footer ease in and out, rather than jumping the page. */
-  .stick .strip { order: -1; padding-top: 6px; max-height: 5em; opacity: 1; overflow: hidden;
-    transition: max-height .28s ease, opacity .22s ease, padding .28s ease; }
+  .stick .strip { order: -1; padding-top: 6px; max-height: 3em; opacity: 1; overflow: hidden; cursor: pointer;
+    -webkit-tap-highlight-color: transparent; transition: max-height .28s ease, opacity .22s ease, padding .28s ease; }
+  .stick .strip.open { max-height: 9em; }
+  /* Folded, a bar is one line: how far along, and when it ends. Tapped, it says what is going on for a moment. */
+  .strip-line { display: flex; align-items: center; gap: 10px; }
+  .strip-line .bar { flex: 1; min-width: 0; margin-top: 0; }
+  .strip-line span { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .strip-more { max-height: 0; opacity: 0; overflow: hidden; transition: max-height .28s ease, opacity .22s ease; }
+  .strip.open .strip-more { max-height: 6em; opacity: 1; }
+  .strip-more .strip-head { margin-top: 5px; }
+  .strip-total:empty { display: none; }
   .stick .strip[hidden] { display: block; max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
   .wrap { padding-bottom: calc(var(--head, 130px) + 16px); }
   .jump { display: grid; grid-template-columns: 1.7fr 1fr .8fr 1fr; gap: 5px; padding: 6px 16px; }
@@ -304,7 +313,7 @@
   .progress .hint { margin-top: 4px; }
   #uploadBox .progress { margin-bottom: 8px; }
   /* On Generate, the button and its estimate stay at the bottom. */
-  .go-bar { order: -1; display: flex; align-items: center; gap: 10px; padding: 8px 16px 2px; }
+  .go-bar { order: -1; display: flex; align-items: center; gap: 10px; padding: 6px 16px 2px; }
   .go-bar { max-height: 70px; opacity: 1; overflow: hidden; transition: max-height .28s ease, opacity .22s ease, padding .28s ease; }
   .go-bar[hidden] { display: flex; max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; pointer-events: none; }
   /* Small, quick movements as you get around: pages slide up into place, and what's chosen fades across. */
@@ -312,7 +321,7 @@
   .jump a:active { transform: scale(.97); }
   @keyframes page-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
   @media (prefers-reduced-motion: reduce) {
-    .stick .strip, .go-bar, .jump a, .switch button, .tabs button { transition: none; }
+    .stick .strip, .strip-more, .go-bar, .jump a, .switch button, .tabs button { transition: none; }
     .dashboard > [data-page] { animation: none !important; }
   }
   /* Phones: one section at a time, chosen in the footer. */
@@ -325,7 +334,7 @@
   }
   .go-eta { flex: 1; min-width: 0; font-size: .8rem; color: var(--muted); }
   .go-eta b { color: var(--text); }
-  .go-bar button { width: auto; flex: none; margin: 0; padding: 11px 18px; font-size: .95rem; }
+  .go-bar button { width: auto; flex: none; margin: 0; padding: 8px 14px; font-size: .85rem; }
   /* Desktop: options (two columns), the run, queue, log and
      quota cards and, from 1280px, the portrait videos on the far right, all on one
      screen. Narrower desktops put the videos underneath. Phones keep one column. */
@@ -417,15 +426,21 @@
     <a href="#quotaCard" data-page="quota">Quota</a>
     <a href="#videosCard" data-page="output" id="jumpResults">Videos</a>
   </nav>
-  <div class="strip" id="runStrip" hidden>
-    <div class="strip-head"><b id="runStripText"></b><span id="runStripRight"></span></div>
-    <div class="bar"><div id="runStripBar"></div></div>
-    <div class="hint" id="runStripHint"></div>
+  <div class="strip" id="runStrip" role="button" tabindex="0" aria-expanded="false" hidden>
+    <div class="strip-line"><div class="bar"><div id="runStripBar"></div></div><span id="runStripRight"></span></div>
+    <div class="strip-more">
+      <div class="strip-head"><b id="runStripText"></b></div>
+      <div class="hint" id="runStripHint"></div>
+      <div class="hint strip-total" id="runStripTotal"></div>
+    </div>
   </div>
-  <div class="strip only-shorts" id="uploadStrip" hidden>
-    <div class="strip-head"><b id="uploadStripText"></b><span id="uploadStripRight"></span></div>
-    <div class="bar"><div id="uploadStripBar"></div></div>
-    <div class="hint" id="uploadStripHint"></div>
+  <div class="strip only-shorts" id="uploadStrip" role="button" tabindex="0" aria-expanded="false" hidden>
+    <div class="strip-line"><div class="bar"><div id="uploadStripBar"></div></div><span id="uploadStripRight"></span></div>
+    <div class="strip-more">
+      <div class="strip-head"><b id="uploadStripText"></b></div>
+      <div class="hint" id="uploadStripHint"></div>
+      <div class="hint strip-total" id="uploadStripTotal"></div>
+    </div>
   </div>
   <div class="go-bar" id="goBar" hidden>
     <div class="go-eta" id="goBarEta"></div>
@@ -2101,7 +2116,14 @@ function logWriter(el, follow) {
   const row = l => `<div class="ln ${lineKind(l.text)}"><span class="t">${l.t}</span><span class="x">${esc(l.text)}</span></div>`;
   return lines => {
     // A new run, or old lines trimmed off the top: redraw. Otherwise append what is new.
-    if (lines[0].n !== first) {
+    if (first !== null && lines[0].n > first && lines[0].n <= last) {
+      const before = el.scrollHeight, kept = lines.filter(l => l.n <= last).length;
+      while (el.children.length > kept) el.firstElementChild.remove();
+      if (!follow()) el.scrollTop -= before - el.scrollHeight;
+      first = lines[0].n;
+      const fresh = lines.filter(l => l.n > last);
+      if (fresh.length) el.insertAdjacentHTML('beforeend', fresh.map(row).join(''));
+    } else if (lines[0].n !== first) {
       el.innerHTML = lines.map(row).join('');
       first = lines[0].n;
     } else {
@@ -2113,7 +2135,8 @@ function logWriter(el, follow) {
   };
 }
 const renderLog = logWriter($('log'), () => autoScroll);
-const renderUploadLog = logWriter($('uploadLog'), () => true);
+let uploadFollow = true;
+const renderUploadLog = logWriter($('uploadLog'), () => uploadFollow);
 
 function renderUpload(up) {
   // How each one ended is under Finished, so this only shows while one is going or waiting.
@@ -2248,20 +2271,48 @@ function setStrip(job, show, strip, status, share) {
     bar.style.width = `${share === null ? 30 : Math.round(share * 100)}%`;
   }
   $(`${job}StripHint`).textContent = strip.hint;
+  $(`${job}StripTotal`).textContent = strip.total || '';
   if (job === 'upload') $('uploadProgressHint').textContent = status.hint;
+}
+const STRIP_OPEN_MS = 5000;
+const stripTimers = {};
+function foldStrip(job) {
+  clearTimeout(stripTimers[job]);
+  $(`${job}Strip`).classList.remove('open');
+  $(`${job}Strip`).setAttribute('aria-expanded', 'false');
+}
+function tapStrip(job) {
+  if ($(`${job}Strip`).classList.contains('open')) {
+    foldStrip(job);
+    if (WIDE.matches) $('runCard').scrollIntoView({ behavior: 'smooth' }); else showPage('status');
+    return;
+  }
+  $(`${job}Strip`).classList.add('open');
+  $(`${job}Strip`).setAttribute('aria-expanded', 'true');
+  clearTimeout(stripTimers[job]);
+  stripTimers[job] = setTimeout(() => foldStrip(job), STRIP_OPEN_MS);
+}
+for (const job of ['run', 'upload']) {
+  $(`${job}Strip`).addEventListener('click', () => tapStrip(job));
+  $(`${job}Strip`).addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tapStrip(job); }
+  });
 }
 function renderStrips(data) {
   const p = data.progress || {}, stage = p.stage || [], eta = p.eta;
   const video = p.run && p.run[1] > 1 ? `Video ${p.run[0]}/${p.run[1]} · ` : '';
   const left = eta ? `${fmtEta(eta.total_left)} left` : fmt(data.elapsed);
+  // Everything queued after it too, when there is more.
+  const all = eta && queueAhead > eta.total_left + 30 ? ` · the whole queue around ${clockIn(queueAhead)}` : '';
+  const total = eta ? `Done around ${clockIn(eta.total_left)}${all}` : `${fmt(data.elapsed)} so far`;
   setStrip('run', data.running,
-    { text: video + (stage[2] || 'Starting'), right: left, hint: p.detail || STAGE_HINTS[stage[2]] || '' },
+    { text: video + (stage[2] || 'Starting'), right: left, hint: p.detail || STAGE_HINTS[stage[2]] || '', total },
     { text: p.run && p.run[1] > 1 ? `Video ${p.run[0]} of ${p.run[1]}` : 'This run', right: eta ? `${left}, done around ${clockIn(eta.total_left)}` : '' },
     eta && eta.adjusted_total ? 1 - eta.total_left / eta.adjusted_total : null);
   const up = data.upload, at = (up.progress || {}).upload;
   const sending = at ? at[2] : 'Writing the title and description.';
   setStrip('upload', up.running,
-    { text: at ? `Uploading ${at[0]}/${at[1]}` : 'Uploading', right: fmt(up.elapsed), hint: sending },
+    { text: at ? `Uploading ${at[0]}/${at[1]}` : 'Uploading', right: fmt(up.elapsed), hint: sending, total: '' },
     { text: at ? `Video ${at[0]} of ${at[1]}` : 'Getting ready', right: '', hint: sending },
     at && at[1] > 1 ? (at[0] - 1) / at[1] : null);
   syncStrips();
@@ -2378,11 +2429,16 @@ syncLogBox();
 // A folded log has no height to scroll, so it catches up as it opens.
 $('logBox').addEventListener('toggle', () => {
   if (autoScroll) $('log').scrollTop = $('log').scrollHeight;
-  $('uploadLog').scrollTop = $('uploadLog').scrollHeight;
+  if (uploadFollow) $('uploadLog').scrollTop = $('uploadLog').scrollHeight;
 });
 $('log').addEventListener('scroll', () => {
   const el = $('log');
   autoScroll = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+});
+$('uploadLog').addEventListener('scroll', () => {
+  const el = $('uploadLog');
+  // A folded log has no height: that isn't scrolling away from the end.
+  if (el.clientHeight) uploadFollow = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
 });
 
 async function startJob(url) {

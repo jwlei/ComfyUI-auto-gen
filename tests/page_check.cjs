@@ -433,6 +433,45 @@ assert.strictEqual(els.uploadProgressBar.style.width, '33%');
 assert.strictEqual(els.uploadProgressHint.textContent, 'A.mp4');
 assert.strictEqual(els.uploadProgressRight.textContent, '33%', 'the status line above it has the time so far');
 assert.strictEqual(els.uploadProgress.hidden, false);
+
+// Folded, a footer bar is one line: the bar, how far along and when it ends. The rest opens when tapped.
+assert(/id="runStrip" role="button"[^>]*>\s*<div class="strip-line"><div class="bar"><div id="runStripBar"><\/div><\/div><span id="runStripRight"><\/span><\/div>\s*<div class="strip-more">[\s\S]*?id="runStripText"[\s\S]*?id="runStripHint"[\s\S]*?id="runStripTotal"/.test(html));
+assert(/^Done around \d/.test(els.runStripTotal.textContent), 'opened, it says when the run ends');
+const classes = () => { const on = new Set(); return { add: c => on.add(c), remove: c => on.delete(c), contains: c => on.has(c), toggle(c, yes) { if (yes) on.add(c); else on.delete(c); } }; };
+els.runStrip.classList = classes();
+const timers = [];
+context.setTimeout = (fn, ms) => { timers.push([fn, ms]); return timers.length; };
+context.document.body.dataset.page = 'generate';
+run("tapStrip('run')");
+assert(els.runStrip.classList.contains('open'), 'a tap opens it');
+assert.strictEqual(timers[timers.length - 1][1], 5000);
+timers[timers.length - 1][0]();
+assert(!els.runStrip.classList.contains('open'), 'it folds again by itself after five seconds');
+assert.strictEqual(context.document.body.dataset.page, 'generate');
+run("tapStrip('run')");
+run("tapStrip('run')");
+assert.strictEqual(context.document.body.dataset.page, 'status', 'a tap while open goes to Status');
+assert(!els.runStrip.classList.contains('open'));
+context.setTimeout = () => 0;
+assert(/\.go-bar button \{[^}]*padding: 8px 14px; font-size: \.85rem;/.test(html), 'the footer button is the smaller one');
+
+// A log keeps where you are reading: the upload log only follows when it's at its end, and old lines going off the
+// top don't move what you're looking at.
+assert(!script.includes("logWriter($('uploadLog'), () => true)"), 'the upload log does not always jump to its end');
+context.fakeLog = { rows: [], scrollTop: 0,
+  get scrollHeight() { return this.rows.length * 10; }, get children() { return this.rows; },
+  get firstElementChild() { const rows = this.rows; return rows.length ? { remove: () => rows.shift() } : null; },
+  set innerHTML(text) { this.rows = text.match(/class="ln/g) || []; },
+  insertAdjacentHTML(_, text) { this.rows.push(...(text.match(/class="ln/g) || [])); } };
+context.lines = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => ({ n: a + i, t: '', text: 'x' }));
+run('var writeFake = logWriter(fakeLog, () => false)');
+run('writeFake(lines(1, 100))');
+context.fakeLog.scrollTop = 800;
+run('writeFake(lines(1, 100))');
+assert.strictEqual(context.fakeLog.scrollTop, 800, 'nothing new, nothing moves');
+run('writeFake(lines(51, 120))');
+assert.strictEqual(context.fakeLog.rows.length, 70);
+assert.strictEqual(context.fakeLog.scrollTop, 300, 'line 81 is still at the top of the view');
 context.document.getElementById('runCard').getBoundingClientRect = () => ({ top: 0, bottom: 100 });
 run('syncStrips()');
 assert(els.runStrip.hidden && els.uploadStrip.hidden, 'on Status the footer bars would only repeat it');
