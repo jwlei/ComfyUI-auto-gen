@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from flask import abort, request, send_file
 
 from core import seeds, workflow_options
-from panel.server import (form_options, PIPELINES, VIDEO_TIMINGS, _runs_cache, app, busy_runs, item_images, job,
+from panel.server import (read_outcome, form_options, PIPELINES, VIDEO_TIMINGS, _runs_cache, app, busy_runs, item_images, job,
                           password_required, saved_at, run_queue, saved_runs, saved_workflows)
 from panel.shorts import VOICES
 from pipelines.video import media, paths, planner, roles
@@ -75,7 +75,7 @@ def describe_run(state):
         parts.append("Every clip is done, only stitching is left")
     parts.append(f"{folder_size(state.folder) / 2 ** 20:.0f} MB")
     return {"id": state.id, "pipeline": "video", "label": state.title or state.brief, "detail": " · ".join(parts), "when": saved_at(state.path),
-            "clips": len(state.clips), "finished": bool(state.final),
+            "clips": len(state.clips), "finished": bool(state.final), "outcome": read_outcome(state.folder),
             "estimate": RunEta(resume_argv(state), VIDEO_TIMINGS).plan()["total"]}
 
 

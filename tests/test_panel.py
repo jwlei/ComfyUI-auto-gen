@@ -364,6 +364,16 @@ class PanelTest(unittest.TestCase):
         changes = webapp.job.eta.changes
         self.assertTrue(any("rendering again" in change["text"] for change in changes), changes)
 
+        # Output lists it with the films, saying it failed and why, until it makes its film.
+        self.wait_until(lambda: self.status()["failed_films"], "the failure to be noted")
+        failed = self.status()["failed_films"][0]
+        self.assertEqual(failed["outcome"]["outcome"], "failed")
+        self.assertIn("failed", failed["outcome"]["why"])
+        self.comfy.script = ["ok"] * 7
+        self.assertTrue(self.client.post(f"/runs/{failed['id']}/continue").get_json()["ok"])
+        self.wait_until(lambda: self.status()["videos"]["video"], "the film")
+        self.wait_until(lambda: not self.status()["failed_films"], "the note to go once it worked")
+
     def test_a_queued_film_starts_by_itself_with_its_own_image(self):
         self.comfy.script = ["ok"] * 8
         self.assertFalse(self.generate().get_json()["queued"])
@@ -374,6 +384,9 @@ class PanelTest(unittest.TestCase):
         self.assertEqual({run.brief for run in list_runs()}, {"a storm rolls in", "next film"})
         results = self.status()["queue"]["results"]
         self.assertEqual([result["outcome"] for result in results], ["done", "done"])
+        # Asked to stop at its prompts: listed as not rendered, saying so, rather than missing.
+        self.wait_until(lambda: self.status()["failed_films"], "it to be noted")
+        self.assertEqual([run["outcome"]["outcome"] for run in self.status()["failed_films"]], ["not rendered"])
 
     def test_skip_starts_the_next_film_and_continues_later(self):
         self.comfy.script = ["ok", "hang"]

@@ -149,6 +149,7 @@ class Job:
             if not keep_log:
                 self.lines = []
             self.started_at = datetime.now()
+            self.first_line = self.seq  # Its own lines start after this, if the log was kept from the job before
             self.finished_at = None
             self.returncode = None
             self.command = " ".join(argv[1:])
@@ -389,10 +390,13 @@ class JobQueue:
         code = self.job.returncode
         if self.job.stopped:
             self._record(item, "stopped")
+            note_outcome(self.job, item, None)
         elif code == 0:
             self._record(item, "done")
+            note_outcome(self.job, item, NOT_RENDERED if item.get("plan_only") else None)
         else:
             self._record(item, "failed", f"exit {code}")
+            note_outcome(self.job, item, {"outcome": "failed", "why": why_it_failed(self.job, code)})
             if self.items:
                 self.job.log(f"❌ {item['label']} failed (exit {code}).")
 
@@ -882,6 +886,65 @@ def saved_runs():
     return _runs_cache["value"]
 
 
+# --- Why a run made nothing: kept in its folder, for Output to show beside what it did make ---
+
+OUTCOME_FILE = "outcome.json"
+NOT_RENDERED = {"outcome": "not rendered",
+                "why": "You asked to read the prompts first (Let me read the prompts before rendering), so it stopped once "
+                       "they were written. Open Prompts to change them, then render it."}
+# The lines that say what went wrong, as the pipelines print them.
+TROUBLE = re.compile(r"❌|⚠️|Error|Exception|Traceback|failed|refused|can't|could not", re.I)
+MOST_WHY_LINES = 4
+
+
+def why_it_failed(job, code):
+    """The run's own last lines that say what went wrong, or that it didn't say."""
+    lines = [line["text"].strip() for line in job.lines if line["n"] > getattr(job, "first_line", 0)]
+    said = [line for line in lines if TROUBLE.search(line) and not line.startswith("=====")]
+    if said:
+        return "\n".join(dict.fromkeys(said[-MOST_WHY_LINES:]))
+    last = lines[-1] if lines else "nothing"
+    return f"It ended (exit {code}) without saying why. Its last line: {last}"
+
+
+def note_outcome(job, item, outcome):
+    """Keeps why a run made nothing in its folder; None clears it, once it has made what it was asked for."""
+    pipeline = item.get("pipeline")
+    run_id = (job.progress or {}).get("run_id") or item.get("resume")
+    if pipeline not in PIPELINES or not run_id:
+        return
+    try:
+        state = PIPELINES[pipeline].load_run(run_id)
+        if not state:
+            return
+        path = os.path.join(state.folder, OUTCOME_FILE)
+        if outcome:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({**outcome, "at": time.time()}, f, ensure_ascii=False)
+        elif os.path.exists(path):
+            os.remove(path)
+    except (OSError, ValueError, AttributeError) as e:
+        job.log(f"⚠️ Could not note how {item.get('label')} ended: {e}")
+    _runs_cache["at"] = 0.0
+
+
+def read_outcome(folder):
+    """What note_outcome() kept for a run, or None."""
+    try:
+        with open(os.path.join(folder, OUTCOME_FILE), "r", encoding="utf-8") as f:
+            found = json.load(f)
+        return found if isinstance(found, dict) and found.get("outcome") else None
+    except (OSError, ValueError):
+        return None
+
+
+def made_nothing(pipeline):
+    """A side's runs that ended without what they were for, and aren't going again now: Output lists them."""
+    busy = busy_runs()
+    return [run for run in saved_runs()
+            if run["pipeline"] == pipeline and run.get("outcome") and run["id"] not in busy and not run.get("finished")]
+
+
 def stopped_runs():
     """What can be continued. A finished film is reached from its video instead."""
     busy = busy_runs()
@@ -1096,7 +1159,10 @@ def status():
     payload["upload"] = uploads.snapshot()
     payload["upload"]["queue"] = upload_queue.snapshot()
     payload["videos"] = {folder: list_videos(folder) for folder in FOLDERS}
-    payload["image_sets"] = [run for run in saved_runs() if run["pipeline"] == "image" and run["images"]]
+    failed_sets = {run["id"] for run in made_nothing("image")}
+    payload["image_sets"] = [run if run["id"] in failed_sets else {**run, "outcome": None}
+                             for run in saved_runs() if run["pipeline"] == "image" and (run["images"] or run["id"] in failed_sets)]
+    payload["failed_films"] = made_nothing("video")
     online = comfyui_online()
     payload["comfyui"] = {"online": online, "can_start": bool(comfyui_launcher()),
                           "starting": not online and time.time() - _comfyui_start_requested_at < COMFYUI_STARTUP_WAIT,
