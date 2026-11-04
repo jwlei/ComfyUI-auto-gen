@@ -252,7 +252,7 @@ context.setTimeout = fn => { fn(); return 0; };
 run("downloadImages('image_20261102_120000', [1, 3])");
 assert.deepStrictEqual(clicked, ['/image-runs/image_20261102_120000/files/1?download=1', '/image-runs/image_20261102_120000/files/3?download=1'], 'no zip');
 context.setTimeout = () => 0;
-assert(/<dialog id="imageViewer"[\s\S]*?id="viewerImage"[\s\S]*?id="viewerDownload"[\s\S]*?id="viewerDelete"[\s\S]*?id="viewerClose"[\s\S]*?<\/dialog>/.test(html), 'the picture, then Download, Delete and Close under it');
+assert(/<dialog id="imageViewer"[\s\S]*?id="viewerImage"[\s\S]*?id="viewerDownload"[\s\S]*?id="viewerClose"[\s\S]*?id="viewerDelete"[\s\S]*?<\/dialog>/.test(html), 'the picture, then Download, Close and Delete under it');
 assert(/dialog\.viewer::backdrop \{ background: rgba\(0, 0, 0, \.85\)/.test(html), 'over a dimmed page');
 run('imageSets = sets');
 run("openViewer('image_20261102_120000', 3)");
