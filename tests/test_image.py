@@ -562,6 +562,7 @@ class PanelTest(unittest.TestCase):
         self.make()
         run = self.only_run()
         before = {shot["file"]: os.path.getmtime(run.image_path(shot)) for shot in run.shots[1:]}
+        first = run.shots[0]["file"]
         self.assertEqual(self.client.post(f"/image-runs/{run.id}/redo/9").status_code, 400)
         self.assertTrue(self.client.post(f"/image-runs/{run.id}/redo/1").get_json()["ok"])
         self.wait_idle()
@@ -569,6 +570,18 @@ class PanelTest(unittest.TestCase):
         self.assertTrue(run.finished)
         self.assertEqual(len(self.comfy.prompts), 4)
         self.assertEqual({shot["file"]: os.path.getmtime(run.image_path(shot)) for shot in run.shots[1:]}, before)
+        # The new one takes the old one's place, under its name: not another set, not another file.
+        self.assertEqual(run.shots[0]["file"], first)
+        self.assertNotIn("redo", run.shots[0])
+        self.assertEqual(sorted(os.listdir(run.output_dir)), sorted(shot["file"] for shot in run.shots))
+        # A redo that fails keeps the one there was.
+        self.comfy.script = ["error"] * 10
+        self.assertTrue(self.client.post(f"/image-runs/{run.id}/redo/1").get_json()["ok"])
+        self.wait_idle()
+        run = self.only_run()
+        self.assertEqual(run.shots[0]["file"], first)
+        self.assertTrue(os.path.exists(run.image_path(run.shots[0])))
+        self.assertNotIn("redo", run.shots[0])
 
     def test_deleting_an_image_keeps_it_from_coming_back(self):
         self.make()

@@ -106,7 +106,9 @@
   .check { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; cursor: pointer; text-transform: none; letter-spacing: 0; font-size: .95rem; color: var(--text); }
   .check input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
   .check .hint { margin-top: 2px; }
-  button.armed, dialog.viewer .viewer-actions > button.armed { background: var(--err); border-color: var(--err); color: #fff;
+  /* Red wherever it is: Output's own button colours would otherwise win. */
+  button.armed, dialog.viewer .viewer-actions > button.armed, .image-set-actions button.armed, .acts button.armed, .shot-actions button.armed {
+    background: var(--err) !important; border-color: var(--err) !important; color: #fff !important;
     flex-grow: 0; flex-shrink: 0; padding-left: 0; padding-right: 0; white-space: nowrap; overflow: hidden; }
   /* A long label or a select of long file names wraps and shrinks, rather than widening the page. */
   .check > span { min-width: 0; overflow-wrap: anywhere; }

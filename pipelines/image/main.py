@@ -202,21 +202,23 @@ def render_images(state, comfy):
     time_spent = made = 0
     total = len(state.shots)
     for position, shot in enumerate(state.shots, 1):
-        if shot.get("file"):
+        if shot.get("file") and not shot.get("redo"):
             print(f"   ♻️ Image {position}/{total} kept from earlier.")
             continue
         started = time.time()
         print(f"   🖼️ Image {position}/{total} · {shot['title']}")
         path = render_image(state, comfy, shot, images)
+        redone = shot.pop("redo", None)
         if not path:
-            print(f"   ❌ Image {position} failed.")
+            print(f"   ❌ Image {position} failed{', so the one before stays' if redone and shot.get('file') else ''}.")
+            state.save()
             failed += 1
             continue
         shot["file"] = os.path.basename(path)
         state.save()
         time_spent += time.time() - started
         made += 1
-        left = sum(1 for other in state.shots if not other.get("file")) - failed
+        left = sum(1 for other in state.shots if not other.get("file") or other.get("redo")) - failed
         print(f"      ✅ Done{f', about {max(1, round(left * time_spent / made / 60))} min left' if left else ''}.")
     return failed
 
@@ -240,7 +242,8 @@ def run(args):
         if args.redo is not None:
             if not 1 <= args.redo <= len(state.shots):
                 raise RuntimeError(f"This set has images 1-{len(state.shots)}, not {args.redo}.")
-            state.shots[args.redo - 1]["file"] = None
+            # The one there stays, in the set and on disk, until the new one takes its place: a redo that fails keeps it.
+            state.shots[args.redo - 1]["redo"] = True
         print(f"🗂️ Run folder: {state.id}")
         print(f"🖼️ Continuing {state.title}")
         stages = STAGES

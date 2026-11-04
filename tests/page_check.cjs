@@ -618,6 +618,7 @@ assert(els.currentWork.hidden === false && els.currentWork.textContent === 'Vide
 assert(/nextUp \? `\$\{SIDE_NAMES\[queue\.items\[0\]\.pipeline\]/.test(script), 'between two jobs, the next one already shows');
 assert(/#currentWork\.arrive \{ animation: work-arrive/.test(html) && /\.queue-item\.leaving \{[^}]*animation: queue-leave/.test(html));
 assert(/dialog\.viewer \.viewer-actions > \* \{ flex: 1 1 0; min-width: 96px; height: 40px; margin: 0;/.test(html), 'Download, Delete and Close are one size');
+assert(/\.image-set-actions button\.armed, \.acts button\.armed[^{]*\{\s*background: var\(--err\) !important;/.test(html), 'Confirm is red in Output too');
 context.withLoras = { ...context.oneImage0 = { id: 'image_2', label: 'L', total: 1, size: '1x1', when: 'now', images: [] }, loras: ['KNPV3_1 (0.8)', '<b>x'] };
 const loraHtml = run('imageSetHtml(withLoras)');
 assert(/<\/div><div class="meta loras">LoRA: KNPV3_1 \(0\.8\), &lt;b&gt;x<\/div>/.test(loraHtml), 'LoRAs on a line of their own, escaped');

@@ -957,9 +957,13 @@ def made_in_this_run():
         return []
     try:
         state = PIPELINES["image"].load_run(run_id)
+        started = job.started_at.timestamp() if job.started_at else 0
         made = []
         for shot in (state.done if state else []):
             made_at = os.path.getmtime(state.image_path(shot))
+            # Only what this job made: a redo, or a set continued, kept the rest from before.
+            if made_at < started:
+                continue
             made.append({"label": f"{state.title or state.brief} · {shot.get('title') or shot['number']}", "outcome": "done",
                          "pipeline": "image", "at": datetime.fromtimestamp(made_at).strftime("%H:%M"), "t": made_at})
         return made
