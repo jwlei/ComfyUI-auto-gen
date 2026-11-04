@@ -467,7 +467,8 @@ assert.strictEqual(run('pipeline'), 'image');
 assert.strictEqual(context.document.body.dataset.page, 'output');
 run("setPipeline('shorts', false)");
 // Finished on the left, Log in the middle, Quota on the right: each opens in a box over the page, and gives it back.
-assert(/<div class="status-toggles" id="statusToggles">\s*<button[^>]*id="finishedToggle"[\s\S]*?id="logToggle"[^>]*>Log<\/button>\s*<button[^>]*id="quotaToggle"[^>]*>Quota<\/button>/.test(html));
+assert(/<div class="status-toggles" id="statusToggles">\s*<button[^>]*id="logToggle"[^>]*>Log<\/button>\s*<button[^>]*id="finishedToggle"[\s\S]*?id="quotaToggle"[^>]*>Quota<\/button>/.test(html), 'Log, Finished, Quota');
+assert(/#logToggle \{ grid-column: 1;/.test(html) && /#finishedToggle \{ grid-column: 2;/.test(html));
 assert(!html.includes('Expand to see the log'));
 {
   const moved = [];
