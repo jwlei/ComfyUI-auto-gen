@@ -24,13 +24,13 @@ import socket
 import subprocess
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 
 import requests
 import websocket
 from dotenv import load_dotenv
-from flask import (Flask, abort, redirect, render_template, request,
+from flask import (Flask, abort, has_request_context, redirect, render_template, request,
                    send_file, session, url_for)
 
 from core.paths import LOGS_DIR, PROJECT_ROOT, SAVED_WORKFLOWS_DIR, comfyui_client_id
@@ -359,6 +359,9 @@ class JobQueue:
 
     def add(self, item):
         """Starts the job if nothing is ahead of it, otherwise queues it. Returns True if it is queued."""
+        # Generate with a time to start at: it waits in the queue until then.
+        if has_request_context() and request.path.startswith("/generate/") and not item.get("not_before"):
+            item["not_before"] = start_at(request.form.get("start_at"))
         with self.lock:
             self._ensure_watcher()
             item["id"] = self.next_id
@@ -381,7 +384,11 @@ class JobQueue:
         if not self.items:
             self.held = False
         elif self.job.idle and not self.held and not self.blocked():
-            item = self.items.pop(0)
+            # The first that may start now: one set to start later lets those behind it go first.
+            ready = next((i for i, waiting in enumerate(self.items) if (waiting.get("not_before") or 0) <= time.time()), None)
+            if ready is None:
+                return
+            item = self.items.pop(ready)
             self._save()
             self._start(item)
 
@@ -393,7 +400,7 @@ class JobQueue:
             note_outcome(self.job, item, None)
         elif code == 0:
             self._record(item, "done")
-            note_outcome(self.job, item, NOT_RENDERED if item.get("plan_only") else None)
+            note_outcome(self.job, item, NOT_RENDERED if item.get("plan_only") else FIRST_ONLY if item.get("first_only") else None)
         else:
             self._record(item, "failed", f"exit {code}")
             note_outcome(self.job, item, {"outcome": "failed", "why": why_it_failed(self.job, code)})
@@ -417,6 +424,7 @@ class JobQueue:
         self._record(item, "skipped", error)
 
     def _record(self, item, outcome, note=None):
+        notify_ended(item, outcome, note)
         self.results.append({"label": item["label"], "outcome": outcome, "note": note, "pipeline": item.get("pipeline"),
                              "at": datetime.now().strftime("%H:%M"), "t": time.time()})
         del self.results[:-self.KEPT_RESULTS]
@@ -465,11 +473,45 @@ class JobQueue:
     def snapshot(self):
         with self.lock:
             self._advance()
-            public = lambda item: {key: item.get(key) for key in ("id", "label", "detail", "estimate", "videos", "pipeline")}
+            public = lambda item: {key: item.get(key) for key in ("id", "label", "detail", "estimate", "videos", "pipeline", "not_before")}
             return {"items": [public(item) for item in self.items],
                     "current": public(self.current) if self.current else None,
                     "results": list(self.results),
                     "held": self.held}
+
+
+def notify_ended(item, outcome, note=None):
+    """
+    Tells your phone a job ended, through ntfy (https://ntfy.sh), when NTFY_TOPIC is set in .env: install the ntfy app
+    and subscribe to that topic. NTFY_SERVER for your own server. Sent in the background: a slow server holds nothing up.
+    """
+    topic = os.getenv("NTFY_TOPIC")
+    if not topic or outcome not in ("done", "failed"):
+        return
+    title = f"{'Finished' if outcome == 'done' else 'Failed'}: {item.get('label') or 'a job'}"
+    side = {"shorts": "Shorts", "video": "Video", "image": "Image"}.get(item.get("pipeline"), "Upload")
+    message = f"{side}{f' · {note}' if note else ''}"
+    url = f"{(os.getenv('NTFY_SERVER') or 'https://ntfy.sh').rstrip('/')}/{topic}"
+
+    def send():
+        try:
+            requests.post(url, data=message.encode("utf-8"), timeout=10,
+                          headers={"Title": title.encode("utf-8"), "Tags": "white_check_mark" if outcome == "done" else "x"})
+        except requests.RequestException:
+            pass  # A notification that doesn't arrive costs nothing else
+    threading.Thread(target=send, daemon=True).start()
+
+
+def start_at(text):
+    """When a job set to start at HH:MM may start: today, or tomorrow if that's already gone. None for now."""
+    match = re.fullmatch(r"(\d{1,2}):(\d{2})", (text or "").strip())
+    if not match or int(match.group(1)) > 23 or int(match.group(2)) > 59:
+        return None
+    now = datetime.now()
+    at = now.replace(hour=int(match.group(1)), minute=int(match.group(2)), second=0, microsecond=0)
+    if at <= now:
+        at += timedelta(days=1)
+    return at.timestamp()
 
 
 def form_options(form, takes):
@@ -897,6 +939,9 @@ def saved_runs():
 # --- Why a run made nothing: kept in its folder, for Output to show beside what it did make ---
 
 OUTCOME_FILE = "outcome.json"
+FIRST_ONLY = {"outcome": "first one made",
+              "why": "You asked to try one first, so it stopped after the first. Open Prompts to see it and change the rest, "
+                     "or continue to make them."}
 NOT_RENDERED = {"outcome": "not rendered",
                 "why": "You asked to read the prompts first (Let me read the prompts before rendering), so it stopped once "
                        "they were written. Open Prompts to change them, then render it."}
@@ -926,6 +971,9 @@ def note_outcome(job, item, outcome):
         state = PIPELINES[pipeline].load_run(run_id)
         if not state:
             return
+        # Tried first, but there was only the one: it's done, there's nothing to say.
+        if outcome is FIRST_ONLY and (getattr(state, "final", None) or (getattr(state, "finished", False) is True)):
+            outcome = None
         path = os.path.join(state.folder, OUTCOME_FILE)
         if outcome:
             with open(path, "w", encoding="utf-8") as f:

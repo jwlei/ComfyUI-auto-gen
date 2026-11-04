@@ -6,6 +6,33 @@ from pipelines.image import media
 from pipelines.video.comfy import ComfyClient
 
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
+TEXT_GENERATORS = ("TextGenerate",)
+
+
+def watch_text_generation(workflow):
+    """
+    A PreviewAny on each text generator the picture is made from (the workflow's prompt enhancer), so what it wrote
+    comes back in the history. Only one in use: watching one that's switched off would run it for nothing.
+    Returns the ids of the nodes added.
+    """
+    from core.workflow_options import _feeding_outputs
+    used = _feeding_outputs(workflow)
+    added = []
+    for key in [key for key in used if workflow[key].get("class_type") in TEXT_GENERATORS]:
+        node_id = f"enhanced_{key}"
+        workflow[node_id] = {"class_type": "PreviewAny", "inputs": {"source": [key, 0]}, "_meta": {"title": "What the enhancer wrote"}}
+        added.append(node_id)
+    return added
+
+
+def generated_text(entry, watched):
+    """What the watched text generators wrote, from a finished run's history entry. None if nothing."""
+    texts = []
+    for node_id in watched:
+        for value in (entry.get("outputs", {}).get(node_id) or {}).get("text") or []:
+            if isinstance(value, str) and value.strip():
+                texts.append(value.strip())
+    return "\n\n".join(texts) or None
 EDIT_ENCODER = "TextEncodeQwenImageEditPlus"
 
 
@@ -41,4 +68,7 @@ class ImageClient(ComfyClient):
         self._fill_images(workflow, images)
         self._set(workflow, "width", width)
         self._set(workflow, "height", height)
-        return self._download(self._run(workflow, seed), save_as, IMAGE_EXTENSIONS, "an image")
+        watched = watch_text_generation(workflow)
+        entry = self._run(workflow, seed)
+        self.enhanced = generated_text(entry, watched)
+        return self._download(entry, save_as, IMAGE_EXTENSIONS, "an image")

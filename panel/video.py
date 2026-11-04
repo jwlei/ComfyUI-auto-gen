@@ -127,6 +127,8 @@ def build_options(form):
 
     if form.get("review"):
         flags.append("--plan-only")
+    if form.get("try_first"):
+        flags.append("--first-only")
     return flags, None
 
 
@@ -289,7 +291,7 @@ def generate():
     if env:
         detail.append(request.form["workflow"].removesuffix(".json"))
     item = {"pipeline": "video", "label": queue_label(prompt), "detail": " · ".join(detail), "argv": argv, "env": env,
-            "image": image_paths[0] if image_paths else None, "references": image_paths[1:] + ([audio_path] if audio_path else []) + media_paths, "plan_only": plan_only,
+            "image": image_paths[0] if image_paths else None, "references": image_paths[1:] + ([audio_path] if audio_path else []) + media_paths, "plan_only": plan_only, "first_only": "--first-only" in flags,
             "estimate": RunEta(argv, VIDEO_TIMINGS, env).plan()["total"]}
     queued = run_queue.add(item)
     if item.get("error"):

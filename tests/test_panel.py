@@ -5,6 +5,7 @@ a fake ComfyUI and a fake Claude and runs real ffmpeg. Stop really kills it.
 import io
 import json
 import os
+from datetime import datetime, timedelta
 import shutil
 import subprocess
 import sys
@@ -441,6 +442,37 @@ class PanelTest(unittest.TestCase):
         post({"side": "image", "name": "Edits", "delete": True})
         self.assertEqual([p["name"] for p in self.client.get("/api/presets").get_json()["presets"]["image"]], ["Phone wallpaper"])
         self.assertEqual(post({"side": "nowhere", "name": "x", "values": {}}).status_code, 400)
+
+    def test_a_job_set_to_start_later_waits_and_lets_others_go_first(self):
+        later = (datetime.now() + timedelta(hours=2)).strftime("%H:%M")
+        self.assertTrue(self.generate(start_at=later).get_json()["queued"], "it waits, though nothing is running")
+        queued = self.status()["queue"]["items"]
+        self.assertEqual(len(queued), 1)
+        self.assertGreater(queued[0]["not_before"], time.time() + 3600)
+        self.assertFalse(webapp.job.running)
+        self.comfy.script = ["ok"] * 8
+        self.assertFalse(self.generate(prompt="now please").get_json()["queued"], "one without a time goes ahead of it")
+        self.wait_idle()
+        self.assertEqual([item["label"] for item in self.status()["queue"]["items"]], [queued[0]["label"]], "the later one still waits")
+        self.assertIsNone(webapp.start_at(""))
+        self.assertIsNone(webapp.start_at("25:00"))
+        self.assertGreater(webapp.start_at((datetime.now() - timedelta(minutes=5)).strftime("%H:%M")), time.time(), "a time gone today is tomorrow's")
+
+    def test_your_phone_is_told_when_a_job_ends_if_ntfy_is_set(self):
+        sent = []
+        with mock.patch.dict(os.environ, {"NTFY_TOPIC": "my-topic"}), \
+                mock.patch.object(webapp.requests, "post", side_effect=lambda url, **kw: sent.append((url, kw))):
+            webapp.notify_ended({"label": "A storm", "pipeline": "video"}, "done")
+            webapp.notify_ended({"label": "Stopped", "pipeline": "video"}, "stopped")
+            self.wait_until(lambda: sent, "the message")
+        self.assertEqual(len(sent), 1, "only finished or failed")
+        url, kw = sent[0]
+        self.assertEqual(url, "https://ntfy.sh/my-topic")
+        self.assertEqual(kw["headers"]["Title"].decode(), "Finished: A storm")
+        sent.clear()
+        with mock.patch.dict(os.environ, {"NTFY_TOPIC": ""}), mock.patch.object(webapp.requests, "post", side_effect=lambda *a, **k: sent.append(1)):
+            webapp.notify_ended({"label": "x"}, "done")
+        self.assertEqual(sent, [], "nothing without a topic")
 
     def test_discard(self):
         self.assertTrue(self.generate(review="1").get_json()["ok"])

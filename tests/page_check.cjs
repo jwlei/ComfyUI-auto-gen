@@ -785,6 +785,15 @@ assert(/<summary class="section-title">Generation<\/summary>\s*<div class="workf
 assert(run("samePreset({ a: '1', b: true }, { b: true, a: '1' })") === true && run("samePreset({ a: '1' }, { a: '2' })") === false);
 assert(/const PRESET_SKIP = \['prompt', 'narration', 'seed', 'topic', 'output', 'review'\];/.test(script), 'what each run is about stays out of a preset');
 
+// Try one first; start later; a note when something ends.
+assert((html.match(/<input type="checkbox" name="try_first">/g) || []).length === 2, 'Video and Image can try one first');
+assert(/<div class="start-later">\s*<label for="startAt">Start later, at<\/label>\s*<input type="time" id="startAt" name="start_at"/.test(html));
+run(`resultsSeen = null; announceResults([{ label: 'Old', outcome: 'done', t: 1 }])`);
+assert.notStrictEqual(els.toast && els.toast.hidden, false, 'what ended before the page opened is not news');
+run(`announceResults([{ label: 'Old', outcome: 'done', t: 1 }, { label: 'A <b>storm', outcome: 'done', t: 2 }])`);
+assert(els.toast.hidden === false && els.toast.textContent === '✔ Finished: A <b>storm', 'then a note, as text');
+assert(/starts \$\{new Date\(item\.not_before \* 1000\)/.test(script), 'a job set to start later says when');
+
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/maximum-scale=1, user-scalable=no/.test(base) && /html \{ overflow-x: clip; touch-action: manipulation; \}/.test(base), 'no zooming the page out from under the footer');
 assert(/html \{ overflow-x: clip;/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),

@@ -625,6 +625,35 @@ class PanelTest(unittest.TestCase):
                          {"LoadImage", "SeedVR2LoadDiTModel", "SeedVR2LoadVAEModel", "SeedVR2VideoUpscaler", "PreviewImage"})
         self.assertEqual(next(n for n in sent.values() if n["class_type"] == "SeedVR2LoadDiTModel")["inputs"]["attention_mode"], "sdpa")
 
+    def test_trying_one_first_makes_one_and_stops(self):
+        self.make(count="3", try_first="1")
+        run = self.only_run()
+        self.assertEqual([bool(shot.get("file")) for shot in run.shots], [True, False, False])
+        self.assertEqual(len(self.comfy.prompts), 1)
+        said = lambda: (next((r for r in self.status()["stopped_runs"] if r["id"] == run.id), {}).get("outcome") or {}).get("outcome")
+        for _ in range(50):  # The queue notes it on its next look, within half a second
+            if said() == "first one made":
+                break
+            time.sleep(0.1)
+        self.assertEqual(said(), "first one made", "it says why it stopped")
+        self.assertTrue(self.client.post(f"/runs/{run.id}/continue").get_json()["ok"])
+        self.wait_idle()
+        self.assertTrue(self.only_run().finished)
+        self.assertEqual(len(self.comfy.prompts), 3, "the rest, and the first not again")
+
+    def test_what_the_enhancer_wrote_is_watched_only_when_it_is_used(self):
+        from pipelines.image.comfy import generated_text, watch_text_generation
+        workflow = {"1": {"class_type": "TextGenerate", "inputs": {"prompt": "x"}},
+                    "2": {"class_type": "KSampler", "inputs": {"positive": ["1", 0]}},
+                    "3": {"class_type": "PreviewImage", "inputs": {"images": ["2", 0]}},
+                    "9": {"class_type": "TextGenerate", "inputs": {"prompt": "switched off"}}}
+        self.assertEqual(watch_text_generation(workflow), ["enhanced_1"])
+        self.assertEqual(workflow["enhanced_1"]["inputs"]["source"], ["1", 0])
+        self.assertNotIn("enhanced_9", workflow, "one nothing reads would run for nothing")
+        entry = {"outputs": {"enhanced_1": {"text": ["A bright lighthouse at dusk."]}, "3": {"images": []}}}
+        self.assertEqual(generated_text(entry, ["enhanced_1"]), "A bright lighthouse at dusk.")
+        self.assertIsNone(generated_text({"outputs": {}}, ["enhanced_1"]))
+
     def test_deleting_an_image_keeps_it_from_coming_back(self):
         self.make()
         run = self.only_run()

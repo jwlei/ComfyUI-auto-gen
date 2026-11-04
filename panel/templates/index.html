@@ -27,6 +27,12 @@
   #uploadBox .status { margin-bottom: 8px; }
   #stopUpload { width: auto; margin: 0 0 0 auto; padding: 4px 10px; font-size: .8rem; }
   .queue { margin-top: 12px; font-size: .84rem; }
+  /* What just finished, for a moment, over the footer. */
+  .toast { position: fixed; left: 50%; bottom: calc(var(--head, 90px) + 12px); z-index: 20; transform: translateX(-50%);
+    max-width: calc(100vw - 32px); padding: 8px 14px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line);
+    color: var(--text); font-size: .82rem; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); animation: menu-in .2s ease; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .toast[hidden] { display: none; }
+  .toast.failed { border-color: var(--err); }
   /* A line between what's going now and what's waiting, there only when something is. */
   /* Wider than the rest, out into the card's own margin, with room inside as before. */
   .status-queue:has(> :not([hidden])) { margin: 14px -10px 0; padding: 2px 12px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; }
@@ -481,6 +487,12 @@
   .form-actions { margin-top: 16px; }
   .form-actions .btns { margin-top: 0; }
   .form-actions #go { margin-top: 0; }
+  /* Start later: quiet, under the button. */
+  .start-later { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 6px; font-size: .78rem; color: var(--muted); }
+  .start-later label { margin: 0; text-transform: none; letter-spacing: 0; font-size: .78rem; }
+  .start-later input { width: auto; padding: 3px 6px; font-size: .8rem; }
+  .start-later button { width: auto; margin: 0; padding: 2px 8px; font-size: .78rem; }
+  .start-later button[hidden] { display: none; }
   .log-box { margin-top: 8px; font-size: .85rem; }
   .current-work { font-size: .95rem; font-weight: 600; margin-bottom: 8px; overflow-wrap: anywhere; }
   .run-card .btns:empty { display: none; }
@@ -960,6 +972,12 @@
         <div class="hint">Stops after the prompts are written, so you can change them.</div>
       </span>
     </label>
+    <label class="check">
+      <input type="checkbox" name="try_first">
+      <span>Try one first
+        <div class="hint">Renders the first clip and stops, so you can see it before the rest are paid for in time.</div>
+      </span>
+    </label>
   </details>
 </form>
 
@@ -1058,6 +1076,12 @@
       </label>
     </div>
     <div class="hint" id="imageHowDirect" hidden>Your prompt goes in as it is, so each image differs only by its seed.</div>
+    <label class="check">
+      <input type="checkbox" name="try_first">
+      <span>Try one first
+        <div class="hint">Makes the first image and stops, so you can see it before the rest are made.</div>
+      </span>
+    </label>
   </details>
 </form>
 
@@ -1097,6 +1121,11 @@
   <div class="btns">
     <button type="button" id="go">Generate</button>
   </div>
+  <div class="start-later">
+    <label for="startAt">Start later, at</label>
+    <input type="time" id="startAt" name="start_at" aria-label="Start later, at this time">
+    <button type="button" class="ghost" id="startAtClear" title="Start as soon as it can" aria-label="Start as soon as it can" hidden>✕</button>
+  </div>
   <div class="err" id="formError" hidden></div>
   <div class="hint" id="formNote" hidden></div>
   <div class="estimate" id="estimate" hidden>
@@ -1106,6 +1135,7 @@
   </div>
 </div>
 
+<div class="toast" id="toast" role="status" hidden></div>
 <dialog id="shotsDialog"><div id="shotsBody"></div></dialog>
 <dialog id="panelDialog" class="panel-dialog" aria-labelledby="panelDialogTitle">
   <div class="panel-dialog-title" id="panelDialogTitle"></div>
@@ -3023,7 +3053,8 @@ function renderQueue(el, q, doneIn, moving = false) {
   const items = waiting.map((item, i) => `
     <div class="queue-item" data-id="${esc(String(item.id))}">
       <div class="what">${i + 1}. ${esc(item.label)}<div class="hint">${el.dataset.lane === 'run' ? `${SIDE_NAMES[item.pipeline] || 'Shorts'} · ` : ''}${esc(item.detail)}</div></div>
-      ${item.estimate ? `<span class="when">${fmtEta(item.estimate)}</span>` : ''}
+      ${item.not_before && item.not_before * 1000 > Date.now() ? `<span class="when">starts ${new Date(item.not_before * 1000).toTimeString().slice(0, 5)}</span>`
+        : item.estimate ? `<span class="when">${fmtEta(item.estimate)}</span>` : ''}
       <button type="button" data-remove="${item.id}" aria-label="Remove from the queue" title="Remove from the queue">✕</button>
     </div>`).join('');
   const html = `<div class="queue-head">${head}</div>${now}${items}`;
@@ -3032,6 +3063,22 @@ function renderQueue(el, q, doneIn, moving = false) {
     el.innerHTML = html;
     el.dataset.html = html;
   }
+}
+// What ended since the last look: a note for a moment, and a buzz on a phone.
+let resultsSeen = null, toastTimer = null;
+function announceResults(results) {
+  const latest = results.reduce((a, b) => ((b.t || 0) > (a ? a.t || 0 : -1) ? b : a), null);
+  const key = latest ? `${latest.t}|${latest.label}` : '';
+  if (resultsSeen === null) { resultsSeen = key; return; }  // What had ended before the page opened isn't news
+  if (!latest || key === resultsSeen || !['done', 'failed'].includes(latest.outcome)) { resultsSeen = key; return; }
+  resultsSeen = key;
+  const toast = $('toast');
+  toast.textContent = `${latest.outcome === 'done' ? '✔ Finished' : '✖ Failed'}: ${latest.label}`;
+  toast.classList.toggle('failed', latest.outcome === 'failed');
+  toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toast.hidden = true; }, 4000);
+  try { if (navigator.vibrate) navigator.vibrate(latest.outcome === 'done' ? 60 : [60, 80, 60]); } catch (e) {}
 }
 // Every run and upload that has ended, in one list, newest first.
 const FINISHED_SHOWN = 5;  // The last five; a restart starts it empty
@@ -3263,7 +3310,7 @@ async function poll() {
   if (wasRunning && !running) {
     refreshPlan();  // That run just improved the timings
     // The prompts you asked to read before rendering are ready.
-    const planned = data.pipeline !== 'shorts' && data.returncode === 0 && (data.command || '').includes('--plan-only') && data.progress.run_id;
+    const planned = data.pipeline !== 'shorts' && data.returncode === 0 && /--(plan|first)-only/.test(data.command || '') && data.progress.run_id;
     if (planned && !$('shotsDialog').open) openShots(data.progress.run_id);
   }
   wasRunning = running;
@@ -3287,6 +3334,7 @@ async function poll() {
   renderQueue($('runQueue'), queue, queue.held ? 0 : queueAhead, nextUp);
   renderStopped(data.stopped_runs);
   renderFinished(queue.results, upq.results, data.made_now || []);
+  announceResults([...queue.results, ...upq.results]);
   $('dot').className = 'dot' + (running || nextUp ? ' on' : '');
   $('jumpDot').className = $('dot').className;
   renderStrips(data);
@@ -3357,6 +3405,8 @@ function showFormError(text) {
   $('formError').hidden = $('goError').hidden = !text;
 }
 for (const form of ['formShorts', 'formVideo', 'formImage']) $(form).addEventListener('input', () => { if (!$('goError').hidden) showFormError(''); });
+$('startAt').addEventListener('input', () => { $('startAtClear').hidden = !$('startAt').value; });
+$('startAtClear').addEventListener('click', () => { $('startAt').value = ''; $('startAtClear').hidden = true; });
 // Sends a form and reports how much of it is sent: an image over mobile data can take a while.
 function postForm(url, form, progress) {
   return new Promise(resolve => {
@@ -3386,6 +3436,7 @@ async function startJob(url) {
   const body = await postForm(url, new FormData($(SIDE_FORMS[pipeline])), showSending);
   submitting = false;
   $('queuePending').hidden = true;
+  if (body.ok) { $('startAt').value = ''; $('startAtClear').hidden = true; }  // The time was for that job
   $('go').textContent = $('goStick').textContent = wasRunning || runsQueued ? 'Add to queue' : 'Generate';
   $('formNote').hidden = !body.continued;
   if (body.continued) $('formNote').textContent = `Continuing what was already paid for: ${body.continued}`;

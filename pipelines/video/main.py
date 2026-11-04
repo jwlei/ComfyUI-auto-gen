@@ -87,6 +87,7 @@ def parse_args(argv=None):
     parser.add_argument("--seed", type=parse_seed, help="The first clip's seed. Each clip after it gets the next one, so the film "
                                                        "can be made again. Default: a random seed for every clip.")
     parser.add_argument("--plan-only", action="store_true", help="Write the prompts and stop before rendering.")
+    parser.add_argument("--first-only", action="store_true", help="Render the first clip and stop, to see it before rendering the rest.")
     parser.add_argument("--resume", metavar="RUN", help="Continue a saved run, with its original options.")
     parser.add_argument("--redo", type=int, metavar="SHOT", help="With --resume: render this shot again (chained: and every shot after it).")
     parser.add_argument("--list", action="store_true", help="List saved runs.")
@@ -303,15 +304,19 @@ def render_shot(state, comfy, index, images, audio=None, references=((), ())):
     return None
 
 
-def render_clips(state, comfy):
-    """Returns True once every shot has an accepted clip."""
+def render_clips(state, comfy, most=None):
+    """Returns True once every shot has an accepted clip, or the most asked for are made."""
     total = len(state.shots)
     time_spent = film_rendered = 0
     references = None
+    made = 0
     for index, shot in enumerate(state.shots):
         if index in state.clips:
             print(f"   ♻️ Clip {index + 1}/{total} kept from earlier.")
             continue
+        if most is not None and made >= most:
+            break
+        made += 1
 
         started = time.time()
         print(f"   🎬 Clip {index + 1}/{total} · {shot['title']} · {shot['seconds']}s")
@@ -394,9 +399,12 @@ def run(args):
         if args.resume:
             # A run that was killed outright leaves its last clip rendering.
             comfy.cancel()
-        if not render_clips(state, comfy):
+        if not render_clips(state, comfy, most=1 if args.first_only else None):
             print(f"💾 Kept what's done. Continue with: python -m pipelines.video.main --resume {state.id}")
             return 1
+        if args.first_only and state.next_stage() == "Clips":
+            print(f"👀 The first clip is made, to look at: continue for the rest. python -m pipelines.video.main --resume {state.id}")
+            return 0
 
     print_stage("Stitching", stages)
     output = stitch_film(state)

@@ -73,6 +73,7 @@ def parse_args(argv=None):
                         help="One of the workflow's own options, repeatable, such as group_2nd_pass=0 or lora_knpv3_1=0.8. "
                              "Its map in logs/workflows lists them under _options.")
     parser.add_argument("--plan-only", action="store_true", help="Write the prompts and stop before rendering.")
+    parser.add_argument("--first-only", action="store_true", help="Make the first image and stop, to see it before making the rest.")
     parser.add_argument("--resume", metavar="RUN", help="Continue a saved run, with its original options.")
     parser.add_argument("--redo", type=int, metavar="IMAGE", help="With --resume: make this image again, by its place in the set.")
     parser.add_argument("--list", action="store_true", help="List saved runs.")
@@ -190,18 +191,25 @@ def render_image(state, comfy, shot, images):
         if not problem:
             media.trim(path, rendered, (state.width, state.height))
             shot["used_seed"] = seed
+            # What the workflow's prompt enhancer made of the prompt, for the prompts view to show.
+            if getattr(comfy, "enhanced", None):
+                shot["enhanced_prompt"] = comfy.enhanced
+            else:
+                shot.pop("enhanced_prompt", None)
             return path
         print(f"      ⚠️ Rejected: {problem} (attempt {attempt}/{IMAGE_ATTEMPTS}).")
     return None
 
 
-def render_images(state, comfy):
-    """Returns how many it could not make. One that won't come out doesn't cost the rest of the set."""
+def render_images(state, comfy, most=None):
+    """Returns how many it could not make. One that won't come out doesn't cost the rest of the set. most: stop after that many."""
     images = upload_images(state, comfy)
     failed = 0
     time_spent = made = 0
     total = len(state.shots)
     for position, shot in enumerate(state.shots, 1):
+        if most is not None and made >= most:
+            break
         if shot.get("file") and not shot.get("redo"):
             print(f"   ♻️ Image {position}/{total} kept from earlier.")
             continue
@@ -263,7 +271,11 @@ def run(args):
         comfy.cancel()
     # Saved after this, or a ComfyUI that's down would cost a redo's image without rendering anything.
     state.save()
-    failed = render_images(state, comfy)
+    failed = render_images(state, comfy, most=1 if args.first_only else None)
+    left = sum(1 for shot in state.shots if not shot.get("file"))
+    if args.first_only and left and not failed:
+        print(f"👀 The first one is made, to look at: continue for the {left} left. python -m pipelines.image.main --resume {state.id}")
+        return 0
     if failed:
         print(f"💾 {failed} of {len(state.shots)} failed, and the rest are kept. Continue with: python -m pipelines.image.main --resume {state.id}")
         return 1

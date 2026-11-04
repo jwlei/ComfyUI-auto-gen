@@ -174,6 +174,9 @@ def build_options(form):
             if form.get("review"):
                 flags.append("--plan-only")
 
+    if form.get("try_first"):
+        flags.append("--first-only")
+
     flags_, error = size_flags(form)
     return (None, error) if error else (flags + flags_, None)
 
@@ -268,7 +271,7 @@ def generate():
     if env.get("COMFYUI_WORKFLOW"):
         detail.append(os.path.splitext(os.path.basename(env["COMFYUI_WORKFLOW"]))[0])
     item = {"pipeline": "image", "label": queue_label(prompt), "detail": " · ".join(detail), "argv": argv, "env": env,
-            "image": image_paths[0] if image_paths else None, "references": image_paths[1:], "plan_only": plan_only,
+            "image": image_paths[0] if image_paths else None, "references": image_paths[1:], "plan_only": plan_only, "first_only": "--first-only" in flags,
             "estimate": RunEta(argv, env, IMAGE_TIMINGS).plan()["total"]}
     queued = run_queue.add(item)
     if item.get("error"):
@@ -332,7 +335,7 @@ def image_run_detail(run_id):
             "busy": run_id in busy_runs(), "finished": state.finished, "is_image": True,
             "size": f"{state.width}x{state.height}", "image_count": state.image_count, "settings": settings_of(state),
             "shots": [{"title": shot["title"], "prompt": shot["prompt"], "rendered": bool(shot.get("file")),
-                       "seed": shot.get("seed"), "used_seed": shot.get("used_seed"),
+                       "seed": shot.get("seed"), "used_seed": shot.get("used_seed"), "enhanced_prompt": shot.get("enhanced_prompt"),
                        "version": int(os.path.getmtime(state.image_path(shot))) if shot.get("file") else 0} for shot in state.shots]}
 
 

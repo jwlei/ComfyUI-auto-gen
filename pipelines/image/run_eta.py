@@ -47,6 +47,8 @@ class RunEta:
         self.workflow = (env or {}).get("COMFYUI_WORKFLOW")
         try:
             self.images = int(_option(argv, "--count", 1))
+            if "--first-only" in argv:
+                self.images = min(self.images, 1)  # The rest wait to be asked for
         except ValueError:
             self.images = 1
         self.size_share = _size_share(argv)
