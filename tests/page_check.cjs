@@ -277,6 +277,18 @@ assert(/<div class="image-set-row album">\s*<a [^>]*class="album-cover"[^>]*><im
 const single = run("imageSetHtml({ id: 'image_9', label: 'One', total: 1, size: '1x1', when: 'now', images: [{ position: 1, title: 'x', version: 1 }] })");
 assert(single.includes('class="album-cover"') && !single.includes('album-count') && !single.includes('album-strip'), 'one image: the same picture box, no count, no strip');
 assert(/class="icon-btn" data-download-set="image_9" title="Download" aria-label="Download"><svg/.test(single) && /class="icon-btn del" data-delete-set="image_9"[^>]*aria-label="Delete"><svg/.test(single), 'icons, named');
+assert(/data-download-set="image_9"[^>]*>[\s\S]*?<\/button><button type="button" class="icon-btn" data-again-set="image_9"[^>]*aria-label="The same again"><svg/.test(single), 'the same again, second');
+// It puts every option back as the set had it, the rest at the workflow's own default.
+{
+  const fields = {};
+  const field = (name, type, extra = {}) => (fields[name] = { name, type, value: '', checked: false, ...extra });
+  field('opt_up', 'checkbox'); field('opt_steps', 'number'); field('opt_lora_on', 'checkbox'); field('opt_lora_strength', 'number', { value: '1' });
+  context.optBox2 = { dataset: {}, querySelector: selector => fields[/name="([^"]+)"/.exec(selector)[1]] || null };
+  context.optDefs = [{ id: 'up', kind: 'switch', default: '0' }, { id: 'steps', kind: 'number', default: '20' }, { id: 'lora', kind: 'strength', default: '0' },
+    { id: 'prompt_enhancer', kind: 'switch', default: '0', role: 'llm' }];
+  run(`applyOptions(optBox2, optDefs, { up: '1', lora: '0.8', prompt_enhancer: '1' })`);
+  assert(fields.opt_up.checked === true && fields.opt_steps.value === '20' && fields.opt_lora_on.checked === true && fields.opt_lora_strength.value === '0.8');
+}
 assert(/\.image-set-actions \{[^}]*justify-content: flex-end;[^}]*margin-top: auto;/.test(html) && /\.album-cover \{[^}]*width: 92px; height: 92px;/.test(html), 'the icons sit in the same place on every set');
 assert(/\.image-set-row\.album \{ align-items: stretch; \}/.test(html) && /\.album-strip \{ display: flex;[^}]*overflow-x: auto/.test(html), 'the strip scrolls sideways');
 assert(/\.album-cover img \{ position: absolute; inset: 0;/.test(html) && !/\.album-cover \{[^}]*min-height/.test(html), 'the cover is as tall as the strip and buttons, not its picture');

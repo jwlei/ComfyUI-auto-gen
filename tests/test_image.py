@@ -756,6 +756,11 @@ class PanelTest(unittest.TestCase):
         self.assertEqual([entry["label"] for entry in made], [f"{run.title} · Version 1", f"{run.title} · Version 2"])
         self.assertEqual({entry["pipeline"] for entry in made}, {"image"})
         self.assertEqual(webapp.made_in_this_run(), [], "and once it is done, the set's own line says so")
+        # The same again: what it was made with, for Generate to start from.
+        settings = self.client.get(f"/image-runs/{run.id}").get_json()["settings"]
+        self.assertEqual((settings["prompt"], settings["direct"], settings["count"], settings["workflow"], settings["options"]),
+                         ("a lighthouse", True, 2, "image_text.json", {"prompt_enhancer": "1"}))
+        self.assertEqual(self.client.get(f"/image-runs/{run.id}/inputs/1").status_code, 404, "it was given no image")
         self.assertEqual(sorted(os.listdir(run.output_dir))[0][:len("a_lighthouse_text_001")], "a_lighthouse_text_001")
         self.assertIn("TextGenerate", [node["class_type"] for node in self.comfy.prompts[0]["prompt"].values()])
 

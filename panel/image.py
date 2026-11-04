@@ -323,10 +323,28 @@ def image_run_detail(run_id):
         return {"ok": False, "error": "That run is no longer saved."}, 404
     return {"ok": True, "id": state.id, "title": state.title, "brief": state.brief, "llm": state.llm, "direct": state.direct,
             "busy": run_id in busy_runs(), "finished": state.finished, "is_image": True,
-            "size": f"{state.width}x{state.height}", "image_count": state.image_count,
+            "size": f"{state.width}x{state.height}", "image_count": state.image_count, "settings": settings_of(state),
             "shots": [{"title": shot["title"], "prompt": shot["prompt"], "rendered": bool(shot.get("file")),
                        "seed": shot.get("seed"), "used_seed": shot.get("used_seed"),
                        "version": int(os.path.getmtime(state.image_path(shot))) if shot.get("file") else 0} for shot in state.shots]}
+
+
+def settings_of(state):
+    """What a set was made with, as the form sets it: for "the same again", to change before pressing Generate."""
+    workflow = next((w["name"] for w in saved_workflows() if state.workflow and os.path.abspath(w["path"]) == os.path.abspath(state.workflow)), "")
+    return {"prompt": state.brief, "direct": state.direct, "count": len(state.shots or []) or state.count, "llm": state.llm,
+            "workflow": workflow, "size": f"{state.width}x{state.height}", "options": state.options or {},
+            "inputs": sum(1 for path in state.input_paths if os.path.exists(path))}
+
+
+@app.route("/image-runs/<run_id>/inputs/<int:number>")
+@password_required
+def image_input(run_id, number):
+    """An image a set was given, for making it again."""
+    state = RunState.load(run_id)
+    if not state or not 1 <= number <= len(state.input_paths) or not os.path.exists(state.input_paths[number - 1]):
+        abort(404)
+    return send_file(state.input_paths[number - 1], mimetype="image/png")
 
 
 def shot_of(run_id, position):
