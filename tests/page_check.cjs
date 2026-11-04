@@ -382,8 +382,7 @@ for (const size of ['1920x1080', '2560x1440', '3840x2160', '1272x2772']) assert(
 els.imageAspect.value = '1920x1080';
 els.imageMegapixels.value = '1';
 run('syncImageSize()');
-assert(els.imageSizeHint.textContent.includes('Makes 1920x1080 exactly'), 'a screen is its exact size, whatever the grid');
-assert(!els.imageSizeHint.textContent.includes('far above'));
+assert.strictEqual(els.imageSizeHint.textContent, '', 'nothing to say about an ordinary size');
 els.imageAspect.value = '3840x2160';
 run('syncImageSize()');
 assert(els.imageSizeHint.textContent.includes('far above'), 'it says what asking for 4K costs');

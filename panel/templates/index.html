@@ -1060,7 +1060,7 @@
       <button type="button" class="ghost" data-seed-pick="imageSeed" title="Pick a random seed to keep" aria-label="Pick a random seed to keep"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg></button>
       <button type="button" class="ghost" data-seed-clear="imageSeed" title="Back to random" aria-label="Back to a random seed every time">✕</button>
     </div>
-    <div class="hint">Empty: a new random seed for every image. A number: image 1 uses it and each image after it the next one, so the same set comes out again. Each image's seed shows when you open the set.</div>
+    <div class="hint">Empty is random; a number makes the same set again.</div>
   </details>
 
   <details class="section" id="imageOptions" hidden>
@@ -2003,7 +2003,8 @@ function syncImageSize() {
   const model = imageModel(), over = model && model.most_megapixels && sides[0] * sides[1] > model.most_megapixels * MEGAPIXEL;
   const large = over ? ` That is more than ${model.label} makes well: choose a smaller size.`
     : sides[0] * sides[1] > LARGE_MEGAPIXELS * MEGAPIXEL ? ` That is far above what these models usually work at: expect a long render, and repeated details.` : '';
-  $('imageSizeHint').textContent = `${size ? `Makes ${size}${exact ? ' exactly' : `, rounded to multiples of ${SIZE_STEP}`}.` : ''}${crop}${blank}${large || ' More pixels take longer.'}${limit}`;
+  // Only what's worth knowing: the size itself is in the boxes above.
+  $('imageSizeHint').textContent = `${crop}${blank}${large}${limit}`.trim();
 }
 // The chosen workflow's own options (core/workflow_options.py). A checkbox sends a hidden 0 before its own 1, so leaving
 // it unticked still says so. Drawn again only for another workflow, so what you set stays while you fill in the rest.
