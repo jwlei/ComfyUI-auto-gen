@@ -667,7 +667,7 @@
   </div>
   <div class="status-toggles" id="statusToggles">
     <button type="button" class="status-toggle" id="logToggle" aria-haspopup="dialog">Log</button>
-    <button type="button" class="status-toggle" id="finishedToggle" aria-haspopup="dialog" disabled>Finished (0)</button>
+    <button type="button" class="status-toggle" id="finishedToggle" aria-haspopup="dialog" disabled>Finished</button>
     <button type="button" class="status-toggle" id="quotaToggle" aria-haspopup="dialog">Quota</button>
   </div>
   <details class="log-box" id="logBox">
@@ -2822,7 +2822,7 @@ function renderFinished(runs, uploads, madeNow = []) {
   // Always there, so the line keeps its shape: greyed out while nothing has finished.
   $('finishedToggle').disabled = !all.length;
   if (!all.length) {
-    $('finishedToggle').textContent = 'Finished (0)';
+    $('finishedToggle').textContent = 'Finished';
     return;
   }
   const failed = all.filter(r => r.outcome === 'failed').length;
