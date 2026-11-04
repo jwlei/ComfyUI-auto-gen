@@ -6,10 +6,11 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fakes import (OBJECT_INFO, edit_image_workflow, fibo2_workflow, h3_workflow, reference_workflow, saved_workflow, text_only_workflow,
-                   text_to_image_workflow)
+from fakes import (OBJECT_INFO, edit_image_workflow, fibo2_workflow, h3_workflow, reference_workflow, saved_workflow, switchable_workflow,
+                   text_only_workflow, text_to_image_workflow)
 
-from core import saved_workflows
+from core import saved_workflows, workflow_options
+from fakes import _ui_node
 from core.saved_workflows import (Unusable, _from_comfyui, _grow_references, _from_earlier, _prepare, find_fields, find_image_fields, frames_for,
                                   image_model, image_takes, is_for_image, is_for_shorts, pipeline_of, takes, to_api)
 
@@ -174,11 +175,91 @@ class ImageWorkflowTest(unittest.TestCase):
 
     def test_what_wont_run_says_why(self):
         with self.assertRaisesRegex(Unusable, "Save Image"):
-            to_api(saved_workflow(), OBJECT_INFO, images=True)
+            to_api(reference_workflow(), OBJECT_INFO, images=True)
         missing = edit_image_workflow()
         missing["definitions"]["subgraphs"][0]["nodes"][0]["widgets_values"] = ["gone.safetensors"]
         with self.assertRaisesRegex(Unusable, "gone.safetensors"):
             to_api(missing, OBJECT_INFO, images=True)
+
+
+class EditorOnlyTest(unittest.TestCase):
+    def api(self, chosen=None):
+        return workflow_options.convert(switchable_workflow(), OBJECT_INFO, chosen)
+
+    def test_what_only_the_editor_has_is_left_out(self):
+        api = self.api()[0]
+        kinds = {node["class_type"] for node in api.values()}
+        self.assertFalse(kinds & {"Label (rgthree)", "Bookmark (rgthree)", "Fast Groups Bypasser (rgthree)"})
+        self.assertNotIn("Image Saver", kinds, "it writes to ComfyUI's output folder, and Civitai")
+        self.assertIn("PreviewImage", kinds)
+
+    def test_anything_everywheres_links_are_made(self):
+        api = self.api()[0]
+        encoder = next(node for node in api.values() if node["class_type"] == "CLIPTextEncode")
+        self.assertEqual(encoder["inputs"]["clip"], ["1", 1])
+
+    def test_a_node_saved_without_its_widgets_names_gets_them_from_comfyui(self):
+        enhancer = self.api()[0]["2"]["inputs"]
+        self.assertEqual((enhancer["enabled"], enhancer["strength"], enhancer["debug"]), (True, 1.5, False))
+
+    def test_a_workflow_that_only_previews_is_for_images(self):
+        ui = text_to_image_workflow()
+        ui["nodes"][0] = _ui_node(29, "PreviewImage", links={"images": 44})
+        self.assertEqual(pipeline_of("simple.json", ui), "image")
+        self.assertIn("PreviewImage", [node["class_type"] for node in to_api(ui, OBJECT_INFO, images=True).values()])
+
+
+class OptionsTest(unittest.TestCase):
+    def options(self, ui=None):
+        return {option["id"]: option for option in workflow_options.offered(ui or switchable_workflow(), OBJECT_INFO)}
+
+    def test_each_switch_and_setting_is_an_option(self):
+        options = self.options()
+        self.assertEqual(sorted(options), ["group_color_correction", "group_sharpen", "group_upscaler", "group_upscaler.choice",
+                                           "lora_knpv3_1", "prompt_boost", "steps"])
+        self.assertNotIn("group_prompt_enhancer", options, "the pipeline writes the prompt: its own enhancer stays off")
+        self.assertEqual((options["group_sharpen"]["default"], options["steps"]["default"]), ("0", "8"))
+        self.assertEqual(options["group_upscaler.choice"]["choices"], ["720p", "1080p", "4K"])
+        self.assertEqual((options["lora_knpv3_1"]["default"], options["prompt_boost"]["default"]), ("0", "1.5"))
+
+    def test_one_that_cant_run_says_why(self):
+        self.assertIn("LayerColor", self.options()["group_color_correction"]["problem"])
+        self.assertNotIn("problem", self.options()["group_sharpen"])
+
+    def test_a_run_makes_the_workflow_again_as_chosen(self):
+        api = workflow_options.convert(switchable_workflow(), OBJECT_INFO, {
+            "group_sharpen": "1", "group_upscaler": "1", "group_upscaler.choice": "1080p", "lora_knpv3_1": "0.7", "prompt_boost": "0", "steps": "12"})[0]
+        kinds = [node["class_type"] for node in api.values()]
+        self.assertEqual(kinds.count("Image Lucy Sharpen"), 2, "the sharpen group, and the one inside the upscaler")
+        self.assertEqual(next(node for node in api.values() if node["class_type"] == "CustomCombo")["inputs"]["choice"], "1080p")
+        lora = next(node for node in api.values() if node["class_type"] == "Power Lora Loader (rgthree)")["inputs"]["lora_1"]
+        self.assertEqual((lora["on"], lora["strength"], lora["lora"]), (True, 0.7, "KNPV3_1.safetensors"), "the file where it's installed")
+        self.assertIs(api["2"]["inputs"]["enabled"], False)
+        self.assertEqual(next(node for node in api.values() if node["class_type"] == "KSampler")["inputs"]["steps"], 12)
+
+    def test_as_saved_the_switched_off_parts_are_left_out(self):
+        kinds = [node["class_type"] for node in workflow_options.convert(switchable_workflow(), OBJECT_INFO)[0].values()]
+        self.assertNotIn("Image Lucy Sharpen", kinds)
+        self.assertNotIn("CustomCombo", kinds)
+
+    def test_choices_are_checked(self):
+        options = list(self.options().values())
+        self.assertIsNone(workflow_options.check(options, {"group_sharpen": "1", "steps": "20", "lora_knpv3_1": "0"}))
+        self.assertIn("can't be changed", workflow_options.check(options, {"group_color_correction": "1"}))
+        self.assertIn("one of", workflow_options.check(options, {"group_upscaler.choice": "8K"}))
+        self.assertIn("from 1 to 150", workflow_options.check(options, {"steps": "0"}))
+        self.assertIn("no option", workflow_options.check(options, {"made_up": "1"}))
+
+    def test_a_templates_subgraph_switches_are_options(self):
+        options = self.options(text_to_image_workflow())
+        self.assertEqual(options["face_enable_lora"]["default"], "0")
+        self.assertIn("isn't installed", options["face_enable_lora"]["problem"], "its LoRA file isn't there to switch on")
+        self.assertNotIn("face_prompt_enhance", options, "kept off")
+        ui = text_to_image_workflow()
+        ui["nodes"][1]["widgets_values"][4] = "lora.safetensors"
+        self.assertNotIn("problem", self.options(ui)["face_enable_lora"])
+        api = workflow_options.convert(ui, OBJECT_INFO, {"face_enable_lora": "1"})[0]
+        self.assertIn("LoraLoaderModelOnly", [node["class_type"] for node in api.values()], "its switch went the way chosen")
 
 
 class PrepareTest(unittest.TestCase):

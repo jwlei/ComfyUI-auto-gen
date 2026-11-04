@@ -214,6 +214,12 @@ OBJECT_INFO = {kind: {"display_name": kind, "input": {"required": required}} for
     "FluxKontextImageScale": {"image": ["IMAGE"]},
     "VAEEncode": {"pixels": ["IMAGE"]},
     # As ComfyUI has it: its images are a growing list that's required, and can hold none.
+    "Image Lucy Sharpen": {"images": ["IMAGE"], "kernel_size": ["INT", {}]},
+    "CustomCombo": {"choice": ["COMBO", {}]},
+    "Power Lora Loader (rgthree)": {"model": ["MODEL"]},
+    "ComfyUI-Krea2T-Enhancer": {"model": ["MODEL"], "enabled": ["BOOLEAN", {}], "strength": ["FLOAT", {}], "debug": ["BOOLEAN", {}]},
+    "Image Saver": {"images": ["IMAGE"], "filename": ["STRING", {}]},
+    "LoraLoader": {"lora_name": [["KNPV3_1.safetensors", "style.safetensors"]]},
     "TextEncodeFibo2": {"clip": ["CLIP"], "prompt": ["STRING", {}], "negative_prompt": ["STRING", {}], "width": ["INT", {}], "height": ["INT", {}],
                         "batch_size": ["INT", {}], "images": ["COMFY_AUTOGROW_V3", {"template": {
                             "input": {"required": {"image": ["IMAGE", {}]}}, "names": [f"image_{n}" for n in range(1, 17)], "min": 0}}]},
@@ -308,9 +314,10 @@ def text_to_image_workflow():
     ], "links": [[44, 30, 0, 29, 0, "IMAGE"], [84, 49, 0, 30, 3, "INT"], [85, 49, 1, 30, 4, "INT"]],
        "last_node_id": 50, "last_link_id": 90,
        "definitions": {"subgraphs": [{"id": "sub-text", "name": "Text to Image", "inputs": [
-           {"name": "value", "type": "STRING"}, {"name": "value_1", "type": "BOOLEAN"}, {"name": "seed_1", "type": "INT"},
-           {"name": "width_1", "type": "INT"}, {"name": "height_1", "type": "INT"}, {"name": "value_3", "type": "BOOLEAN"},
-           {"name": "lora_name_1", "type": "COMBO"}],
+           {"name": "value", "type": "STRING", "label": "prompt"}, {"name": "value_1", "type": "BOOLEAN", "label": "prompt_enhance"},
+           {"name": "seed_1", "type": "INT", "label": "seed"}, {"name": "width_1", "type": "INT", "label": "width"},
+           {"name": "height_1", "type": "INT", "label": "height"}, {"name": "value_3", "type": "BOOLEAN", "label": "enable_lora"},
+           {"name": "lora_name_1", "type": "COMBO", "label": "lora_name"}],
            "outputs": [{"name": "IMAGE", "type": "IMAGE"}],
            "nodes": [
                _ui_node(10, "CheckpointLoader", {"ckpt_name": "model.safetensors"}, outputs=["MODEL", "CLIP"]),
@@ -368,6 +375,64 @@ def edit_image_workflow():
                _inside(4, 151, 0, 169, 1, "CONDITIONING"), _inside(5, 149, 0, 169, 2, "CONDITIONING"), _inside(6, 156, 0, 169, 3, "LATENT"),
                _inside(7, 169, 0, 158, 0, "LATENT"), _inside(344, 158, 0, -20, 0, "IMAGE"),
            ]}]}}
+
+
+def _placed(node, x, y):
+    return {**node, "pos": [x, y]}
+
+
+def _typed(node, **types):
+    """Its inputs with these types: _ui_node names each type after its input, as Lucy Sharpen's images aren't."""
+    for entry in node["inputs"]:
+        entry["type"] = types.get(entry["name"], entry.get("type"))
+    return node
+
+
+def switchable_workflow():
+    """
+    Like LatentHeart's Krea2 SFW/NSFW workflow, small: groups that Fast Groups Bypassers switch (sharpen, colour
+    correction, an upscaler subgraph with a resolution on its face), a prompt enhancer group the pipeline keeps off,
+    a Power Lora Loader, the Krea2T Enhancer saved without its widgets' names, Anything Everywhere's hidden link for
+    the CLIP, rgthree's labels and bookmarks, and Image Saver. No image_ in its name: it saves images.
+    """
+    nodes = [
+        _placed(_ui_node(1, "CheckpointLoader", {"ckpt_name": "model.safetensors"}, outputs=["MODEL", "CLIP"]), 0, 0),
+        _placed({"id": 2, "type": "ComfyUI-Krea2T-Enhancer", "mode": 0, "inputs": [{"name": "model", "type": "MODEL", "link": 1}],
+                 "outputs": [{"type": "MODEL"}], "widgets_values": [True, 1.5, False]}, 0, 100),
+        _placed(_ui_node(3, "Power Lora Loader (rgthree)", links={"model": 2, "clip": None}, outputs=["MODEL", "CLIP"],
+                         values=[{}, {"type": "PowerLoraLoaderHeaderWidget"}, {"on": False, "lora": "Krea2\\KNPV3_1.safetensors", "strength": 1}, {}, ""]), 0, 200),
+        _placed(_ui_node(4, "CLIPTextEncode", {"text": "saved prompt"}, {"clip": None}, ["CONDITIONING"]), 0, 300),
+        _placed(_ui_node(5, "EmptyLatentImage", {"width": 1024, "height": 1024, "batch_size": 1}, outputs=["LATENT"]), 0, 400),
+        _placed(_ui_node(6, "KSampler", {"seed": 0, "steps": 0}, {"model": 3, "positive": 4, "negative": 5, "latent_image": 6}, ["LATENT"],
+                         values=[1, "fixed", 8]), 0, 500),
+        _placed(_ui_node(7, "VAEDecode", links={"samples": 7}, outputs=["IMAGE"]), 0, 600),
+        _placed(_ui_node(17, "LayerColor: Brightness  Contrast", links={"image": 8}, outputs=["IMAGE"], mode=4), 500, 700),
+        _placed(_typed(_ui_node(8, "Image Lucy Sharpen", {"kernel_size": 3}, {"images": 9}, ["IMAGE"], mode=4), images="IMAGE"), 500, 100),
+        _placed(_ui_node(9, "sub-up", {"choice": "4K"}, {"image": 10}, ["IMAGE"], mode=4), 500, 300),
+        _placed(_ui_node(10, "Image Saver", {"filename": "Krea2_%time"}, {"images": 11}), 0, 800),
+        _placed(_ui_node(11, "Label (rgthree)"), 0, 900),
+        _placed(_ui_node(12, "Bookmark (rgthree)", values=["1", 1]), 0, 950),
+        _placed({**_ui_node(13, "Fast Groups Bypasser (rgthree)"), "properties": {"matchColors": "cyan", "matchTitle": ""}}, 0, 1000),
+        _placed({**_ui_node(14, "Fast Groups Bypasser (rgthree)"), "properties": {"matchColors": "", "matchTitle": "Upscaler"}}, 0, 1050),
+        _placed({**_ui_node(15, "Fast Groups Bypasser (rgthree)"), "properties": {"matchColors": "", "matchTitle": "enhancer"}}, 0, 1100),
+        _placed(_ui_node(16, "PrimitiveStringMultiline", {"value": "enhancer signal"}, outputs=["STRING"]), 900, 0),
+    ]
+    return {"nodes": nodes, "links": [
+        [1, 1, 0, 2, 0, "MODEL"], [2, 2, 0, 3, 0, "MODEL"], [3, 3, 0, 6, 0, "MODEL"], [4, 4, 0, 6, 1, "CONDITIONING"], [5, 4, 0, 6, 2, "CONDITIONING"],
+        [6, 5, 0, 6, 3, "LATENT"], [7, 6, 0, 7, 0, "LATENT"], [8, 7, 0, 17, 0, "IMAGE"], [9, 17, 0, 8, 0, "IMAGE"], [10, 8, 0, 9, 0, "IMAGE"],
+        [11, 9, 0, 10, 0, "IMAGE"]],
+        "groups": [{"title": "Sharpen", "color": "#8AA", "bounding": [450, 50, 200, 150]},
+                   {"title": "Color correction", "color": "#8AA", "bounding": [450, 650, 200, 150]},
+                   {"title": "Upscaler", "color": "#3f789e", "bounding": [450, 250, 200, 150]},
+                   {"title": "Prompt enhancer", "color": "#3f789e", "bounding": [850, -50, 200, 150]}],
+        "extra": {"ue_links": [{"downstream": 4, "downstream_slot": 0, "upstream": "1", "upstream_slot": 1, "controller": 99, "type": "CLIP"},
+                               {"downstream": 3, "downstream_slot": 1, "upstream": "1", "upstream_slot": 1, "controller": 99, "type": "CLIP"}]},
+        "definitions": {"subgraphs": [{"id": "sub-up", "name": "Upscaler", "inputs": [{"name": "image", "type": "IMAGE"}, {"name": "choice", "type": "COMBO"}],
+                                       "outputs": [{"name": "IMAGE", "type": "IMAGE"}], "nodes": [
+            _typed(_ui_node(21, "Image Lucy Sharpen", links={"images": 31, "kernel_size": 32}, outputs=["IMAGE"], mode=4), images="IMAGE", kernel_size="INT"),
+            _ui_node(22, "CustomCombo", links={"choice": 30}, values=["4K", -1, "720p", "1080p", "4K", ""], outputs=["INT"], mode=4)],
+            "links": [_inside(30, -10, 1, 22, 0, "COMBO"), _inside(31, -10, 0, 21, 0, "IMAGE"), _inside(32, 22, 0, 21, 1, "INT"),
+                      _inside(33, 21, 0, -20, 0, "IMAGE")]}]}}
 
 
 def fibo2_workflow():

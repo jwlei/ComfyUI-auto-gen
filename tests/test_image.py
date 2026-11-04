@@ -17,7 +17,7 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fakes import (OBJECT_INFO, caption, captions_reply, close, edit_image_workflow, fake_claude, fake_comfy, fibo2_workflow,
-                   text_to_image_workflow, versions_reply)
+                   switchable_workflow, text_to_image_workflow, versions_reply)
 
 from PIL import Image
 
@@ -565,7 +565,10 @@ class PanelTest(unittest.TestCase):
         listed = self.client.get("/api/workflows?pipeline=image").get_json()["workflows"]
         self.assertEqual(listed, [
             {"name": "image_edit.json", "label": "image_edit", "problem": "Needs gone.safetensors, which isn't installed."},
-            {"name": "image_text.json", "label": "image_text", "takes": {"min_images": 0, "max_images": 0, "size": True, "model": None}}])
+            {"name": "image_text.json", "label": "image_text", "takes": {"min_images": 0, "max_images": 0, "size": True, "model": None, "options": [
+                {"id": "face_enable_lora", "kind": "switch", "label": "Enable LoRA", "default": "0", "node": 30, "input": "value_3",
+                 "problem": "Needs krea2_darkbrush.safetensors, which isn't installed."},
+                {"id": "steps", "kind": "number", "label": "Steps", "default": "8", "min": 1, "max": 150, "step": 1}]}}])
         self.assertEqual(self.client.get("/api/workflows?pipeline=video").get_json()["workflows"], [], "they don't turn up among the films")
         reply = self.generate(image=True)
         self.assertEqual(reply.status_code, 400)
@@ -579,7 +582,8 @@ class PanelTest(unittest.TestCase):
 
     def test_fibo2_is_listed_for_images_without_image_in_its_name(self):
         listed = {w["name"]: w.get("takes") for w in self.client.get("/api/workflows?pipeline=image").get_json()["workflows"]}
-        self.assertEqual(listed["Fibo2_test.json"], {"min_images": 0, "max_images": 16, "size": True, "model": "fibo2"})
+        self.assertEqual({key: value for key, value in listed["Fibo2_test.json"].items() if key != "options"},
+                         {"min_images": 0, "max_images": 16, "size": True, "model": "fibo2"})
         self.assertNotIn("Fibo2_test.json", [w["name"] for w in self.client.get("/api/workflows?pipeline=video").get_json()["workflows"]])
 
     def test_automatic_keeps_to_what_was_made_for_it(self):
@@ -638,6 +642,49 @@ class PanelTest(unittest.TestCase):
         prompt = json.loads(self.inputs(self.comfy.prompts[0], "TextEncodeFibo2")["prompt"])
         self.assertEqual(prompt["edit_instruction"], "Change her outfit to look number 1.")
         self.assertIn("images.image_1", self.inputs(self.comfy.prompts[0], "TextEncodeFibo2"))
+
+    # --- A workflow's own options ---
+
+    def switchable(self, **fields):
+        self.comfy.saved["Krea2_switchable.json"] = switchable_workflow()
+        return self.generate(workflow="Krea2_switchable.json", prompt_mode="direct", count="1", llm=None, **fields)
+
+    def test_the_workflows_own_options_are_listed(self):
+        self.comfy.saved["Krea2_switchable.json"] = switchable_workflow()
+        listed = {w["name"]: w for w in self.client.get("/api/workflows?pipeline=image").get_json()["workflows"]}
+        ids = [option["id"] for option in listed["Krea2_switchable.json"]["takes"]["options"]]
+        self.assertIn("group_sharpen", ids)
+        self.assertIn("lora_knpv3_1", ids)
+
+    def test_a_run_uses_the_options_chosen_and_keeps_them(self):
+        reply = self.switchable(opt_group_sharpen=["0", "1"], opt_lora_knpv3_1_on=["0", "1"], opt_lora_knpv3_1_strength="0.7",
+                                opt_prompt_boost_on=["0"], opt_steps="12")
+        self.assertTrue(reply.get_json()["ok"], reply.get_json())
+        self.wait_idle()
+        run = self.only_run()
+        self.assertTrue(run.finished, [l["text"] for l in webapp.job.lines][-15:])
+        self.assertEqual(run.options, {"group_sharpen": "1", "lora_knpv3_1": "0.7", "prompt_boost": "0", "steps": "12"},
+                         "what differs from the workflow as saved")
+        sent = self.comfy.prompts[0]["prompt"]
+        self.assertIn("Image Lucy Sharpen", [node["class_type"] for node in sent.values()])
+        self.assertEqual(self.inputs(self.comfy.prompts[0], "KSampler")["steps"], 12)
+        self.assertEqual(self.inputs(self.comfy.prompts[0], "Power Lora Loader (rgthree)")["lora_1"]["strength"], 0.7)
+        self.assertEqual(self.inputs(self.comfy.prompts[0], "CLIPTextEncode")["text"], "different outfits", "the prompt still goes in")
+
+        self.assertTrue(self.client.post(f"/image-runs/{run.id}/redo/1").get_json()["ok"])
+        self.wait_idle()
+        self.assertEqual(self.inputs(self.comfy.prompts[1], "KSampler")["steps"], 12, "made again as it was")
+
+    def test_options_as_saved_send_nothing(self):
+        self.assertTrue(self.switchable(opt_group_sharpen=["0"], opt_steps="8").get_json()["ok"])
+        self.wait_idle()
+        self.assertIsNone(self.only_run().options)
+
+    def test_an_option_that_cant_run_is_refused(self):
+        for fields in ({"opt_group_color_correction": ["0", "1"]}, {"opt_steps": "0"}, {"opt_group_upscaler.choice": "8K"}):
+            reply = self.switchable(**fields)
+            self.assertEqual(reply.status_code, 400, fields)
+        self.assertEqual(self.comfy.prompts, [])
 
     def test_the_estimate_starts_nothing_and_follows_the_options(self):
         one = self.client.post("/api/estimate/image", data={"count": "1", "image_count": "0"}).get_json()

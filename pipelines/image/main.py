@@ -49,6 +49,13 @@ def parse_megapixels(text):
     return text
 
 
+def parse_option(text):
+    name, _, value = text.partition("=")
+    if not name.strip() or not value.strip():
+        raise argparse.ArgumentTypeError(f"'{text}' is not an option. Use NAME=VALUE, such as group_2nd_pass=0.")
+    return name.strip(), value.strip()
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Makes a set of images with ComfyUI, from text or by editing an image.")
     parser.add_argument("prompt", nargs="?", help="What you want, in a sentence or two. With --direct, the exact prompt.")
@@ -61,6 +68,9 @@ def parse_args(argv=None):
     parser.add_argument("--size", type=parse_size, help="An exact size such as 1920x1080, in place of --aspect and --megapixels.")
     parser.add_argument("--seed", type=parse_seed, help="The first image's seed. Each image after it gets the next one, so the set "
                                                        "can be made again. Default: a random seed for every image.")
+    parser.add_argument("--option", type=parse_option, action="append", default=[], metavar="NAME=VALUE",
+                        help="One of the workflow's own options, repeatable, such as group_2nd_pass=0 or lora_knpv3_1=0.8. "
+                             "Its map in logs/workflows lists them under _options.")
     parser.add_argument("--plan-only", action="store_true", help="Write the prompts and stop before rendering.")
     parser.add_argument("--resume", metavar="RUN", help="Continue a saved run, with its original options.")
     parser.add_argument("--redo", type=int, metavar="IMAGE", help="With --resume: make this image again, by its place in the set.")
@@ -114,7 +124,7 @@ def check_setup(args):
 def plan_run(args, stages):
     images = [video_media.load_image(path) for path in args.image]
     inputs = video_media.inputs_fingerprint(images, [])
-    comfy = ImageClient()
+    comfy = ImageClient(dict(args.option))
     takes = comfy.takes()
     if not takes["min_images"] <= len(images) <= takes["max_images"]:
         raise RuntimeError(f"This workflow takes {takes['min_images']}-{takes['max_images']} images, not {len(images)}.")
@@ -131,6 +141,7 @@ def plan_run(args, stages):
 
     state = RunState.new(args.prompt, args.count, args.direct, width, height, llm, os.getenv("COMFYUI_WORKFLOW") or None, len(images))
     state.inputs = inputs
+    state.options = dict(args.option) or None
     for image, path in zip(images, state.input_paths):
         media.save_source(image, path)
     print_stage("Prompts", stages)
@@ -222,6 +233,8 @@ def run(args):
         # The rest of the set has to match what's been made.
         if state.workflow:
             os.environ["COMFYUI_WORKFLOW"] = state.workflow
+        # What's still to make is made as the rest were.
+        args.option = list((state.options or {}).items())
         if args.redo is not None:
             if not 1 <= args.redo <= len(state.shots):
                 raise RuntimeError(f"This set has images 1-{len(state.shots)}, not {args.redo}.")
@@ -237,7 +250,7 @@ def run(args):
             return 0
 
     print_stage("Images", stages)
-    comfy = ImageClient()
+    comfy = ImageClient(dict(args.option))
     if not comfy.wait_until_reachable():
         raise RuntimeError(f"ComfyUI isn't running at {comfy.url}. Start it first: the prompts are saved.")
     if args.resume:

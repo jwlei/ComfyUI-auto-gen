@@ -287,6 +287,27 @@ assert.deepStrictEqual(els.imageAspect.options.map(o => o.disabled), [false, fal
 assert.deepStrictEqual(els.imageMegapixels.options.map(o => o.disabled), [undefined, false, false, true]);
 els.imageWorkflow.value = '';
 run('imageWorkflows = {}; imageWorkflowList = []');
+
+// A workflow's own options: a checkbox says off too, what goes with a switch sits beside it, and a problem locks it.
+context.options = [
+  { id: 'group_2nd_pass', kind: 'switch', label: '2nd <b>pass', default: '1' },
+  { id: 'group_up', kind: 'switch', label: 'Upscaler', default: '0' },
+  { id: 'group_up.choice', kind: 'choice', label: 'Upscaler: choice', default: '4K', choices: ['1080p', '4K'], parent: 'group_up' },
+  { id: 'face_lora_strength', kind: 'number', label: 'LoRA strength', default: '0.8', min: -2, max: 2, step: 0.05, parent: 'group_up' },
+  { id: 'group_cc', kind: 'switch', label: 'Color correction', default: '0', problem: 'Needs <i>LayerColor' },
+  { id: 'lora_k', kind: 'strength', label: 'LoRA: K', default: '0', min: -2, max: 2, step: 0.05, usual: '1' },
+  { id: 'steps', kind: 'number', label: 'Steps', default: '8', min: 1, max: 150, step: 1 },
+];
+const optionsHtml = run('options.map(option => imageOptionHtml(option, options)).join("")');
+assert(!optionsHtml.includes('<b>pass') && !optionsHtml.includes('<i>LayerColor'), 'labels and problems are escaped');
+assert(/name="opt_group_2nd_pass" value="0"><input type="checkbox" name="opt_group_2nd_pass" value="1" checked/.test(optionsHtml), 'unticked still says so');
+const upscaler = optionsHtml.slice(optionsHtml.indexOf('Upscaler'), optionsHtml.indexOf('Color correction'));
+assert(upscaler.includes('name="opt_group_up.choice"') && upscaler.includes('<option selected>4K</option>') && upscaler.includes('name="opt_face_lora_strength"'),
+  'what goes with a switch is beside it');
+assert(/name="opt_group_cc" value="1" disabled/.test(optionsHtml) && optionsHtml.includes("Can't be changed"), "one that can't run is locked, saying why");
+assert(/name="opt_lora_k_on" value="1">/.test(optionsHtml) && /name="opt_lora_k_strength"[^>]*value="1"/.test(optionsHtml), 'an unused LoRA offers its usual strength');
+assert(/<label for="opt_steps">Steps<\/label>/.test(optionsHtml) && /name="opt_steps"[^>]*value="8"/.test(optionsHtml));
+assert(!run("remembered({ name: 'opt_steps', type: 'number' })"), 'each workflow starts as it was saved');
 for (const size of ['1920x1080', '2560x1440', '3840x2160', '1272x2772']) assert(html.includes(`<option value="${size}">`), size);
 els.imageAspect.value = '1920x1080';
 els.imageMegapixels.value = '1';

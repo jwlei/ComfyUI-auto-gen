@@ -33,6 +33,7 @@ class RunState:
     workflow: str = None
     image_count: int = 0
     inputs: str = None  # Fingerprint of the images it was planned from, for Generate to recognise them
+    options: dict = None  # The workflow's options as chosen, such as {"group_2nd_pass": "0"} (core/workflow_options.py)
 
     @classmethod
     def new(cls, brief, count, direct, width, height, llm=None, workflow=None, image_count=0):

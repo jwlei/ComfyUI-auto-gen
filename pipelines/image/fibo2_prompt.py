@@ -62,7 +62,7 @@ def _create_rules():
     return f"""
     An AI image model (Fibo 2.0) will make one image per prompt. It sees only that prompt, and knows nothing about the
     others, so each has to describe its image in full. If several images share a subject, describe it in the same
-    words in each, or they won't look alike.
+    words in each, or they won't look alike. Everyone in an image is an adult, and looks it.
     {CAPTION}"""
 
 

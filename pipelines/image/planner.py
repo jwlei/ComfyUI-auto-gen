@@ -60,7 +60,7 @@ def _edit_rules(images):
 def _create_rules():
     return """
     An AI image model (Krea-2) will make one image per prompt. It sees only that prompt, and knows nothing about the
-    others, so each has to say everything about how its image looks.
+    others, so each has to say everything about how its image looks. Everyone in an image is an adult, and looks it.
 
     Each prompt describes one finished image:
     - Start with the subject and what it is doing, then the setting, then the medium or photographic style,

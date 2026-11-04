@@ -19,6 +19,9 @@ import requests
 
 # Only in the editor: nothing of these reaches ComfyUI's API.
 NOTES = ("Note", "MarkdownNote")
+# rgthree's labels, bookmarks and group switches: the editor's alone. core/workflow_options.py offers what the switches do.
+EDITOR_ONLY = ("Label (rgthree)", "Bookmark (rgthree)", "Fast Groups Bypasser (rgthree)", "Fast Groups Muter (rgthree)",
+               "Fast Bypasser (rgthree)", "Fast Muter (rgthree)")
 PASS_THROUGH = ("SetNode", "GetNode", "Reroute")
 BYPASSED, MUTED = 4, 2
 SEED_CONTROLS = ("fixed", "increment", "decrement", "randomize")
@@ -34,7 +37,7 @@ COMBINE_DEFAULTS = {"loop_count": 0, "filename_prefix": "pipeline", "format": "v
 # Saved as the Image side's: ComfyUI's own image templates are named this way, and its image-to-video ones video_.
 IMAGE_PREFIX = "image_"
 # These always write to ComfyUI's output folder. Preview Image does the same job in its temp folder.
-IMAGE_SAVES = ("SaveImage", "SaveImageAdvanced")
+IMAGE_SAVES = ("SaveImage", "SaveImageAdvanced", "Image Saver")
 PREVIEW = "PreviewImage"
 SWITCHES = ("ComfySwitchNode",)
 # Snap the source image to a size of their own. The pipeline fits it to the size you chose instead.
@@ -75,15 +78,33 @@ def _link_row(link):
     return list(link)
 
 
-def _widgets_of(node):
-    """What a node's widgets are set to, by name, from the list they're saved in."""
+# The input types a node shows as a widget, rather than a socket to plug into.
+WIDGET_TYPES = ("INT", "FLOAT", "STRING", "BOOLEAN", "COMBO")
+
+
+def _widget_names(node, spec):
+    """
+    The names of a node's widgets, in the order their values are saved. The editor lists them among the node's inputs;
+    a node saved before it did has only its values, so the names come from ComfyUI's own order for its inputs.
+    """
+    names = [entry["widget"]["name"] for entry in node.get("inputs", []) if "widget" in entry]
+    if names or not spec:
+        return names
+    inputs = spec.get("input", {})
+    every = {**inputs.get("required", {}), **inputs.get("optional", {})}
+    order = [*spec.get("input_order", {}).get("required", []), *spec.get("input_order", {}).get("optional", [])] or list(every)
+    return [name for name in order if name in every and (isinstance(every[name][0], list) or every[name][0] in WIDGET_TYPES)]
+
+
+def _widgets_of(node, spec=None):
+    """What a node's widgets are set to, by name, from the list they're saved in. spec: what ComfyUI says about the node."""
     values = node.get("widgets_values")
     if isinstance(values, dict):
         return {name: value for name, value in values.items() if name != "videopreview"}
     values = list(values or [])
     inputs = {}
     position = 0
-    for name in [entry["widget"]["name"] for entry in node.get("inputs", []) if "widget" in entry]:
+    for name in _widget_names(node, spec):
         if position >= len(values):
             break
         inputs[name] = values[position]
@@ -147,6 +168,29 @@ def _open_subgraph(instance, subgraph, nodes, links, node_ids, link_ids):
                 link[1], link[2] = origin, slot
 
 
+def _with_hidden_links(ui):
+    """
+    Anything Everywhere's links, which the editor makes as it queues a workflow: from one node to every input of its
+    type left unplugged. It saves what it made in the workflow's extra, and that's what is followed here.
+    """
+    hidden = ui.get("extra", {}).get("ue_links") or []
+    if not hidden:
+        return ui
+    ui = {**ui, "nodes": copy.deepcopy(ui["nodes"])}
+    nodes = {node["id"]: node for node in ui["nodes"]}
+    links = [_link_row(link) for link in ui.get("links", [])]
+    link_ids = itertools.count(max([link[0] for link in links] + [ui.get("last_link_id") or 0]) + 1)
+    for found in hidden:
+        node = nodes.get(int(found["downstream"]))
+        inputs = node.get("inputs", []) if node else []
+        slot = found["downstream_slot"]
+        if slot < len(inputs) and inputs[slot].get("link") is None:
+            link_id = next(link_ids)
+            links.append([link_id, int(found["upstream"]), found["upstream_slot"], node["id"], slot, found.get("type")])
+            inputs[slot]["link"] = link_id
+    return {**ui, "links": links}
+
+
 def _without_subgraphs(ui):
     """The workflow as if every subgraph in it had been unpacked in ComfyUI. Returns a new one."""
     definitions = {subgraph["id"]: subgraph for subgraph in ui.get("definitions", {}).get("subgraphs", [])}
@@ -207,7 +251,7 @@ class _Graph:
         return self.source(inputs[slot if slot in matching else matching[0]].get("link"), seen)
 
     def inputs_of(self, node):
-        inputs = _widgets_of(node)
+        inputs = _widgets_of(node, self.info.get(node["type"]))
         for entry in node.get("inputs", []):
             if entry.get("link") is not None:
                 source = self.source(entry["link"])
@@ -240,8 +284,13 @@ def _keep_out_of_output_folder(api, info):
 
 
 def _save_images_to_temp(api, info):
-    """Swaps each node that saves images for Preview Image, which keeps them out of ComfyUI's output folder. Returns those nodes."""
+    """
+    Swaps each node that saves images for Preview Image, which keeps them out of ComfyUI's output folder. Returns those
+    nodes, or, in a workflow that saves nothing, its Preview Images: they're in ComfyUI's temp folder already.
+    """
     saves = [node_id for node_id, node in api.items() if node["class_type"] in IMAGE_SAVES]
+    if not saves:
+        return [node_id for node_id, node in api.items() if node["class_type"] == PREVIEW]
     if saves and PREVIEW not in info:
         raise Unusable("ComfyUI has no Preview Image node to keep its images out of its output folder.")
     for node_id in saves:
@@ -318,12 +367,12 @@ def _check_installed(api, info):
 
 def to_api(ui, info, images=False):
     """The saved workflow as ComfyUI's API takes it. images: it makes images rather than a video. Raises Unusable."""
-    ui = _without_subgraphs(ui)
+    ui = _without_subgraphs(_with_hidden_links(ui))
     graph = _Graph(ui, info)
     api = {}
     for node in ui["nodes"]:
         kind = node["type"]
-        if kind in NOTES or kind in PASS_THROUGH or kind == "PrimitiveNode" or graph.skipped(node):
+        if kind in NOTES or kind in EDITOR_ONLY or kind in PASS_THROUGH or kind == "PrimitiveNode" or graph.skipped(node):
             continue
         if kind not in info:
             raise Unusable(f"Needs the node {kind}, which isn't installed.")
@@ -547,9 +596,13 @@ def find_image_fields(api, info):
     return fields
 
 
-def image_takes(fields, model=None):
-    """As takes(), whether its size can be chosen (by its own inputs, or by the source image it follows), and its model."""
-    return {**takes(fields), "size": "width" in fields or bool(image_slots(fields)), "model": model}
+def image_takes(fields, model=None, options=None):
+    """
+    As takes(), whether its size can be chosen (by its own inputs, or by the source image it follows), its model,
+    and what else a run can change in it, if anything (core/workflow_options.py).
+    """
+    found = {**takes(fields), "size": "width" in fields or bool(image_slots(fields)), "model": model}
+    return {**found, "options": options} if options else found
 
 
 def image_model(api):
@@ -567,7 +620,7 @@ def makes_images(ui):
     """Whether a saved workflow saves images and no video, subgraphs and all."""
     kinds = {node["type"] for node in ui.get("nodes", [])}
     kinds |= {node["type"] for subgraph in ui.get("definitions", {}).get("subgraphs", []) for node in subgraph.get("nodes", [])}
-    return bool(kinds & set(IMAGE_SAVES)) and not kinds & set(VIDEO_SAVES)
+    return bool(kinds & {*IMAGE_SAVES, PREVIEW}) and not kinds & set(VIDEO_SAVES)
 
 
 def frames_for(seconds, fps):
@@ -696,23 +749,28 @@ def _add_media_references(api, node, group, most, sounds):
 
 def _prepare(name, ui, info, folder, pipeline):
     """Writes what the pipeline runs. Returns its path, and how many images it takes."""
-    model = None
+    model = options = None
+    stem = os.path.join(folder, _file_stem(name))
     if pipeline == "image":
-        api = to_api(ui, info, images=True)
-        # Fibo 2.0 edits with up to 16 references, of which a saved workflow wires one.
-        _grow_references(api, info)
-        fields = find_image_fields(api, info)
-        model = image_model(api)
+        # Here and not at the top: it builds on this module.
+        from core import workflow_options
+        api, fields, model, _ = workflow_options.convert(ui, info)
+        options = workflow_options.offered(ui, info)
+        if options:
+            # A run with other options makes its workflow again from these.
+            kinds = {node["type"] for node in _without_subgraphs(_with_hidden_links(ui))["nodes"]} | {PREVIEW, "LoraLoader"}
+            _write_json(stem + ".ui.json", ui)
+            _write_json(stem + ".info.json", {kind: info[kind] for kind in kinds if kind in info})
     else:
         api = to_api(ui, info)
         if not is_for_shorts(name):
             _grow_references(api, info)
         fields = find_fields(api, info, needs_audio=is_for_shorts(name))
-    stem = os.path.join(folder, _file_stem(name))
     _write_json(stem + ".json", api)
     _write_json(stem + ".map.json", {"_saved_as": name, "_pipeline": pipeline, **({"_model": model} if model else {}),
+                                     **({"_options": options} if options else {}),
                                      **{field: value if field.startswith("_") else f"{value[0]}.{value[1]}" for field, value in fields.items()}})
-    return stem + ".json", image_takes(fields, model) if pipeline == "image" else takes(fields)
+    return stem + ".json", image_takes(fields, model, options) if pipeline == "image" else takes(fields)
 
 
 def _from_comfyui(url, folder):
@@ -747,7 +805,8 @@ def _forget_deleted(folder, names):
     keep = {_file_stem(name) + ".json" for name in names}
     for file in os.listdir(folder):
         if file.endswith(".map.json") and file[:-len(".map.json")] + ".json" not in keep:
-            for stale in (file, file[:-len(".map.json")] + ".json"):
+            stem = file[:-len(".map.json")]
+            for stale in (file, stem + ".json", stem + ".ui.json", stem + ".info.json"):
                 if os.path.exists(os.path.join(folder, stale)):
                     os.remove(os.path.join(folder, stale))
 
@@ -769,7 +828,7 @@ def _from_earlier(folder):
             pipeline = fields.get("_pipeline") or pipeline_of(name)
             if os.path.exists(path) and ("audio" in fields or not is_for_shorts(name)):
                 found.append({"name": name, "label": _label(name), "pipeline": pipeline, "path": path,
-                              "takes": image_takes(fields, fields.get("_model")) if pipeline == "image" else takes(fields)})
+                              "takes": image_takes(fields, fields.get("_model"), fields.get("_options")) if pipeline == "image" else takes(fields)})
     return found
 
 

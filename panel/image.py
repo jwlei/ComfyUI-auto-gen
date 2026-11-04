@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from flask import abort, request, send_file
 
-from core import seeds
+from core import seeds, workflow_options
 from panel.server import (IMAGE_TIMINGS, PIPELINES, _runs_cache, app, busy_runs, job, password_required, run_queue, saved_at, saved_workflows)
 from panel.video import clean_inputs, queue_label, shot_seeds
 from pipelines.image import media, models
@@ -59,6 +59,27 @@ def automatic(usable, image_count):
     fits = [entry for entry in usable if entry["takes"]["min_images"] <= image_count <= entry["takes"]["max_images"]]
     made_for = [entry for entry in fits if (entry["takes"]["min_images"] >= 1 if image_count else entry["takes"]["max_images"] == 0)]
     return (made_for or fits or [None])[0]
+
+
+def chosen_options(form, takes):
+    """
+    The workflow's own options as the form sets them, as --option flags. Returns (flags, error). A checkbox sends a
+    hidden "0" before its own "1", so the last value is the one that counts.
+    """
+    chosen = {}
+    for option in takes.get("options") or []:
+        name = f"opt_{option['id']}"
+        if option["kind"] == "strength":
+            if f"{name}_on" in form:
+                on = form.getlist(f"{name}_on")[-1] == workflow_options.ON
+                chosen[option["id"]] = (form.get(f"{name}_strength") or option.get("usual") or "1").strip() if on else workflow_options.OFF
+        elif name in form:
+            chosen[option["id"]] = form.getlist(name)[-1].strip()
+    # Only what differs from the workflow as saved: the rest needs no making again.
+    chosen = {key: value for key, value in chosen.items()
+              if value != next(option["default"] for option in takes["options"] if option["id"] == key)}
+    error = workflow_options.check(takes.get("options") or [], chosen)
+    return (None, error) if error else ([flag for key, value in chosen.items() for flag in ("--option", f"{key}={value}")], None)
 
 
 def model_problem(flags, takes, source):
@@ -193,12 +214,19 @@ def generate():
     problem = model_problem(flags, takes, images[0].size if images else None)
     if problem:
         return {"ok": False, "error": problem}, 400
+    option_flags, problem = chosen_options(request.form, takes)
+    if problem:
+        return {"ok": False, "error": problem}, 400
+    flags += option_flags
 
     state = run_to_continue(prompt, flags, env, images)
     if state:
         if "--plan-only" in flags:
             return {"ok": True, "queued": False, "shots": state.id, "continued": state.title}
         adopt_size(state, flags, images, takes.get("model"))
+        # Options change how the rest are made, not their prompts: what's paid for stays.
+        state.options = dict(value.split("=", 1) for flag, value in zip(flags, flags[1:]) if flag == "--option") or None
+        state.save()
         reply = queue_saved_run(state)
         return reply if isinstance(reply, tuple) else {**reply, "continued": state.title}
 
