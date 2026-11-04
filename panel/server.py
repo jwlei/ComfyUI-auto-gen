@@ -1196,6 +1196,48 @@ def status():
     return payload
 
 
+PRESETS_PATH = os.path.join(LOGS_DIR, "presets.json")
+PRESET_SIDES = ("shorts", "video", "image")
+MOST_PRESET_NAME = 60
+
+
+def load_presets():
+    try:
+        with open(PRESETS_PATH, "r", encoding="utf-8") as f:
+            saved = json.load(f)
+        return {side: [p for p in saved.get(side, []) if isinstance(p, dict) and p.get("name")] for side in PRESET_SIDES}
+    except (OSError, ValueError, AttributeError):
+        return {side: [] for side in PRESET_SIDES}
+
+
+@app.route("/api/presets", methods=["GET", "POST"])
+@password_required
+def presets():
+    """A side's settings under a name: kept here, so every device has the same ones. POST saves one, or deletes it."""
+    if request.method == "GET":
+        return {"ok": True, "presets": load_presets()}
+    body = request.get_json(silent=True) or {}
+    side, name = body.get("side"), str(body.get("name") or "").strip()[:MOST_PRESET_NAME]
+    if side not in PRESET_SIDES or not name:
+        return {"ok": False, "error": "A preset needs a side and a name."}, 400
+    saved = load_presets()
+    kept = [p for p in saved[side] if p["name"] != name]
+    if not body.get("delete"):
+        values = body.get("values")
+        if not isinstance(values, dict):
+            return {"ok": False, "error": "A preset needs its settings."}, 400
+        kept.append({"name": name, "values": {str(k): v for k, v in values.items() if isinstance(v, (str, bool, int, float))}})
+    saved[side] = sorted(kept, key=lambda p: p["name"].casefold())
+    try:
+        os.makedirs(os.path.dirname(PRESETS_PATH), exist_ok=True)
+        with open(PRESETS_PATH + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(saved, f, ensure_ascii=False, indent=1)
+        os.replace(PRESETS_PATH + ".tmp", PRESETS_PATH)
+    except OSError as e:
+        return {"ok": False, "error": f"Could not save it: {e}"}, 500
+    return {"ok": True, "presets": saved}
+
+
 @app.route("/api/workflows")
 @password_required
 def workflows():

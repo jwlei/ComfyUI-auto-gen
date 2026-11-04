@@ -404,12 +404,13 @@ assert(stoppedBox.indexOf('class="stopped-actions"') < stoppedBox.indexOf('data-
 assert(/\.stopped-run \{[^}]*border: 1px solid/.test(html));
 run('renderStopped([])');
 
-// Each form starts with its workflow, above the line its sections start with, and there's no Check setup.
+// Each form starts with its preset, above the line its sections start with; the workflow opens Generation. No Check setup.
 for (const form of ['formShorts', 'formVideo', 'formImage']) {
   const start = html.indexOf(`id="${form}"`), section = html.indexOf('<details class="section"', start);
-  const top = html.indexOf('class="workflow-top"', start);
-  assert(top > start && top < section, `${form}: Workflow first`);
-  assert(/<label for="\w+">Workflow<\/label>/.test(html.slice(top, section)), `${form}: called Workflow`);
+  const top = html.indexOf('class="workflow-top preset-top"', start);
+  assert(top > start && top < section, `${form}: Preset first`);
+  const inside = html.slice(section, html.indexOf('</details>', section));
+  assert(/<summary class="section-title">Generation<\/summary>\s*<div class="workflow-in"[^>]*>\s*<label for="\w+">Workflow<\/label>/.test(inside), `${form}: Workflow at the top of Generation`);
 }
 assert(!html.includes('first-child > .section:first-child'), 'every form has the line above Generation');
 assert(!html.includes('id="check"') && !script.includes('/check/'), 'no Check setup');
@@ -777,6 +778,12 @@ assert(/right: left \+ \(runsQueued \? ` · \+\$\{runsQueued\} queued` : ''\)/.t
 // The viewer: more like this one, and upscale it, for an image only.
 assert(/<div class="viewer-tools" id="viewerTools" hidden>[\s\S]*?id="viewerVariations"[\s\S]*?id="viewerUpscale"/.test(html));
 assert(/if \(shot\) Object\.assign\(s, \{ prompt: shot\.prompt, direct: true, count: VARIATIONS \}\);/.test(script), 'its own prompt, word for word, on new seeds');
+
+// Presets: the picker where the workflow was, the workflow at the top of Generation; "Save as preset" only while what's set isn't one.
+assert(/<div class="workflow-top preset-top">\s*<div class="preset-head"><label for="imagePreset">Preset<\/label><button type="button" class="preset-save" data-preset-save="image" hidden>Save as preset<\/button><\/div>/.test(html));
+assert(/<summary class="section-title">Generation<\/summary>\s*<div class="workflow-in">\s*<label for="imageWorkflow">Workflow<\/label>/.test(html), 'the workflow at the top of Generation');
+assert(run("samePreset({ a: '1', b: true }, { b: true, a: '1' })") === true && run("samePreset({ a: '1' }, { a: '2' })") === false);
+assert(/const PRESET_SKIP = \['prompt', 'narration', 'seed', 'topic', 'output', 'review'\];/.test(script), 'what each run is about stays out of a preset');
 
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/maximum-scale=1, user-scalable=no/.test(base) && /html \{ overflow-x: clip; touch-action: manipulation; \}/.test(base), 'no zooming the page out from under the footer');

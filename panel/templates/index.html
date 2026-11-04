@@ -105,6 +105,16 @@
   /* What the form is for, above the line that starts its sections. */
   .workflow-top { grid-column: 1 / -1; padding-bottom: 6px; }
   .workflow-top > label:first-child { margin-top: 0; }
+  .workflow-in > label:first-child { margin-top: 4px; }
+  /* The preset: its name on the left, and a quiet "Save as preset" on the right while what's set isn't one. */
+  .preset-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .preset-head label { margin-top: 0; }
+  .preset-save { width: auto; margin: 0; padding: 0; background: none; border: 0; color: var(--accent); font-size: .78rem; font-weight: 600; }
+  .preset-save[hidden] { display: none; }
+  .preset-line { display: flex; gap: 6px; align-items: center; }
+  .preset-line select { flex: 1; min-width: 0; }
+  .preset-line .preset-delete { flex: none; width: 36px; height: 36px; margin: 0; padding: 0; }
+  .preset-line .preset-delete[hidden] { display: none; }
   .section-title { font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin: 14px 0 0; font-weight: 700; }
   .check { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; cursor: pointer; text-transform: none; letter-spacing: 0; font-size: .95rem; color: var(--text); }
   .check input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
@@ -720,16 +730,23 @@
 
 <div class="options-col" id="optionsCard" data-page="generate">
 <form class="card pipeline-form only-shorts" id="formShorts">
-  <div class="workflow-top" id="workflowBox">
-    <label for="workflow">Workflow</label>
-    <select id="workflow" name="workflow">
-      <option value="">LTX-2.3</option>
-    </select>
-    <button type="button" class="ghost" id="comfyStart" title="Only ComfyUI can list what's saved in it." hidden>Start ComfyUI</button>
+  <div class="workflow-top preset-top">
+    <div class="preset-head"><label for="shortsPreset">Preset</label><button type="button" class="preset-save" data-preset-save="shorts" hidden>Save as preset</button></div>
+    <div class="preset-line">
+      <select id="shortsPreset" data-preset-side="shorts" aria-label="Preset"><option value="">None</option></select>
+      <button type="button" class="ghost icon-btn preset-delete" data-preset-delete="shorts" title="Delete this preset" aria-label="Delete this preset" hidden>✕</button>
+    </div>
   </div>
   <div class="form-col">
     <details class="section" id="formTopic">
       <summary class="section-title">Generation</summary>
+      <div class="workflow-in" id="workflowBox">
+        <label for="workflow">Workflow</label>
+        <select id="workflow" name="workflow">
+          <option value="">LTX-2.3</option>
+        </select>
+        <button type="button" class="ghost" id="comfyStart" title="Only ComfyUI can list what's saved in it." hidden>Start ComfyUI</button>
+      </div>
 
       <label for="topic">Topic</label>
       <input id="topic" name="topic" placeholder="e.g. Why the Sahara was once green" autocomplete="off">
@@ -838,15 +855,22 @@
 </form>
 
 <form class="card pipeline-form only-video" id="formVideo">
-  <div class="workflow-top">
-    <label for="videoWorkflow">Workflow</label>
-    <select id="videoWorkflow" name="workflow">
-      <option value="">Built-in LTX</option>
-    </select>
-    <div class="hint" id="videoWorkflowHint">The image boxes below change to what it takes.</div>
+  <div class="workflow-top preset-top">
+    <div class="preset-head"><label for="videoPreset">Preset</label><button type="button" class="preset-save" data-preset-save="video" hidden>Save as preset</button></div>
+    <div class="preset-line">
+      <select id="videoPreset" data-preset-side="video" aria-label="Preset"><option value="">None</option></select>
+      <button type="button" class="ghost icon-btn preset-delete" data-preset-delete="video" title="Delete this preset" aria-label="Delete this preset" hidden>✕</button>
+    </div>
   </div>
   <details class="section" id="videoGeneration">
     <summary class="section-title">Generation</summary>
+    <div class="workflow-in">
+      <label for="videoWorkflow">Workflow</label>
+      <select id="videoWorkflow" name="workflow">
+        <option value="">Built-in LTX</option>
+      </select>
+      <div class="hint" id="videoWorkflowHint">The image boxes below change to what it takes.</div>
+    </div>
 
     <div class="image-boxes" id="imageBoxes"></div>
     <button type="button" class="ghost" id="addImage" aria-label="Add another image" title="Add another image" hidden>+</button>
@@ -940,15 +964,22 @@
 </form>
 
 <form class="card pipeline-form only-image" id="formImage">
-  <div class="workflow-top">
-    <label for="imageWorkflow">Workflow</label>
-    <select id="imageWorkflow" name="workflow">
-      <option value="">Automatic: edits if you give it an image, otherwise from text</option>
-    </select>
-    <div class="hint" id="imageWorkflowHint" hidden></div>
+  <div class="workflow-top preset-top">
+    <div class="preset-head"><label for="imagePreset">Preset</label><button type="button" class="preset-save" data-preset-save="image" hidden>Save as preset</button></div>
+    <div class="preset-line">
+      <select id="imagePreset" data-preset-side="image" aria-label="Preset"><option value="">None</option></select>
+      <button type="button" class="ghost icon-btn preset-delete" data-preset-delete="image" title="Delete this preset" aria-label="Delete this preset" hidden>✕</button>
+    </div>
   </div>
   <details class="section" id="imageGeneration">
     <summary class="section-title">Generation</summary>
+    <div class="workflow-in">
+      <label for="imageWorkflow">Workflow</label>
+      <select id="imageWorkflow" name="workflow">
+        <option value="">Automatic: edits if you give it an image, otherwise from text</option>
+      </select>
+      <div class="hint" id="imageWorkflowHint" hidden></div>
+    </div>
 
     <div id="imageSources"></div>
 
@@ -1140,6 +1171,91 @@ function loadForm() {
     else if ([...(el.options || [])].some(o => o.value === String(data[el.name]) && !o.disabled) || !el.options) el.value = data[el.name];
   }
 }
+// --- Presets: a side's settings under a name, kept by the panel so every device has them ---
+// Everything you'd set again, but not what each run is about: its prompt, narration, seed, topic, files and their roles.
+const PRESET_SKIP = ['prompt', 'narration', 'seed', 'topic', 'output', 'review'];
+const SIDE_SYNC = { shorts: () => syncForm(), video: () => syncVideoForm(), image: () => syncImageForm() };
+const SIDE_SAVE = { shorts: () => saveForm(), video: () => saveVideoForm(), image: () => saveImageForm() };
+const OPTION_BOXES = { shorts: 'shortsOptionsBox', video: 'videoOptionsBox', image: 'imageOptionsBox' };
+let presets = { shorts: [], video: [], image: [] };
+function presetValues(side) {
+  const values = {};
+  for (const el of $(SIDE_FORMS[side]).elements) {
+    if (!el.name || el.type === 'file' || el.type === 'hidden' || el.disabled || PRESET_SKIP.includes(el.name) || /_role$/.test(el.name)) continue;
+    values[el.name] = el.type === 'checkbox' ? el.checked : el.value;
+  }
+  return values;
+}
+function samePreset(a, b) {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  return [...keys].every(key => String(a[key] ?? '') === String(b[key] ?? ''));
+}
+// The picker shows the preset that's set, if one is; "Save as preset" shows while none is.
+function syncPresets(side) {
+  const select = $(`${side}Preset`), list = presets[side] || [], now = presetValues(side);
+  const key = JSON.stringify(list.map(p => p.name));
+  if (select.dataset.key !== key) {
+    select.dataset.key = key;
+    select.innerHTML = '<option value="">None</option>' + list.map(p => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('');
+  }
+  const match = list.find(p => samePreset(p.values, now));
+  select.value = match ? match.name : '';
+  document.querySelector(`[data-preset-save="${side}"]`).hidden = !!match;
+  document.querySelector(`[data-preset-delete="${side}"]`).hidden = !match;
+}
+async function loadPresets() {
+  try { presets = { ...presets, ...(await (await fetch('/api/presets')).json()).presets }; } catch (e) { return; }
+  Object.keys(SIDE_FORMS).forEach(syncPresets);
+}
+function applyPreset(side, name) {
+  const preset = (presets[side] || []).find(p => p.name === name);
+  if (!preset) return;
+  const form = $(SIDE_FORMS[side]), values = preset.values;
+  const set = el => {
+    if (!(el.name in values) || el.type === 'file' || el.type === 'hidden') return;
+    if (el.type === 'checkbox') el.checked = !!values[el.name];
+    else if (!el.options || [...el.options].some(o => o.value === String(values[el.name]))) el.value = values[el.name];
+  };
+  // The workflow first: what the rest offers follows from it.
+  if (form.elements.workflow) set(form.elements.workflow);
+  SIDE_SYNC[side]();
+  [...form.elements].filter(el => !el.name.startsWith('opt_')).forEach(set);
+  SIDE_SYNC[side]();
+  const box = $(OPTION_BOXES[side]);
+  [...form.elements].filter(el => el.name.startsWith('opt_')).forEach(set);
+  if (box.dataset.workflow) rememberOptions(box);
+  SIDE_SYNC[side]();
+  SIDE_SAVE[side]();
+  syncPresets(side);
+}
+async function presetRequest(body) {
+  let data;
+  try { data = await (await fetch('/api/presets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json(); }
+  catch (e) { data = { error: 'Could not reach the panel. Try again.' }; }
+  if (!data.ok) { alert(data.error || 'Could not save the preset.'); return; }
+  presets = { ...presets, ...data.presets };
+  Object.keys(SIDE_FORMS).forEach(syncPresets);
+}
+document.addEventListener('click', async e => {
+  const save = e.target.closest && e.target.closest('[data-preset-save]');
+  const remove = e.target.closest && e.target.closest('[data-preset-delete]');
+  if (save) {
+    const side = save.dataset.presetSave;
+    const name = (prompt('Name this preset, such as "Phone wallpaper":') || '').trim();
+    if (name) await presetRequest({ side, name, values: presetValues(side) });
+  } else if (remove) {
+    const side = remove.dataset.presetDelete, name = $(`${side}Preset`).value;
+    if (name && secondTap(remove)) await presetRequest({ side, name, delete: true });
+  }
+});
+// Wired at start-up, once the forms and their names are all known.
+function wirePresets() {
+  for (const side of Object.keys(SIDE_FORMS)) {
+    $(`${side}Preset`).addEventListener('change', e => { if (e.target.value) applyPreset(side, e.target.value); });
+    for (const kind of ['change', 'input']) $(SIDE_FORMS[side]).addEventListener(kind, () => syncPresets(side));
+  }
+}
+
 // --- Workflows saved in ComfyUI ---
 let workflowsFor = null, shortsTakes = {};
 function rememberedWorkflow() {
@@ -3466,6 +3582,8 @@ syncImageForm();
   setPipeline(side in SIDE_FORMS ? side : 'shorts', false);
 }
 markJump();
+wirePresets();
+loadPresets();
 poll();
 setInterval(poll, 2000);
 // A phone pauses a page it isn't showing, so catch up as soon as it is shown again.

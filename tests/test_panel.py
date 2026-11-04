@@ -425,6 +425,23 @@ class PanelTest(unittest.TestCase):
         self.assertTrue(webapp.job.running, "stopping it now would lose it")
         self.assertFalse(self.status()["queue"]["held"])
 
+    def test_presets_are_kept_by_name_per_side(self):
+        if os.path.exists(webapp.PRESETS_PATH):
+            os.remove(webapp.PRESETS_PATH)
+        self.addCleanup(lambda: os.path.exists(webapp.PRESETS_PATH) and os.remove(webapp.PRESETS_PATH))
+        post = lambda body: self.client.post("/api/presets", json=body)
+        self.assertEqual(post({"side": "image", "name": "Phone wallpaper", "values": {"aspect": "1272x2772", "count": "4"}}).status_code, 200)
+        post({"side": "image", "name": "Edits", "values": {"workflow": "image_edit.json"}})
+        presets = self.client.get("/api/presets").get_json()["presets"]
+        self.assertEqual([p["name"] for p in presets["image"]], ["Edits", "Phone wallpaper"], "by name")
+        self.assertEqual(presets["video"], [])
+        post({"side": "image", "name": "Edits", "values": {"workflow": "other.json"}})
+        presets = self.client.get("/api/presets").get_json()["presets"]
+        self.assertEqual(next(p for p in presets["image"] if p["name"] == "Edits")["values"], {"workflow": "other.json"}, "the same name saves over it")
+        post({"side": "image", "name": "Edits", "delete": True})
+        self.assertEqual([p["name"] for p in self.client.get("/api/presets").get_json()["presets"]["image"]], ["Phone wallpaper"])
+        self.assertEqual(post({"side": "nowhere", "name": "x", "values": {}}).status_code, 400)
+
     def test_discard(self):
         self.assertTrue(self.generate(review="1").get_json()["ok"])
         self.wait_idle()
