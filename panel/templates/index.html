@@ -1625,6 +1625,14 @@ function loadImageForm() {
     if (el.type === 'checkbox') el.checked = !!data[el.name];
     else if (!el.options || [...el.options].some(o => o.value === String(data[el.name]) && !o.disabled)) el.value = data[el.name];
   }
+  sizeFallback();
+}
+// An exact size with nothing typed (the box isn't remembered), or a choice that's gone: square, one megapixel.
+function sizeFallback() {
+  if (($('imageAspect').value === 'custom' && !$('imageSize').value.trim()) || !$('imageAspect').value) {
+    $('imageAspect').value = '1:1';
+    $('imageMegapixels').value = '1';
+  }
 }
 function rememberedImageWorkflow() {
   try { return (JSON.parse(localStorage.getItem(IMAGE_STORE_KEY)) || {}).workflow || ''; } catch (e) { return ''; }

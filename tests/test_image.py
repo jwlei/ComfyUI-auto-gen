@@ -287,6 +287,15 @@ class EtaTest(unittest.TestCase):
             self.assertEqual(RunEta([*count, "--direct", "--size", "2048x1024"], {"COMFYUI_WORKFLOW": "x/fast.json"}, path).plan()["total"], 60)
 
 
+class SizeFlagsTest(unittest.TestCase):
+    def test_nothing_to_go_by_is_square_at_one_megapixel(self):
+        from panel.image import size_flags
+        self.assertEqual(size_flags({"aspect": "custom", "size": ""}), (["--aspect", "1:1", "--megapixels", "1.0"], None))
+        self.assertIsNotNone(size_flags({"aspect": "custom", "size": "huge"})[1], "something typed that isn't a size is still refused")
+        self.assertEqual(size_flags({"aspect": "custom", "size": "1920x1080"}), (["--size", "1920x1080"], None))
+        self.assertEqual(media.pick_size(None, "image", "image", None), (1024, 1024), "the same as an image not given: square, one megapixel")
+
+
 class PanelTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.mkdtemp()

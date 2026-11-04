@@ -117,11 +117,18 @@ def describe_run(state):
             "size": f"{state.width}x{state.height}", "estimate": RunEta(resume_argv(state), env, IMAGE_TIMINGS).plan()["total"]}
 
 
+# What a size falls back on with nothing to go by.
+FALLBACK_ASPECT = "1:1"
+
+
 def size_flags(form):
     """The size flags from the form. Returns (flags, error)."""
     aspect = form.get("aspect") or media.FROM_IMAGE
     # An exact size is typed in, or one of the screens on the list.
     size = (form.get("size") or "").strip().lower() if aspect == "custom" else aspect if media.parse_size(aspect) else None
+    if aspect == "custom" and not size:
+        # Exact, with nothing typed (the box isn't remembered across a reload): square, one megapixel.
+        return ["--aspect", FALLBACK_ASPECT, "--megapixels", str(media.DEFAULT_MEGAPIXELS)], None
     if aspect == "custom" and not media.parse_size(size):
         return [], f"An exact size must look like 1920x1080, with each side {media.MIN_EDGE}-{media.MAX_EDGE}."
     if size:

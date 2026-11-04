@@ -738,6 +738,17 @@ assert(/\.meta\.loras \{ white-space: nowrap; overflow: hidden; text-overflow: e
 assert(!script.includes('Discard this run? Its') && /else if \(d\.discard\) \{\s*\/\/[^\n]*\n\s*if \(!secondTap\(e\.target\)\) return;/.test(script));
 assert(script.includes("stopJob(`/image-runs/${encodeURIComponent(d.deleteSet)}/delete`)"));
 
+// An exact size with nothing in its box falls back on 1:1 at one megapixel.
+els.imageAspect.value = 'custom';
+els.imageSize.value = '';
+run('sizeFallback()');
+assert(els.imageAspect.value === '1:1' && els.imageMegapixels.value === '1');
+els.imageAspect.value = 'custom';
+els.imageSize.value = '1920x1080';
+run('sizeFallback()');
+assert.strictEqual(els.imageAspect.value, 'custom', 'a size typed in stays');
+els.imageAspect.value = 'image';
+
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/html \{ overflow-x: clip; \}/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),
   'nothing makes a phone page wider than its screen, so the footer stays put');
