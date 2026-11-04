@@ -595,6 +595,7 @@ context.tapped = { textContent: 'Delete', innerHTML: 'Delete', dataset: {}, clas
 assert.strictEqual(run('secondTap(tapped)'), false, 'the first tap only asks');
 assert(context.tapped.classList.contains('armed') && context.tapped.textContent === 'Confirm');
 assert.strictEqual(context.tapped.style.width, '72px', 'at the size it was');
+assert(/button\.armed[^{]*\{[^}]*display: inline-flex; align-items: center; justify-content: center;/.test(html), 'its tick in the middle');
 assert.strictEqual(run('secondTap(tapped)'), true, 'the second deletes');
 assert.strictEqual(context.tapped.innerHTML, 'Delete');
 run('secondTap(tapped)');

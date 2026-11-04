@@ -28,7 +28,7 @@
   #stopUpload { width: auto; margin: 0 0 0 auto; padding: 4px 10px; font-size: .8rem; }
   .queue { margin-top: 12px; font-size: .84rem; }
   /* A line between what's going now and what's waiting, there only when something is. */
-  .status-queue:has(> :not([hidden])) { margin-top: 14px; padding: 2px 12px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; }
+  .status-queue:has(> :not([hidden])) { margin-top: 14px; padding: 2px 6px 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; }
   /* What is on its way to the queue: there from the tap until the panel has taken it. */
   .queue-pending { margin-top: 12px; padding: 8px 11px; border: 1px dashed var(--line); border-radius: 10px; font-size: .84rem; animation: work-arrive .3s ease; }
   .queue-pending[hidden] { display: none; }
@@ -111,7 +111,10 @@
   /* Red wherever it is: Output's own button colours would otherwise win. */
   button.armed, dialog.viewer .viewer-actions > button.armed, .image-set-actions button.armed, .acts button.armed, .shot-actions button.armed {
     background: var(--err) !important; border-color: var(--err) !important; color: #fff !important;
-    flex-grow: 0; flex-shrink: 0; padding-left: 0; padding-right: 0; white-space: nowrap; overflow: hidden; }
+    flex-grow: 0; flex-shrink: 0; padding-left: 0; padding-right: 0; white-space: nowrap; overflow: hidden;
+    display: inline-flex; align-items: center; justify-content: center; }
+  /* A tick the size of the small button it's in. */
+  .queue .icon-btn svg, .stopped-actions .icon-btn svg { width: 14px; height: 14px; }
   /* A long label or a select of long file names wraps and shrinks, rather than widening the page. */
   .check > span { min-width: 0; overflow-wrap: anywhere; }
   .card, .form-col, details.section { min-width: 0; }
@@ -1266,7 +1269,7 @@ function disarm(button) {
   if (!button.classList.contains('armed')) return;
   button.classList.remove('armed');
   button.innerHTML = button.dataset.label;
-  button.style.width = '';
+  button.style.width = button.style.height = '';
 }
 function secondTap(button) {
   if (button.classList.contains('armed')) {
@@ -1274,8 +1277,10 @@ function secondTap(button) {
     return true;
   }
   button.dataset.label = button.innerHTML;
-  // Held at its width, so "Confirm" doesn't move what's beside it.
-  button.style.width = `${button.getBoundingClientRect().width}px`;
+  // Held at its size, so "Confirm" or the tick doesn't move or grow past what's beside it.
+  const box = button.getBoundingClientRect();
+  button.style.width = `${box.width}px`;
+  if (box.height) button.style.height = `${box.height}px`;
   button.classList.add('armed');
   if (button.classList.contains('icon-btn')) button.innerHTML = ICONS.check; else button.textContent = 'Confirm';
   button._disarm = setTimeout(() => disarm(button), ARMED_MS);
