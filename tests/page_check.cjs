@@ -452,7 +452,6 @@ run(`renderUpload({ lines: [{ n: 1, t: '17:00', text: 'x' }], running: false, st
 assert.strictEqual(els.uploadBox.hidden, true, 'an upload that ended has nothing to show here');
 run(`renderFinished([{ label: 'A <b>run', outcome: 'done', at: '17:05', pipeline: 'video' }, { label: 'B', outcome: 'failed', note: 'exit 1', at: '17:10', pipeline: 'image' }],
   [{ label: 'C', outcome: 'done', at: '17:20' }])`);
-assert.strictEqual(els.finished.hidden, false);
 assert.strictEqual(els.finishedToggle.hidden, false);
 assert(els.finishedToggle.innerHTML.startsWith('Finished (3)') && els.finishedToggle.innerHTML.includes('1 failed'));
 const order = ['>C<', '>B (exit 1)<', '>A &lt;b&gt;run<'].map(text => els.finishedList.innerHTML.indexOf(text));
@@ -467,27 +466,23 @@ run("goToOutput('image')");
 assert.strictEqual(run('pipeline'), 'image');
 assert.strictEqual(context.document.body.dataset.page, 'output');
 run("setPipeline('shorts', false)");
-// Log on the left, Finished on the right, on one line: one open at a time.
-assert(/<div class="status-toggles" id="statusToggles">\s*<button[^>]*id="logToggle"[^>]*>Log<\/button>\s*<button[^>]*id="finishedToggle"/.test(html), 'Log, then Finished');
+// Finished on the left, Log in the middle, Quota on the right: each opens in a box over the page, and gives it back.
+assert(/<div class="status-toggles" id="statusToggles">\s*<button[^>]*id="finishedToggle"[\s\S]*?id="logToggle"[^>]*>Log<\/button>\s*<button[^>]*id="quotaToggle"[^>]*>Quota<\/button>/.test(html));
 assert(!html.includes('Expand to see the log'));
-run("showStatusPanel('log')");
-assert(els.logBox.open === true && els.finished.open === false);
-run("showStatusPanel('finished')");
-assert(els.logBox.open === false && els.finished.open === true, 'opening one closes the other');
-run('showStatusPanel(null)');
-assert(!els.logBox.open && !els.finished.open);
-// What a set going now has made is there too, as it comes, newest first.
-run(`renderFinished([{ label: 'Old set', outcome: 'done', at: '09:00', t: 100, pipeline: 'image' }], [],
-  [{ label: 'Looks · Version 1', outcome: 'done', at: '11:20', t: 300, pipeline: 'image' }, { label: 'Looks · Version 2', outcome: 'done', at: '11:22', t: 400, pipeline: 'image' }])`);
-assert(els.finishedToggle.innerHTML.startsWith('Finished (3)'));
-const madeOrder = ['Version 2', 'Version 1', 'Old set'].map(text => els.finishedList.innerHTML.indexOf(text));
-assert(madeOrder.every(i => i >= 0) && madeOrder[0] < madeOrder[1] && madeOrder[1] < madeOrder[2], 'each image as it is made, newest first');
-// Only the last five.
-context.many = Array.from({ length: 7 }, (_, i) => ({ label: `Job ${i}`, outcome: 'done', at: '10:00', t: i, pipeline: 'video' }));
-run('renderFinished(many, [])');
-assert(els.finishedToggle.innerHTML.startsWith('Finished (5)') && els.finishedList.innerHTML.includes('Job 6') && !els.finishedList.innerHTML.includes('Job 1<'));
+{
+  const moved = [];
+  context.document.getElementById('panelDialogBody').appendChild = el => moved.push(el.id);
+  context.document.getElementById('quotaCard').parentNode = { insertBefore: el => moved.push('back:' + el.id) };
+  run("openPanel('quota')");
+  assert.deepStrictEqual(moved, ['quotaCard']);
+  assert(els.panelDialog.open && els.panelDialogTitle.textContent === 'Quota today');
+  run('closePanel()');
+  assert.deepStrictEqual(moved, ['quotaCard', 'back:quotaCard'], 'and back where it was');
+  assert.strictEqual(els.panelDialog.open, false);
+}
+assert(/dialog\.panel-dialog::backdrop \{[^}]*backdrop-filter: blur\(6px\)/.test(html) && /\.panel-close \{ align-self: center;/.test(html), 'over a blurred page, with a close in the middle under it');
+assert(/\.status-queue:has\(> :not\(\[hidden\]\)\) \{[^}]*background: var\(--bg\)/.test(html), 'the runs in a darker box');
 run('renderFinished([], [])');
-assert.strictEqual(els.finished.hidden, true);
 assert.strictEqual(els.finishedToggle.hidden, true);
 assert(!script.includes("'Finished ✔'") && !script.includes('Upload finished') && !script.includes('Failed (exit'));
 
@@ -565,7 +560,7 @@ assert.strictEqual(context.fakeLog.scrollTop, 300, 'line 81 is still at the top 
 context.document.getElementById('runCard').getBoundingClientRect = () => ({ top: 0, bottom: 100 });
 run('syncStrips()');
 assert(els.runStrip.hidden && els.uploadStrip.hidden, 'on Status the footer bars would only repeat it');
-assert.deepStrictEqual([...html.matchAll(/<a href="#(\w+)"/g)].map(m => m[1]), ['runCard', 'optionsCard', 'videosCard', 'quotaCard']);
+assert.deepStrictEqual([...html.matchAll(/<a href="#(\w+)"/g)].map(m => m[1]), ['runCard', 'optionsCard', 'videosCard'], 'Quota is in Status now');
 assert(!html.includes('name="avatar_source"') && !html.includes('name="lang"'), 'Shorts always uses ComfyUI, and the voice says the language');
 
 // Nothing a video does can hold up the status: no video loads until you press play.
@@ -749,7 +744,6 @@ run('sizeFallback()');
 assert.strictEqual(els.imageAspect.value, 'custom', 'a size typed in stays');
 els.imageAspect.value = 'image';
 
-assert(/\.status-queue:has\(> :not\(\[hidden\]\)\) \{[^}]*border-top: 1px solid var\(--line\)/.test(html), 'a line between Status and the runs');
 
 // The page doesn't zoom, but a picture in the viewer does: around a point, and back to its own size.
 run('resetZoom()');
