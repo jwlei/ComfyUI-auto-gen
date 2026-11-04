@@ -19,7 +19,11 @@
     color: #cbd0dd;
   }
   .log .empty-log { color: var(--muted); }
-  .estimate { margin-top: 12px; font-size: .9rem; }
+  .estimate { margin-top: 10px; font-size: .9rem; }
+  /* One quiet line: the estimate on the left, what it's made of on the right. */
+  .estimate-line { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: .78rem; color: var(--muted); }
+  .estimate-line b { color: var(--text); font-weight: 600; }
+  #estimateDetail { text-align: right; }
   .estimate .err { margin: 0; }
   .eta-detail { margin: -6px 0 10px; }
   .eta-detail summary { font-size: .78rem; font-weight: 400; color: var(--muted); }
@@ -1141,8 +1145,7 @@
   <div class="hint" id="formNote" hidden></div>
   <div class="estimate" id="estimate" hidden>
     <div class="hint" id="estimateContinues" hidden></div>
-    <div id="estimateTotal"></div>
-    <div class="hint" id="estimateDetail"></div>
+    <div class="estimate-line"><span id="estimateTotal"></span><span id="estimateDetail"></span></div>
   </div>
 </div>
 
@@ -2893,18 +2896,16 @@ function showPlan() {
     : pipeline === 'image' && $('imagePromptMode').value === 'llm' && $('imageReview').checked;
   $('estimateContinues').hidden = !plan.continues;
   if (plan.continues) $('estimateContinues').textContent = `Generate continues this stopped video, so nothing is paid for twice: ${plan.continues}`;
-  const when = queueAhead === null || review ? ''
-    : ` · ${queueAhead ? 'after the jobs ahead, ' : ''}done around ${clockIn(queueAhead + plan.total)}`;
-  $('estimateTotal').innerHTML = `Estimated time: <b>${fmtEta(plan.total)}</b>${when}`;
+  $('estimateTotal').innerHTML = `Estimate: <b>${fmtEta(plan.total)}</b>`;
   if (pipeline === 'image') {
-    const images = `${plan.images} ${plan.images === 1 ? 'image' : 'images'}, ${fmtEta(plan.image_render)} each.`;
-    $('estimateDetail').textContent = review ? `${images} Only the prompts are written now.` : images;
+    const images = `${plan.images} ${plan.images === 1 ? 'image' : 'images'}, ${fmtEta(plan.image_render)} each`;
+    $('estimateDetail').textContent = review ? 'only the prompts now' : images;
     $('estimateDetail').title = plan.steps.map(s => `${s.name}: ${fmtEta(s.seconds)}`).join('\n');
     return;
   }
   if (pipeline === 'video') {
-    const clips = `${clipCount(plan.clips)}, ${fmtEta(plan.clip_render)} each.`;
-    $('estimateDetail').textContent = review ? `${clips} Only the prompts are written now.` : clips;
+    const clips = `${clipCount(plan.clips)}, ${fmtEta(plan.clip_render)} each`;
+    $('estimateDetail').textContent = review ? 'only the prompts now' : clips;
     $('estimateDetail').title = plan.steps.map(s => `${s.name}: ${fmtEta(s.seconds)}`).join('\n');
     return;
   }
@@ -2913,7 +2914,7 @@ function showPlan() {
   parts.push(plan.clips
     ? `${plan.clips} ${plan.clips === 1 ? 'clip' : 'clips'} per video, ${fmtEta(plan.clip_render)} each${plan.model ? ` on ${plan.model}` : ''}${plan.model && !plan.model_timed ? ' (not timed yet)' : ''}`
     : 'No avatar clips');
-  $('estimateDetail').textContent = parts.join(' · ') + '.';
+  $('estimateDetail').textContent = parts.join(' · ');
   $('estimateDetail').title = plan.steps.map(s => `${s.name}: ${fmtEta(s.seconds)}`).join('\n');
 }
 function withoutImages(form) {

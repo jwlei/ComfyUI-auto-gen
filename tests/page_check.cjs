@@ -822,6 +822,9 @@ assert.strictEqual(run('stepSet(-1)'), true);
 assert.strictEqual(run('viewing.id'), 'image_a');
 run('closeViewer()');
 
+assert(/<div class="estimate-line"><span id="estimateTotal"><\/span><span id="estimateDetail"><\/span><\/div>/.test(html)
+  && script.includes('`Estimate: <b>${fmtEta(plan.total)}</b>`') && !script.includes('Estimated time:'), 'the estimate on one quiet line');
+
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/maximum-scale=1, user-scalable=no/.test(base) && /html \{ overflow-x: clip; touch-action: manipulation; \}/.test(base), 'no zooming the page out from under the footer');
 assert(/html \{ overflow-x: clip;/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),
