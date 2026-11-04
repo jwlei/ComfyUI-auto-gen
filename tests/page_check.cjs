@@ -301,6 +301,8 @@ assert(imageDialog.includes('<span class="finished">finished</span>') && !imageD
 // The seed, quietly on the right of Make again and Delete, grows up out of its chevron.
 assert(/<div class="shot-actions">\s*<button type="button" data-redo="1">Make again<\/button><button type="button" data-delete-image="1">Delete<\/button>\s*<button type="button" class="seed-toggle" data-seed-toggle="1" aria-expanded="false"[^>]*>Seed<\/button>\s*<div class="seed-fold" id="seedFold_1" hidden>\s*<div class="seed-line">/.test(imageDialog));
 assert(/\.seed-fold \{[^}]*bottom: calc\(100% \+ 6px\)/.test(html) && /\.seed-toggle \{ position: absolute; right: 0;/.test(html));
+assert(/\$\('shotsDialog'\)\.addEventListener\('click', e => \{\s*if \(e\.target\.closest && \(e\.target\.closest\('\.seed-fold'\) \|\| e\.target\.closest\('\[data-seed-toggle\]'\)\)\) return;\s*closeSeedFolds\(\);/.test(script),
+  'a tap anywhere else puts the seed away');
 assert.strictEqual(run("runUrl('image_1')"), '/image-runs/image_1');
 assert.strictEqual(run("runUrl('run_1')"), '/runs/run_1');
 const picked = (aspect, megapixels, source) => {

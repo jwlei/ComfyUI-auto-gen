@@ -2176,8 +2176,7 @@ $('shotsBody').addEventListener('click', async e => {
   const seedInput = e.target.closest('.seed-line')?.querySelector('[data-seed]');
   if (d.seedToggle) {
     const fold = $(`seedFold_${d.seedToggle}`), open = fold.hidden;
-    $('shotsBody').querySelectorAll('.seed-fold').forEach(other => { other.hidden = true; });
-    $('shotsBody').querySelectorAll('[data-seed-toggle]').forEach(other => other.setAttribute('aria-expanded', 'false'));
+    closeSeedFolds();
     fold.hidden = !open;
     e.target.setAttribute('aria-expanded', String(open));
   } else if (d.seedRoll) {
@@ -2206,6 +2205,15 @@ $('shotsBody').addEventListener('click', async e => {
     if (!confirm(`Render shot ${d.redo}${also} again on ${seed ? `seed ${seed}` : 'a new seed'}, then join the film anew? The film replaces the one already finished.`)) return;
     if (await saveShots()) runSaved(`/runs/${shotsRun.id}/redo/${d.redo}`);
   }
+});
+function closeSeedFolds() {
+  $('shotsBody').querySelectorAll('.seed-fold').forEach(fold => { fold.hidden = true; });
+  $('shotsBody').querySelectorAll('[data-seed-toggle]').forEach(toggle => toggle.setAttribute('aria-expanded', 'false'));
+}
+// A tap anywhere else, even outside the dialog, puts an open seed away.
+$('shotsDialog').addEventListener('click', e => {
+  if (e.target.closest && (e.target.closest('.seed-fold') || e.target.closest('[data-seed-toggle]'))) return;
+  closeSeedFolds();
 });
 // Esc would otherwise close it without asking about unsaved changes.
 $('shotsDialog').addEventListener('cancel', e => { e.preventDefault(); closeShots(); });
