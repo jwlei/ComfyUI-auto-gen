@@ -483,6 +483,7 @@ assert(!html.includes('Expand to see the log'));
 }
 assert(/dialog\.panel-dialog::backdrop \{[^}]*backdrop-filter: blur\(6px\)/.test(html) && /\.panel-close \{ align-self: center;/.test(html), 'over a blurred page, with a close in the middle under it');
 assert(/\.status-queue:has\(> :not\(\[hidden\]\)\) \{[^}]*background: var\(--bg\)/.test(html), 'the runs in a darker box');
+assert(/\.status-queue:has\(> :not\(\[hidden\]\)\) \{ margin: 14px -10px 0; padding: 2px 12px 12px;/.test(html), 'wider, out into the card, with its own room inside');
 run('renderFinished([], [])');
 assert(els.finishedToggle.disabled === true && els.finishedToggle.textContent === 'Finished', 'still there, greyed out, when nothing has finished');
 assert(!script.includes("'Finished ✔'") && !script.includes('Upload finished') && !script.includes('Failed (exit'));
