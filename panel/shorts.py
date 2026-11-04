@@ -9,7 +9,7 @@ from flask import request
 
 from core import seeds
 from core.paths import PROJECT_ROOT, WORKFLOWS_DIR
-from panel.server import (form_options, PIPELINES, SHORTS_TIMINGS, _runs_cache, app, busy_runs, job, list_videos, password_required, saved_at,
+from panel.server import (read_outcome, form_options, PIPELINES, SHORTS_TIMINGS, _runs_cache, app, busy_runs, job, list_videos, password_required, saved_at,
                           run_queue, safe_video_path, saved_workflows, upload_queue)
 from pipelines.shorts.avatar_generator import avatar_clip_range, on_screen_range
 from pipelines.shorts.paths import avatar_still_path, thumbnail_path
@@ -63,7 +63,7 @@ def describe_stopped(state):
     if state.videos_after:
         parts.append(f"{state.videos_after} more {'video' if state.videos_after == 1 else 'videos'} after it")
     parts.append(f"{folder_size(state.folder) / 2 ** 20:.0f} MB")
-    return {"id": state.id, "pipeline": "shorts", "label": state.topic or f"Video {state.number}, no topic yet",
+    return {"id": state.id, "pipeline": "shorts", "outcome": read_outcome(state.folder), "label": state.topic or f"Video {state.number}, no topic yet",
             "detail": " · ".join(parts), "when": saved_at(state.path), "clips": len(state.avatar_clips),
             "estimate": RunEta(resume_argv(state), state.env, SHORTS_TIMINGS).plan()["total"]}
 

@@ -264,13 +264,11 @@
   .image-set h3 { margin: 0; font-size: .85rem; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
   /* A run that made nothing: a small word at the end of its title's line, and why under a fold. */
   .run-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
-  .run-head h3 { min-width: 0; }
-  .run-tag { flex: none; font-size: .7rem; color: var(--err); letter-spacing: .02em; }
-  details.why { margin-top: 3px; font-size: .74rem; color: var(--muted); }
+  .run-head .what { min-width: 0; }
+  .run-tag { flex: none; font-size: .72rem; font-weight: 400; color: var(--err); letter-spacing: .02em; }
+  details.why { margin-top: 3px; font-size: .78rem; color: var(--muted); }
   details.why summary { cursor: pointer; width: max-content; }
   .why-text { margin-top: 3px; white-space: pre-line; overflow-wrap: anywhere; }
-  .no-film { width: 100%; aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center; border: 1px dashed var(--line);
-    border-radius: 10px; color: var(--muted); font-size: .8rem; }
   .image-set .meta { color: var(--muted); font-size: .74rem; }
   .image-set-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
   /* Pictures wrap beside the buttons, rather than hiding along a line: a set can be a hundred. */
@@ -931,7 +929,6 @@ const STORE_KEY = 'autoshorts.form.v3';  // v3: privacy became public by default
 let autoScroll = true;
 let folder = 'output';
 let lastVideos = { output: [], uploaded: [], video: [] };
-let failedFilms = [];  // Video runs that made no film, listed among the films
 let pipeline = 'shorts';
 const PIPELINE_KEY = 'comfyui-auto-gen.pipeline';
 
@@ -1086,13 +1083,11 @@ function renderVideos() {
   $('uploadAll').disabled = !CAN_UPLOAD || !unclaimedVideos().length;
   $('uploadAll').textContent = busy ? 'Queue upload all' : 'Upload all';
 
-  const failed = folder === 'video' ? failedFilms : [];
-  const key = folder + '|' + videos.map(v => v.name + v.mtime + (v.topic || v.title || '')).join(',')
-    + '|' + failed.map(run => run.id + run.outcome.at).join(',');
+  const key = folder + '|' + videos.map(v => v.name + v.mtime + (v.topic || v.title || '')).join(',');
   // Keep players that already exist so a poll does not interrupt playback.
   if ($('videos').dataset.key !== key) {
     const was = (slides()[currentSlide()] || {}).dataset;
-    $('videos').innerHTML = folder === 'video' && (videos.length || failed.length) ? filmsHtml(videos, failed) : videos.length ? videos.map(v => {
+    $('videos').innerHTML = videos.length && folder === 'video' ? videos.map(filmHtml).join('') : videos.length ? videos.map(v => {
       const name = esc(v.name), url = encodeURIComponent(v.name);
       const main = folder === 'output'
         ? `<button type="button" data-up="${name}" data-topic="${esc(v.topic || '')}">Upload</button>`
@@ -1151,10 +1146,7 @@ function secondTap(button) {
 
 $('videos').addEventListener('click', async e => {
   const d = e.target.dataset || {};
-  if (d.discardRun) {
-    if (!secondTap(e.target)) return;
-    await stopJob(`/runs/${encodeURIComponent(d.discardRun)}/discard`);
-  } else if (d.del) {
+  if (d.del) {
     if (!secondTap(e.target)) return;
     const body = await (await fetch(`/delete/${folder}/` + encodeURIComponent(d.del), { method: 'POST' })).json();
     if (body.warning) alert(body.warning);
@@ -1756,8 +1748,8 @@ function imageSetHtml(set) {
   const all = set.images.length > 1 ? `Download all ${set.images.length}` : 'Download';
   return `
   <div class="image-set">
-    ${runHeadHtml(esc(set.label), set.outcome)}
-    <div class="meta">${[set.model && esc(set.model), set.total > 1 && `${set.images.length} of ${set.total}`, esc(set.size), esc(set.when)].filter(Boolean).join(' · ')}</div>${lorasLine(set.loras)}${set.outcome ? whyHtml(set.outcome) : ''}
+    <h3>${esc(set.label)}</h3>
+    <div class="meta">${[set.model && esc(set.model), set.total > 1 && `${set.images.length} of ${set.total}`, esc(set.size), esc(set.when)].filter(Boolean).join(' · ')}</div>${lorasLine(set.loras)}
     <div class="image-set-row">
       <div class="image-grid">${pictures}</div>
       <div class="image-set-actions"><button type="button" data-download-set="${esc(set.id)}" title="${all}">Download</button><button type="button" data-shots="${esc(set.id)}">Prompts</button><button type="button" class="del" data-delete-set="${esc(set.id)}">Delete</button></div>
@@ -1765,7 +1757,7 @@ function imageSetHtml(set) {
   </div>`;
 }
 function renderImageSets() {
-  const key = JSON.stringify(imageSets.map(set => [set.id, set.label, set.total, set.images, set.model, set.loras, set.outcome]));
+  const key = JSON.stringify(imageSets.map(set => [set.id, set.label, set.total, set.images, set.model, set.loras]));
   // Only when it changed, so a poll doesn't reload the pictures.
   if ($('imageSets').dataset.key === key) return;
   $('imageSets').dataset.key = key;
@@ -1867,26 +1859,6 @@ $('imageSets').addEventListener('click', async e => {
 
 // preload="none": a browser allows about 6 connections per site, and films loading
 // their metadata can hold them all, which freezes the status poll.
-function whyHtml(outcome) {
-  return `<details class="why"><summary>Why</summary><div class="why-text">${esc(outcome.why)}</div></details>`;
-}
-function runHeadHtml(title, outcome) {
-  return `<div class="run-head"><h3>${title}</h3>${outcome ? `<span class="run-tag">${esc(outcome.outcome)}</span>` : ''}</div>`;
-}
-function failedFilmHtml(run) {
-  return `
-  <div class="vid failed-run" data-name="${esc(run.id)}">
-    <div class="no-film">No film</div>
-    ${runHeadHtml(esc(run.label), run.outcome)}
-    <div class="meta">${esc(run.detail)} · ${esc(run.when)}</div>
-    ${whyHtml(run.outcome)}
-    <div class="acts"><button type="button" class="plain" data-shots="${esc(run.id)}">Prompts</button><button type="button" class="del" data-discard-run="${esc(run.id)}">Delete</button></div>
-  </div>`;
-}
-function filmsHtml(films, failed) {
-  const all = [...films.map(v => [v.mtime, filmHtml(v)]), ...failed.map(run => [run.outcome.at, failedFilmHtml(run)])];
-  return all.sort((a, b) => b[0] - a[0]).map(pair => pair[1]).join('');
-}
 function filmHtml(v) {
   const name = esc(v.name), url = encodeURIComponent(v.name);
   const shots = v.run ? `<button type="button" class="plain" data-shots="${esc(v.run)}">Shots</button>` : '';
@@ -2343,14 +2315,18 @@ function renderFinished(runs, uploads) {
   if ($('finishedTitle').innerHTML !== title) $('finishedTitle').innerHTML = title;
   if ($('finishedList').dataset.html !== list) { $('finishedList').innerHTML = list; $('finishedList').dataset.html = list; }
 }
+function whyHtml(outcome) {
+  return `<details class="why"><summary>Why</summary><div class="why-text">${esc(outcome.why)}</div></details>`;
+}
 function renderStopped(runs) {
   const el = $('stoppedRuns');
   el.hidden = !runs.length;
   const html = !runs.length ? '' : `<div class="queue-head"><b>Stopped runs (${runs.length})</b></div>` + runs.map(run => `
     <div class="stopped-run">
-      <div class="what">${esc(run.label)}</div>
+      <div class="run-head"><div class="what">${esc(run.label)}</div>${run.outcome ? `<span class="run-tag">${esc(run.outcome.outcome)}</span>` : ''}</div>
       <div class="hint">${SIDE_NAMES[run.pipeline] || 'Shorts'} · ${esc(run.detail)}</div>
       ${run.when ? `<div class="hint">${esc(run.when)}</div>` : ''}
+      ${run.outcome ? whyHtml(run.outcome) : ''}
       <div class="stopped-actions">
         <span class="when">${fmtEta(run.estimate)}</span>
         ${run.pipeline !== 'shorts' ? `<button type="button" data-shots="${esc(run.id)}">Prompts</button>` : ''}
@@ -2575,7 +2551,6 @@ async function poll() {
   renderQuota(data.quota);
 
   lastVideos = data.videos;
-  failedFilms = data.failed_films || [];
   renderVideos();
   imageSets = data.image_sets || [];
   renderImageSets();

@@ -938,15 +938,8 @@ def read_outcome(folder):
         return None
 
 
-def made_nothing(pipeline):
-    """A side's runs that ended without what they were for, and aren't going again now: Output lists them."""
-    busy = busy_runs()
-    return [run for run in saved_runs()
-            if run["pipeline"] == pipeline and run.get("outcome") and run["id"] not in busy and not run.get("finished")]
-
-
 def stopped_runs():
-    """What can be continued. A finished film is reached from its video instead."""
+    """What can be continued, with why it stopped if it didn't finish on its own. A finished film is reached from its video instead."""
     busy = busy_runs()
     return [run for run in saved_runs() if run["id"] not in busy and not run.get("finished")]
 
@@ -1159,10 +1152,7 @@ def status():
     payload["upload"] = uploads.snapshot()
     payload["upload"]["queue"] = upload_queue.snapshot()
     payload["videos"] = {folder: list_videos(folder) for folder in FOLDERS}
-    failed_sets = {run["id"] for run in made_nothing("image")}
-    payload["image_sets"] = [run if run["id"] in failed_sets else {**run, "outcome": None}
-                             for run in saved_runs() if run["pipeline"] == "image" and (run["images"] or run["id"] in failed_sets)]
-    payload["failed_films"] = made_nothing("video")
+    payload["image_sets"] = [run for run in saved_runs() if run["pipeline"] == "image" and run["images"]]
     online = comfyui_online()
     payload["comfyui"] = {"online": online, "can_start": bool(comfyui_launcher()),
                           "starting": not online and time.time() - _comfyui_start_requested_at < COMFYUI_STARTUP_WAIT,

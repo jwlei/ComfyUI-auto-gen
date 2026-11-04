@@ -545,17 +545,15 @@ const loraHtml = run('imageSetHtml(withLoras)');
 assert(/<\/div><div class="meta loras">LoRA: KNPV3_1 \(0\.8\), &lt;b&gt;x<\/div>/.test(loraHtml), 'LoRAs on a line of their own, escaped');
 assert(!run('imageSetHtml(oneImage0)').includes('LoRA'), 'none, no line');
 assert(run("filmHtml({ name: 'f.mp4', created: 'now', size_mb: 1, loras: ['a'] })").includes('<div class="meta loras">LoRA: a</div>'), 'films too');
-// A run that made nothing is listed with what was made: a small word on its title's line, and why under a fold.
-context.failedSet = { id: 'image_3', label: 'Looks', total: 2, size: '1x1', when: 'now', images: [], outcome: { outcome: 'failed', why: 'Clip 1 failed.\n<b>x', at: 5 } };
-const failedSetHtml = run('imageSetHtml(failedSet)');
-assert(/<div class="run-head"><h3>Looks<\/h3><span class="run-tag">failed<\/span><\/div>/.test(failedSetHtml), 'on the same line as its title');
-assert(/<details class="why"><summary>Why<\/summary><div class="why-text">Clip 1 failed\.\n&lt;b&gt;x<\/div><\/details>/.test(failedSetHtml), 'why, escaped, under a fold');
-assert(!run('imageSetHtml(oneImage0)').includes('run-tag'), 'nothing to say when it worked');
-context.films = [{ name: 'old.mp4', mtime: 1, created: 'x', size_mb: 1 }, { name: 'new.mp4', mtime: 9, created: 'x', size_mb: 1 }];
-context.failedRuns = [{ id: 'run_1', label: 'Jungle Flight', detail: 'Plan ready', when: 'now', outcome: { outcome: 'not rendered', why: 'w', at: 5 } }];
-const listed = run('filmsHtml(films, failedRuns)');
-assert(listed.indexOf('new.mp4') < listed.indexOf('Jungle Flight') && listed.indexOf('Jungle Flight') < listed.indexOf('old.mp4'), 'by time, among the films');
-assert(listed.includes('data-discard-run="run_1"') && listed.includes('data-shots="run_1"'));
+// A run that stopped short says so under Stopped runs: a small word on its title's line, and why under a fold.
+// Output is only what was made.
+run(`renderStopped([{ id: 'run_1', pipeline: 'video', label: 'Jungle Flight', detail: 'Plan ready', when: 'now', estimate: 60, clips: 0,
+  outcome: { outcome: 'not rendered', why: 'Asked to read\\n<b>x', at: 5 } }, { id: 'run_2', pipeline: 'video', label: 'Fine', detail: 'd', when: 'now', estimate: 1, clips: 0 }])`);
+const stoppedHtml = els.stoppedRuns.innerHTML;
+assert(/<div class="run-head"><div class="what">Jungle Flight<\/div><span class="run-tag">not rendered<\/span><\/div>/.test(stoppedHtml), 'on the same line as its title');
+assert(/<details class="why"><summary>Why<\/summary><div class="why-text">Asked to read\n&lt;b&gt;x<\/div><\/details>/.test(stoppedHtml), 'why, escaped, under a fold');
+assert.strictEqual((stoppedHtml.match(/run-tag/g) || []).length, 1, 'nothing to say for one you stopped yourself');
+assert(!script.includes('failed_films') && !script.includes('filmsHtml'), 'Output lists what was made, nothing else');
 
 context.oneImage = { id: 'image_1', label: 'One', total: 1, size: '1024x1024', when: 'now', images: [{ position: 1, title: 'x', version: 1 }] };
 assert(!run('imageSetHtml(oneImage)').includes('1 of 1'), 'one image on its own says no "1 of 1"');
