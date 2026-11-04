@@ -331,7 +331,7 @@ def image_run_detail(run_id):
 
 def settings_of(state):
     """What a set was made with, as the form sets it: for "the same again", to change before pressing Generate."""
-    workflow = next((w["name"] for w in saved_workflows() if state.workflow and os.path.abspath(w["path"]) == os.path.abspath(state.workflow)), "")
+    workflow = next((w["name"] for w in saved_workflows() if state.workflow and w.get("path") and os.path.abspath(w["path"]) == os.path.abspath(state.workflow)), "")
     return {"prompt": state.brief, "direct": state.direct, "count": len(state.shots or []) or state.count, "llm": state.llm,
             "workflow": workflow, "size": f"{state.width}x{state.height}", "options": state.options or {},
             "inputs": sum(1 for path in state.input_paths if os.path.exists(path))}

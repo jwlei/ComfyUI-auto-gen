@@ -521,6 +521,12 @@ class PanelTest(unittest.TestCase):
         film = os.path.basename(run.final)
         self.assertTrue(film.endswith("_wan.mp4") and run.id not in film, "<title>_<workflow>.mp4")
         listed = next(v for v in webapp.list_videos("video") if v["name"] == film)
+        # The same again: what it was made with, and the image it was given.
+        settings = self.client.get(f"/runs/{run.id}").get_json()["settings"]
+        self.assertEqual((settings["workflow"], settings["options"], settings["images"]), ("wan.json", {"steps": "12"}, 1))
+        self.assertEqual(self.client.get(f"/runs/{run.id}/inputs/image/1").status_code, 200)
+        self.assertEqual(self.client.get(f"/runs/{run.id}/inputs/image/2").status_code, 404)
+        self.assertEqual(self.client.get(f"/runs/{run.id}/inputs/secret/1").status_code, 404)
         self.assertEqual((listed["run"], listed["model"]), (run.id, "wan"), "the film still finds its run, and shows its workflow")
         self.assertTrue(self.client.post(f"/runs/{run.id}/redo/1").get_json()["ok"])
         self.wait_idle()

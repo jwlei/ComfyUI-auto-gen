@@ -343,10 +343,40 @@ def run_detail(run_id):
     if not state or not state.shots:
         return {"ok": False, "error": "That run is no longer saved."}, 404
     return {"ok": True, "id": state.id, "title": state.title, "brief": state.brief, "start": state.start,
-            "llm": state.llm, "busy": run_id in busy_runs(), "finished": bool(state.final),
+            "llm": state.llm, "busy": run_id in busy_runs(), "finished": bool(state.final), "settings": settings_of(state),
             "shots": [{"title": shot["title"], "seconds": shot["seconds"], "prompt": shot["prompt"],
                        "seed": shot.get("seed"), "used_seed": shot.get("used_seed"),
                        "rendered": i in state.clips} for i, shot in enumerate(state.shots)]}
+
+
+def run_inputs(state):
+    """The files a film was given, by kind: its images, reference videos and audio clips, and its own audio track."""
+    return {"image": [path for path in state.image_paths if os.path.exists(path)],
+            "video": [state.reference_path(video) for video in state.ref_videos],
+            "audio": [state.reference_path(audio) for audio in state.ref_audios],
+            "track": [state.audio_path] if state.has_audio and os.path.exists(state.audio_path) else []}
+
+
+def settings_of(state):
+    """What a film was made with, as the form sets it: for "the same again", to change before pressing Generate."""
+    workflow = next((w["name"] for w in saved_workflows() if state.workflow and w.get("path") and os.path.abspath(w["path"]) == os.path.abspath(state.workflow)), "")
+    files = run_inputs(state)
+    return {"prompt": state.brief, "seconds": state.seconds, "start": state.start, "llm": state.llm, "workflow": workflow,
+            "size": f"{state.width}x{state.height}", "options": state.options or {}, "images": len(files["image"]),
+            "references": [{"kind": "video", "role": video["role"]} for video in state.ref_videos]
+                          + [{"kind": "audio", "role": audio["role"]} for audio in state.ref_audios],
+            "track": bool(files["track"])}
+
+
+@app.route("/runs/<run_id>/inputs/<kind>/<int:number>")
+@password_required
+def run_input(run_id, kind, number):
+    """A file a film was given, for making it again."""
+    state = RunState.load(run_id)
+    found = run_inputs(state).get(kind, []) if state else []
+    if not 1 <= number <= len(found) or not os.path.exists(found[number - 1]):
+        abort(404)
+    return send_file(found[number - 1], conditional=True)
 
 
 @app.route("/runs/<run_id>/image")

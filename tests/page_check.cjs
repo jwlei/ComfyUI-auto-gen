@@ -20,6 +20,7 @@ function element(id) {
     classList: { toggle() {}, add() {}, remove() {}, contains: () => false },
     addEventListener() {}, querySelectorAll: selector => (selector === 'input' ? [element('low'), element('high')] : []), querySelector: () => element('part'), setAttribute() {},
     getBoundingClientRect: () => ({ top: 0, bottom: 100 }), appendChild() {}, offsetHeight: 90, insertAdjacentHTML() {}, showModal() { this.open = true; }, close() { this.open = false; }, scrollTo() {},
+    pause() {}, play() { return Promise.resolve(); }, removeAttribute(name) { delete this[name]; },
   };
 }
 const els = {};
@@ -423,9 +424,9 @@ run("folder = 'video'");
 const film = { name: 'A_run_20261101_120000.mp4', run: 'run_20261101_120000', title: 'A <i>film</i>', created: '01/11 12:00', size_mb: 40, mtime: 1 };
 context.film = film;
 const card = run('filmHtml(film)');
-assert(card.includes('preload="none"'), 'a page of films must not hold the browser\'s connections');
+assert(!card.includes('<video') && card.includes('loading="lazy"'), 'a page of films must not hold the browser\'s connections: a poster, playing only when asked');
 assert(!card.includes('<i>film'), 'film titles are escaped');
-assert(card.includes('data-shots="run_20261101_120000"') && !card.includes('data-up=') && card.includes('/download/video/'), 'a film can be downloaded, not uploaded');
+assert(card.includes('data-shots="run_20261101_120000"') && !card.includes('data-up=') && card.includes('data-download-film='), 'a film can be downloaded, not uploaded');
 film.run = null;
 const orphan = run('filmHtml(film)');
 assert(!orphan.includes('data-shots') && !orphan.includes('poster='), 'a film whose run is gone has no shots to open');
@@ -580,6 +581,11 @@ assert(els.videos.innerHTML.includes('a_short.mp4') && !els.videos.innerHTML.inc
 assert(!els.videos.innerHTML.includes('uploaded_short.mp4'), 'and what is ready, until you open Uploaded');
 run("setTab('uploaded')");
 assert(els.videos.innerHTML.includes('uploaded_short.mp4') && !els.videos.innerHTML.includes('a_film.mp4'));
+// Shorts have the same rows as films and image sets; a Short ready to go has an upload icon first.
+run("setTab('output')");
+assert(/<div class="image-set film" data-name="a_short\.mp4">[\s\S]*?class="icon-btn" data-up="a_short\.mp4"[^>]*aria-label="Upload to YouTube"><svg[\s\S]*?data-download-film="a_short\.mp4"/.test(els.videos.innerHTML));
+run("setTab('uploaded')");
+assert(!els.videos.innerHTML.includes('data-up='), 'nothing to upload once it is up');
 run("setPipeline('shorts', false)");
 
 // Every link goes somewhere. The footer's order is its own: a desktop lights up by where the sections are.
@@ -703,6 +709,23 @@ run('showSending(1)');
 assert(els.queuePendingText.textContent.endsWith('adding to the queue…'), 'sent, and being taken in');
 assert(/if \(!submitting\) \$\('go'\)\.textContent/.test(script), 'a poll meanwhile leaves it saying so');
 assert(/xhr\.upload\.onprogress/.test(script) && /<div class="queue-pending" id="queuePending" hidden>/.test(html));
+
+// A film has the same again too, beside Download, while its run is kept.
+// Films are laid out as image sets: the poster as the picture, which plays it, and the same icons, the same again second.
+const filmRow = run("filmHtml({ name: 'f.mp4', created: 'now', size_mb: 1, run: 'run_1', model: 'wan' })");
+assert(/<div class="image-set film" data-name="f\.mp4">[\s\S]*?<div class="image-set-row album">\s*<a [^>]*class="album-cover film-cover" data-play-film="f\.mp4"/.test(filmRow));
+assert(/data-download-film="f\.mp4"[\s\S]*?<\/button><button type="button" class="icon-btn" data-again-film="run_1"[\s\S]*?data-shots="run_1"[\s\S]*?class="icon-btn del" data-del="f\.mp4"/.test(filmRow), 'download, the same again, shots, delete');
+assert(!run("filmHtml({ name: 'f.mp4', created: 'now', size_mb: 1 })").includes('data-again-film'), 'not once its run is gone');
+// It plays in the viewer, and a swipe goes to the next film.
+run(`lastVideos = { output: [], uploaded: [], video: [{ name: 'a.mp4', title: 'A' }, { name: 'b.mp4', title: 'B' }] }; folder = 'video'`);
+run("openFilm('a.mp4')");
+assert(els.viewerVideo.hidden === false && els.viewerImage.hidden === true && els.viewerVideo.src === '/videos/video/a.mp4');
+assert.strictEqual(els.viewerTitle.textContent, 'A · 1 of 2');
+assert.strictEqual(run('stepViewer(1)'), true);
+assert.strictEqual(els.viewerVideo.src, '/videos/video/b.mp4');
+assert.strictEqual(run('stepViewer(1)'), false, 'nothing after the last');
+run('closeViewer()');
+run(`folder = 'output'`);
 
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/html \{ overflow-x: clip; \}/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),

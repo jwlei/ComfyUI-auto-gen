@@ -159,6 +159,13 @@
     scrollbar-width: none;
   }
   .carousel::-webkit-scrollbar { display: none; }
+  .carousel.as-list { display: block; overflow: visible; }
+  /* A film's poster says it plays. */
+  .film-cover .play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff;
+    font-size: 1.4rem; text-shadow: 0 1px 6px rgba(0, 0, 0, .8); pointer-events: none; }
+  #viewerVideo { display: block; max-width: calc(100vw - 24px); max-height: calc(100dvh - 120px); border-radius: 8px; background: #000; }
+  #viewerVideo.from-right { animation: viewer-from-right .2s ease; }
+  #viewerVideo.from-left { animation: viewer-from-left .2s ease; }
   .vid { flex: 0 0 78%; min-width: 0; scroll-snap-align: center; display: flex; flex-direction: column; }
   .vid video { width: 100%; aspect-ratio: 9 / 16; max-height: 70vh; object-fit: contain; border-radius: 10px; background: #000; display: block; }
   .vid h3 { margin: 9px 0 2px; font-size: .9rem; font-weight: 600; line-height: 1.3; }
@@ -346,6 +353,8 @@
   .image-set-actions button { width: auto; margin: 0; padding: 6px 10px; font-size: .78rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
   .image-set-actions .del { background: transparent; color: var(--muted); }
   /* Icons, one size: they always fit, and line up from one set to the next. The words are in their labels. */
+  .image-set-actions .icon-btn.working { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .45; } }
   .image-set-actions .icon-btn { flex: none; width: 40px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
   .icon-btn svg { width: 17px; height: 17px; pointer-events: none; }
   .pipeline-form .option-choice { display: inline-block; width: auto; max-width: 100%; margin: 4px 0 0 8px; padding: 3px 6px; font-size: .85rem; text-overflow: ellipsis; }
@@ -1009,6 +1018,7 @@
 <dialog id="shotsDialog"><div id="shotsBody"></div></dialog>
 <dialog id="imageViewer" class="viewer" aria-label="Image">
   <img id="viewerImage" alt="">
+  <video id="viewerVideo" controls playsinline preload="none" hidden></video>
   <div class="viewer-bar">
     <div class="viewer-title" id="viewerTitle"></div>
     <div class="viewer-actions">
@@ -1183,28 +1193,21 @@ function renderVideos() {
   // Keep players that already exist so a poll does not interrupt playback.
   if ($('videos').dataset.key !== key) {
     const was = (slides()[currentSlide()] || {}).dataset;
-    $('videos').innerHTML = videos.length && folder === 'video' ? videos.map(filmHtml).join('') : videos.length ? videos.map(v => {
-      const name = esc(v.name), url = encodeURIComponent(v.name);
-      const main = folder === 'output'
-        ? `<button type="button" data-up="${name}" data-topic="${esc(v.topic || '')}">Upload</button>`
-        : `<a href="/download/${folder}/${url}">Download</a>`;
-      return `
-      <div class="vid" data-name="${name}">
-        <video controls preload="none" playsinline poster="/posters/${folder}/${url}" src="/videos/${folder}/${url}#t=0.1"></video>
-        <h3>${v.topic ? esc(v.topic) : '<span style="color:var(--muted)">No topic recorded</span>'}</h3>
-        <div class="meta" title="${name}">${v.model ? `${esc(v.model)} · ` : ''}${name} · ${v.created} · ${v.size_mb} MB</div>
-        <div class="acts">${main}<button type="button" class="del" data-del="${name}">Delete</button></div>
-      </div>`;
-    }).join('') : `<div class="empty">${folder === 'uploaded' ? 'Nothing uploaded yet.' : 'No videos waiting. Press Generate to make one.'}</div>`;
+    $('videos').classList.add('as-list');
+    $('videos').innerHTML = videos.length ? videos.map(filmHtml).join('')
+      : `<div class="empty">${folder === 'uploaded' ? 'Nothing uploaded yet.' : folder === 'video' ? 'No films yet. Press Generate to make one.' : 'No videos waiting. Press Generate to make one.'}</div>`;
     $('videos').dataset.key = key;
     const back = was && slides().findIndex(s => s.dataset.name === was.name);
     if (back > 0) goToSlide(back, false);
   }
+  // The upload icon says where it's at in its name, and pulses while it's claimed.
   for (const b of $('videos').querySelectorAll('[data-up]')) {
     const now = uploadingNow.has(b.dataset.up), queued = uploadQueued.has(b.dataset.up);
+    const label = now ? 'Uploading…' : queued ? 'Queued to upload' : busy ? 'Queue upload to YouTube' : 'Upload to YouTube';
     b.disabled = now || queued || !CAN_UPLOAD;
-    b.textContent = now ? 'Uploading…' : queued ? 'Queued' : busy ? 'Queue upload' : 'Upload';
-    b.title = CAN_UPLOAD ? '' : NO_KEYS;
+    b.title = CAN_UPLOAD ? label : NO_KEYS;
+    b.setAttribute('aria-label', label);
+    b.classList.toggle('working', now || queued);
   }
   updateNav();
 }
@@ -1244,8 +1247,18 @@ function secondTap(button) {
 }
 
 $('videos').addEventListener('click', async e => {
+  const play = e.target.closest && e.target.closest('[data-play-film]');
+  if (play) {
+    e.preventDefault();
+    openFilm(play.dataset.playFilm);
+    return;
+  }
   const d = e.target.dataset || {};
-  if (d.del) {
+  if (d.downloadFilm) {
+    downloadFile(`/download/${folder}/${encodeURIComponent(d.downloadFilm)}`);
+  } else if (d.againFilm) {
+    await sameAgainFilm(d.againFilm);
+  } else if (d.del) {
     if (!secondTap(e.target)) return;
     const body = await (await fetch(`/delete/${folder}/` + encodeURIComponent(d.del), { method: 'POST' })).json();
     if (body.warning) alert(body.warning);
@@ -1876,6 +1889,7 @@ const ICONS = {
   prompts: ICON_SVG('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>'),
   trash: ICON_SVG('<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/>'),
   check: ICON_SVG('<path d="m5 12 5 5 9-10"/>'),
+  upload: ICON_SVG('<path d="M12 20V9"/><path d="m7 14 5-5 5 5"/><path d="M5 4h14"/>'),
   again: ICON_SVG('<path d="M4 12a8 8 0 0 1 13.7-5.7L20 8.5"/><path d="M20 4v4.5h-4.5"/><path d="M20 12a8 8 0 0 1-13.7 5.7L4 15.5"/><path d="M4 20v-4.5h4.5"/>'),
 };
 function imageSetHtml(set) {
@@ -1952,6 +1966,70 @@ async function sameAgain(id) {
   $('imageOptions').open = !$('imageOptions').hidden;
   if (WIDE.matches) $('optionsCard').scrollIntoView({ behavior: 'smooth' }); else showPage('generate');
 }
+// A file a run was given, back as a file for a form's box.
+async function runFile(url, name) {
+  const blob = await (await fetch(url)).blob();
+  return new File([blob], name, { type: blob.type || 'application/octet-stream' });
+}
+function putFile(input, file) {
+  const files = new DataTransfer();
+  files.items.add(file);
+  input.files = files.files;
+}
+// --- The same again for a film: its settings, images, references and audio back in Generate ---
+async function sameAgainFilm(id) {
+  let data;
+  try { data = await (await fetch(`/runs/${encodeURIComponent(id)}`)).json(); } catch (e) { data = { error: 'Could not reach the panel. Try again.' }; }
+  if (!data.ok) { alert(data.error || 'Could not open that film.'); return; }
+  const s = data.settings, base = `/runs/${encodeURIComponent(id)}/inputs`;
+  if (pipeline !== 'video') setPipeline('video');
+  await loadVideoWorkflows();
+  $('videoWorkflow').value = [...$('videoWorkflow').options].some(o => o.value === s.workflow && !o.disabled) ? s.workflow : '';
+  syncVideoForm();
+  $('prompt').value = s.prompt || '';
+  $('start').value = s.start;
+  if ([...$('llm').options].some(o => o.value === s.llm)) $('llm').value = s.llm;
+  $('sizePreset').value = 'custom';
+  $('size').value = s.size;
+  syncSize();
+  $('duration').value = s.seconds;
+  try {
+    imageBoxes().forEach(clearImage);
+    imagesShown = Math.max(1, s.images);
+    syncImageInput();
+    for (let number = 1; number <= s.images; number++) {
+      const box = imageBoxes()[number - 1];
+      if (!box) break;
+      putFile(box.querySelector('input[type="file"]'), await runFile(`${base}/image/${number}`, `image_${number}.png`));
+      showImage(box);
+      syncImageInput();
+    }
+    // Its own audio track, as a file: a voiced film's voice isn't paid for again.
+    $('audioMode').value = s.track ? 'file' : 'none';
+    if (s.track) putFile($('audioFile'), await runFile(`${base}/track/1`, 'audio.wav'));
+    else $('audioFile').value = '';
+    mediaBoxes().forEach(clearMedia);
+    mediaShown = Math.max(1, s.references.length);
+    syncMediaInput();
+    const counts = { video: 0, audio: 0 };
+    for (const [i, reference] of s.references.entries()) {
+      const box = mediaBoxes()[i];
+      if (!box) break;
+      const number = ++counts[reference.kind];
+      putFile(box.querySelector('input'), await runFile(`${base}/${reference.kind}/${number}`, `${reference.kind}_${number}`));
+      showMedia(box);
+      box.querySelector('select').value = reference.role;
+      syncMediaInput();
+    }
+  } catch (e) {
+    alert('Some of its files could not be put back: add them again before pressing Generate.');
+  }
+  syncVideoForm();
+  applyOptions($('videoOptionsBox'), (workflowTakes[$('videoWorkflow').value] || {}).options || [], s.options);
+  saveVideoForm();
+  showFormError('');
+  if (WIDE.matches) $('optionsCard').scrollIntoView({ behavior: 'smooth' }); else showPage('generate');
+}
 // Every option as a set had it: what it chose, else the workflow's own default.
 function applyOptions(box, options, chosen) {
   for (const option of options.filter(o => !o.role)) {
@@ -1979,10 +2057,37 @@ function downloadImages(id, positions) {
 }
 // --- The image viewer: one picture over a dimmed page, with Download, Delete and Close ---
 let viewing = null;
+function showViewerMedia(video) {
+  $('viewerImage').hidden = video;
+  $('viewerVideo').hidden = !video;
+  if (!video) { $('viewerVideo').pause(); $('viewerVideo').removeAttribute('src'); }
+}
+// A film in the viewer, playing; a swipe goes to the one beside it in Output.
+function openFilm(name) {
+  const films = lastVideos[folder] || [], at = films.findIndex(v => v.name === name);
+  if (at < 0) return;
+  const film = films[at], url = `/videos/${folder}/${encodeURIComponent(name)}`;
+  viewing = { film: true, name };
+  showViewerMedia(true);
+  $('viewerVideo').src = url;
+  $('viewerTitle').textContent = `${film.title || film.topic || film.name}${films.length > 1 ? ` · ${at + 1} of ${films.length}` : ''}`;
+  $('viewerDownload').href = `/download/${folder}/${encodeURIComponent(name)}`;
+  if (!$('imageViewer').open) $('imageViewer').showModal();
+  $('viewerVideo').play().catch(() => {});  // A browser may want a tap first
+}
+function downloadFile(url) {
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = '';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
 function openViewer(id, position) {
   const set = imageSets.find(s => s.id === id), picture = set && set.images.find(p => p.position === position);
   if (!picture) return;
   viewing = { id, position };
+  showViewerMedia(false);
   const url = `/image-runs/${encodeURIComponent(id)}/files/${position}?v=${picture.version}`;
   $('viewerImage').src = url;
   $('viewerImage').alt = picture.title;
@@ -1994,6 +2099,17 @@ function openViewer(id, position) {
 // The image before or after this one in its set: a swipe, or the arrow keys.
 function stepViewer(by) {
   if (!viewing) return false;
+  if (viewing.film) {
+    const films = lastVideos[folder] || [], next = films[films.findIndex(v => v.name === viewing.name) + by];
+    if (!next) return false;
+    disarm($('viewerDelete'));
+    const video = $('viewerVideo');
+    video.classList.remove('from-right', 'from-left');
+    void video.offsetWidth;
+    video.classList.add(by > 0 ? 'from-right' : 'from-left');
+    openFilm(next.name);
+    return true;
+  }
   const set = imageSets.find(s => s.id === viewing.id);
   const images = set ? set.images : [];
   const next = images[images.findIndex(p => p.position === viewing.position) + by];
@@ -2024,16 +2140,23 @@ $('imageViewer').addEventListener('keydown', e => {
 function closeViewer() {
   if ($('imageViewer').open) $('imageViewer').close();
 }
-$('imageViewer').addEventListener('close', () => { viewing = null; $('viewerImage').removeAttribute('src'); disarm($('viewerDelete')); });
+$('imageViewer').addEventListener('close', () => {
+  viewing = null;
+  $('viewerImage').removeAttribute('src');
+  $('viewerVideo').pause();
+  $('viewerVideo').removeAttribute('src');
+  disarm($('viewerDelete'));
+});
 // A tap on the dimmed page around it closes it too.
 $('imageViewer').addEventListener('click', e => { if (e.target === $('imageViewer')) closeViewer(); });
 $('viewerClose').addEventListener('click', closeViewer);
 $('viewerDelete').addEventListener('click', async () => {
   if (!viewing || !secondTap($('viewerDelete'))) return;
-  const { id, position } = viewing;
+  const { id, position, film, name } = viewing;
+  const url = film ? `/delete/${folder}/${encodeURIComponent(name)}` : `/image-runs/${encodeURIComponent(id)}/delete/${position}`;
   let body;
   try {
-    body = await (await fetch(`/image-runs/${encodeURIComponent(id)}/delete/${position}`, { method: 'POST' })).json();
+    body = await (await fetch(url, { method: 'POST' })).json();
   } catch (e) {
     body = { error: 'Could not reach the panel. Try again.' };
   }
@@ -2064,16 +2187,24 @@ $('imageSets').addEventListener('click', async e => {
 
 // preload="none": a browser allows about 6 connections per site, and films loading
 // their metadata can hold them all, which freezes the status poll.
+// A film or a Short: a row as an image set's, its poster opening the player. A Short ready to go has Upload first.
 function filmHtml(v) {
   const name = esc(v.name), url = encodeURIComponent(v.name);
-  const shots = v.run ? `<button type="button" class="plain" data-shots="${esc(v.run)}">Shots</button>` : '';
-  const poster = v.run ? ` poster="/runs/${encodeURIComponent(v.run)}/image"` : '';
+  const icon = (data, label, svg, extra = '') => `<button type="button" class="icon-btn${extra}" ${data} title="${label}" aria-label="${label}">${svg}</button>`;
+  const actions = '<div class="image-set-actions">'
+    + (folder === 'output' ? icon(`data-up="${name}" data-topic="${esc(v.topic || '')}"`, 'Upload to YouTube', ICONS.upload) : '')
+    + icon(`data-download-film="${name}"`, 'Download', ICONS.download)
+    + (v.run ? icon(`data-again-film="${esc(v.run)}"`, 'The same again: its settings in Generate, to change first', ICONS.again) : '')
+    + (v.run ? icon(`data-shots="${esc(v.run)}"`, 'Shots', ICONS.prompts) : '')
+    + icon(`data-del="${name}"`, 'Delete', ICONS.trash, ' del') + '</div>';
   return `
-  <div class="vid" data-name="${name}">
-    <video controls preload="none" playsinline${poster} src="/videos/${folder}/${url}"></video>
-    <h3>${v.title ? esc(v.title) : esc(v.name)}</h3>
-    <div class="meta" title="${name}">${v.model ? `${esc(v.model)} · ` : ''}${name} · ${v.created} · ${v.size_mb} MB</div>${lorasLine(v.loras)}
-    <div class="acts"><a href="/download/${folder}/${url}">Download</a>${shots}<button type="button" class="del" data-del="${name}">Delete</button></div>
+  <div class="image-set film" data-name="${name}">
+    <h3>${v.title || v.topic ? esc(v.title || v.topic) : folder === 'video' ? name : '<span style="color:var(--muted)">No topic recorded</span>'}</h3>
+    <div class="meta" title="${name}">${[v.model && esc(v.model), v.created, `${v.size_mb} MB`].filter(Boolean).join(' · ')}</div>${lorasLine(v.loras)}
+    <div class="image-set-row album">
+      <a href="/videos/${folder}/${url}" class="album-cover film-cover" data-play-film="${name}" title="Play"><img loading="lazy" alt="" src="/posters/${folder}/${url}"><span class="play">▶</span></a>
+      <div class="album-side">${actions}</div>
+    </div>
   </div>`;
 }
 
