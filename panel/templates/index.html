@@ -477,6 +477,9 @@
   .strip-total:empty { display: none; }
   .stick .strip[hidden] { display: block; max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
   .wrap { padding-bottom: calc(var(--head, 130px) + 16px); }
+  /* Typing on a phone, the keyboard takes the bottom of the screen: the footer steps aside until it's done. */
+  body.typing .stick { opacity: 0; transform: translateY(100%); pointer-events: none; transition: opacity .15s ease, transform .15s ease; }
+  .stick { transition: opacity .2s ease, transform .2s ease; }
   .jump { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; padding: 6px 16px; }
   .jump a {
     display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px;
@@ -1202,6 +1205,18 @@ function loadForm() {
     else if ([...(el.options || [])].some(o => o.value === String(data[el.name]) && !o.disabled) || !el.options) el.value = data[el.name];
   }
 }
+// --- While typing on a phone, the footer steps aside: the keyboard has the bottom of the screen ---
+const TYPED = /^(text|search|email|url|tel|number|password)$/;
+function typingIn(el) { return el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && TYPED.test(el.type))); }
+function syncTyping() {
+  // A box being typed in, or the screen shrunk well below the page by a keyboard.
+  const shrunk = window.visualViewport && window.visualViewport.height < window.innerHeight * 0.75;
+  document.body.classList.toggle('typing', !WIDE.matches && (typingIn(document.activeElement) || !!shrunk));
+}
+document.addEventListener('focusin', syncTyping);
+document.addEventListener('focusout', () => setTimeout(syncTyping, 50));  // After the next box has the focus, if any
+if (window.visualViewport) window.visualViewport.addEventListener('resize', syncTyping);
+
 // --- Presets: a side's settings under a name, kept by the panel so every device has them ---
 // Everything you'd set again, but not what each run is about: its prompt, narration, seed, topic, files and their roles.
 const PRESET_SKIP = ['prompt', 'narration', 'seed', 'topic', 'output', 'review'];

@@ -863,6 +863,11 @@ assert(/<div class="go-under">\s*<label class="check preview-run not-shorts"><in
 assert(/<select id="avatarSize" name="avatar_size">/.test(html), 'Shorts has a resolution');
 assert(/<div id="imageToPromptSlot"><\/div>/.test(html) && /imageRole\(\) === 'image_to_prompt' \? \$\('imageToPromptSlot'\)/.test(script), "image to prompt's image right under the choice");
 
+// Typing on a phone, the footer steps aside for the keyboard.
+assert(/body\.typing \.stick \{ opacity: 0; transform: translateY\(100%\);/.test(html));
+assert(run("typingIn({ tagName: 'TEXTAREA' })") === true && run("typingIn({ tagName: 'INPUT', type: 'text' })") === true
+  && run("typingIn({ tagName: 'INPUT', type: 'checkbox' })") === false && run("typingIn({ tagName: 'SELECT' })") === false);
+
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/maximum-scale=1, user-scalable=no/.test(base) && /html \{ overflow-x: clip; touch-action: manipulation; \}/.test(base), 'no zooming the page out from under the footer');
 assert(/html \{ overflow-x: clip;/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),
