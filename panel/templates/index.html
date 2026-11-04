@@ -225,7 +225,14 @@
     display: none; flex-direction: column; align-items: center; gap: 10px; overflow: visible; }
   dialog.viewer[open] { display: flex; animation: viewer-in .2s ease; }
   dialog.viewer::backdrop { background: rgba(0, 0, 0, .85); }
-  #viewerImage { display: block; max-width: calc(100vw - 24px); max-height: calc(100dvh - 120px); object-fit: contain; border-radius: 8px; background: #000; }
+  #viewerImage { display: block; max-width: calc(100vw - 24px); max-height: calc(100dvh - 120px); object-fit: contain; border-radius: 8px; background: #000;
+    touch-action: pan-y pinch-zoom; user-select: none; -webkit-user-drag: none; }
+  /* The next image slides in from the side it was swiped towards. */
+  #viewerImage.from-right { animation: viewer-from-right .2s ease; }
+  #viewerImage.from-left { animation: viewer-from-left .2s ease; }
+  @keyframes viewer-from-right { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+  @keyframes viewer-from-left { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { #viewerImage.from-right, #viewerImage.from-left { animation: none; } }
   .viewer-bar { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 8px; }
   .viewer-title { color: #ddd; font-size: .85rem; text-align: center; overflow-wrap: anywhere; }
   .viewer-title:empty { display: none; }
@@ -1765,10 +1772,41 @@ function openViewer(id, position) {
   const url = `/image-runs/${encodeURIComponent(id)}/files/${position}?v=${picture.version}`;
   $('viewerImage').src = url;
   $('viewerImage').alt = picture.title;
-  $('viewerTitle').textContent = picture.title;
+  const at = set.images.indexOf(picture);
+  $('viewerTitle').textContent = set.images.length > 1 ? `${picture.title} · ${at + 1} of ${set.images.length}` : picture.title;
   $('viewerDownload').href = `${url}&download=1`;
   if (!$('imageViewer').open) $('imageViewer').showModal();
 }
+// The image before or after this one in its set: a swipe, or the arrow keys.
+function stepViewer(by) {
+  if (!viewing) return false;
+  const set = imageSets.find(s => s.id === viewing.id);
+  const images = set ? set.images : [];
+  const next = images[images.findIndex(p => p.position === viewing.position) + by];
+  if (!next) return false;
+  disarm($('viewerDelete'));
+  const image = $('viewerImage');
+  image.classList.remove('from-right', 'from-left');
+  void image.offsetWidth;  // So the slide plays again
+  image.classList.add(by > 0 ? 'from-right' : 'from-left');
+  openViewer(viewing.id, next.position);
+  return true;
+}
+let swipeFrom = null;
+$('imageViewer').addEventListener('touchstart', e => {
+  swipeFrom = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+}, { passive: true });
+$('imageViewer').addEventListener('touchend', e => {
+  if (!swipeFrom || !e.changedTouches.length) return;
+  const dx = e.changedTouches[0].clientX - swipeFrom.x, dy = e.changedTouches[0].clientY - swipeFrom.y;
+  swipeFrom = null;
+  // Sideways, and far enough to mean it: a tap or a scroll isn't a swipe.
+  if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) stepViewer(dx < 0 ? 1 : -1);
+});
+$('imageViewer').addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' && stepViewer(1)) e.preventDefault();
+  else if (e.key === 'ArrowLeft' && stepViewer(-1)) e.preventDefault();
+});
 function closeViewer() {
   if ($('imageViewer').open) $('imageViewer').close();
 }

@@ -17,7 +17,7 @@ for (const [, id] of script.matchAll(/\$\('([A-Za-z]+)'\)/g)) assert(ids.has(id)
 function element(id) {
   return {
     id, dataset: {}, style: {}, hidden: false, innerHTML: '', textContent: '', value: '', className: '', elements: [],
-    classList: { toggle() {}, add() {}, remove() {} },
+    classList: { toggle() {}, add() {}, remove() {}, contains: () => false },
     addEventListener() {}, querySelectorAll: selector => (selector === 'input' ? [element('low'), element('high')] : []), querySelector: () => element('part'), setAttribute() {},
     getBoundingClientRect: () => ({ top: 0, bottom: 100 }), appendChild() {}, offsetHeight: 90, insertAdjacentHTML() {}, showModal() { this.open = true; }, close() { this.open = false; }, scrollTo() {},
   };
@@ -257,7 +257,17 @@ run('imageSets = sets');
 run("openViewer('image_20261102_120000', 3)");
 assert.strictEqual(els.imageViewer.open, true);
 assert.strictEqual(els.viewerDownload.href, '/image-runs/image_20261102_120000/files/3?v=6&download=1');
-assert.strictEqual(els.viewerTitle.textContent, 'Two');
+assert.strictEqual(els.viewerTitle.textContent, 'Two · 2 of 2', 'which one of the set it is');
+// A swipe, or an arrow key, goes through the set, and stops at its ends.
+run("openViewer('image_20261102_120000', 1)");
+assert.strictEqual(els.viewerTitle.textContent, '<i>Look · 1 of 2');
+assert.strictEqual(run('stepViewer(-1)'), false, 'nothing before the first');
+assert.strictEqual(run('stepViewer(1)'), true);
+assert.strictEqual(run('viewing.position'), 3, 'the next one in the set, wherever it was numbered');
+assert.strictEqual(els.viewerTitle.textContent, 'Two · 2 of 2');
+assert.strictEqual(run('stepViewer(1)'), false, 'nothing after the last');
+assert(/touchend[\s\S]*?Math\.abs\(dx\) > 50 && Math\.abs\(dx\) > Math\.abs\(dy\)/.test(script) && /ArrowRight/.test(script), 'swipes, and arrow keys on a desktop');
+assert(/#viewerImage \{[^}]*touch-action: pan-y pinch-zoom/.test(html), 'a sideways swipe is the page\'s, not the browser\'s');
 run('closeViewer()');
 assert.strictEqual(els.imageViewer.open, false);
 assert(/\.image-set-row \{ display: flex/.test(html) && /\.image-grid img \{ width: 56px/.test(html), 'and small enough to');
