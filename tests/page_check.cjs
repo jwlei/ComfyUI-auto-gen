@@ -275,7 +275,9 @@ assert(/\.image-set-row \{ display: flex/.test(html) && /\.image-grid img \{ wid
 assert(/<div class="image-set-row album">\s*<a [^>]*class="album-cover"[^>]*><img[^>]*\/thumbnails\/1\?v=5"><span class="album-count">2<\/span><\/a>\s*<div class="album-side">\s*<div class="album-strip"><a [^>]*data-view-position="3"[\s\S]*?<\/div>\s*<div class="image-set-actions">/.test(setHtml),
   'cover beside the strip, the strip above the buttons');
 const single = run("imageSetHtml({ id: 'image_9', label: 'One', total: 1, size: '1x1', when: 'now', images: [{ position: 1, title: 'x', version: 1 }] })");
-assert(single.includes('<div class="image-grid">') && !single.includes('album'), 'one image is just itself');
+assert(single.includes('class="album-cover"') && !single.includes('album-count') && !single.includes('album-strip'), 'one image: the same picture box, no count, no strip');
+assert(/class="icon-btn" data-download-set="image_9" title="Download" aria-label="Download"><svg/.test(single) && /class="icon-btn del" data-delete-set="image_9"[^>]*aria-label="Delete"><svg/.test(single), 'icons, named');
+assert(/\.image-set-actions \{[^}]*justify-content: flex-end;[^}]*margin-top: auto;/.test(html) && /\.album-cover \{[^}]*width: 92px; height: 92px;/.test(html), 'the icons sit in the same place on every set');
 assert(/\.image-set-row\.album \{ align-items: stretch; \}/.test(html) && /\.album-strip \{ display: flex;[^}]*overflow-x: auto/.test(html), 'the strip scrolls sideways');
 assert(/\.album-cover img \{ position: absolute; inset: 0;/.test(html) && !/\.album-cover \{[^}]*min-height/.test(html), 'the cover is as tall as the strip and buttons, not its picture');
 assert(/input\[type=file\]::file-selector-button/.test(html), 'choosing a file has a real button');
@@ -565,15 +567,22 @@ for (const id of links) assert(ids.has(id), `#${id} is on the page`);
 for (const asked of ["confirm('Delete ' + d.del", "confirm('Delete this image?", "confirm('Delete this set?", 'confirm(`Delete image ${d.deleteImage}']) {
   assert(!script.includes(asked), `${asked} is a second tap now`);
 }
-context.tapped = { textContent: 'Delete', dataset: {}, classList: classes(), style: {}, getBoundingClientRect: () => ({ width: 72 }) };
+context.tapped = { textContent: 'Delete', innerHTML: 'Delete', dataset: {}, classList: classes(), style: {}, getBoundingClientRect: () => ({ width: 72 }) };
 assert.strictEqual(run('secondTap(tapped)'), false, 'the first tap only asks');
 assert(context.tapped.classList.contains('armed') && context.tapped.textContent === 'Confirm');
 assert.strictEqual(context.tapped.style.width, '72px', 'at the size it was');
 assert.strictEqual(run('secondTap(tapped)'), true, 'the second deletes');
-assert.strictEqual(context.tapped.textContent, 'Delete');
+assert.strictEqual(context.tapped.innerHTML, 'Delete');
 run('secondTap(tapped)');
 run('disarm(tapped)');
-assert(!context.tapped.classList.contains('armed') && context.tapped.textContent === 'Delete', 'and left alone it goes back');
+assert(!context.tapped.classList.contains('armed') && context.tapped.innerHTML === 'Delete', 'and left alone it goes back');
+// An icon turns red with a tick instead: "Confirm" wouldn't fit, and it keeps its size too.
+context.iconTapped = { innerHTML: '<svg>bin</svg>', dataset: {}, classList: classes(), style: {}, getBoundingClientRect: () => ({ width: 40 }) };
+context.iconTapped.classList.add('icon-btn');
+run('secondTap(iconTapped)');
+assert(context.iconTapped.innerHTML.includes('m5 12 5 5 9-10') && context.iconTapped.style.width === '40px');
+run('disarm(iconTapped)');
+assert.strictEqual(context.iconTapped.innerHTML, '<svg>bin</svg>');
 assert.strictEqual(context.tapped.style.width, '', 'and its own size again');
 
 // Moving on in the queue: the one starting leaves it at once, sliding up, and Status shows it arriving; never a blank.

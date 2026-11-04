@@ -299,24 +299,25 @@
   .image-grid { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; }
   .image-grid a { display: block; flex: none; }
   .image-grid img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; display: block; background: #000; }
-  .image-set-actions { flex: none; display: flex; gap: 6px; }
+  .image-set-actions { flex: none; display: flex; justify-content: flex-end; gap: 6px; margin-top: auto; }
   /* An album: the cover spans the strip and the buttons, so it sits like a single image beside its buttons. */
   .image-set-row.album { align-items: stretch; }
   /* Its picture fills the box rather than sizing it: a tall wallpaper would otherwise make the row as tall as itself. */
-  .album-cover { position: relative; flex: none; display: block; width: 92px; overflow: hidden; border-radius: 8px; }
+  .album-cover { position: relative; flex: none; display: block; width: 92px; height: 92px; overflow: hidden; border-radius: 8px; }
   .album-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
   .album-count { position: absolute; right: 4px; bottom: 4px; padding: 0 6px; border-radius: 999px; background: rgba(0, 0, 0, .7);
     color: #fff; font-size: .7rem; font-weight: 600; line-height: 1.5; pointer-events: none; }
-  .album-side { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; gap: 6px; }
+  .album-side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
   .album-strip { display: flex; gap: 4px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; overscroll-behavior-x: contain; }
   .album-strip::-webkit-scrollbar { display: none; }
   .album-strip a { flex: none; scroll-snap-align: start; }
   .album-strip img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; display: block; background: #000; }
   /* Beside the cover the buttons share what width there is. */
-  .album-side .image-set-actions { min-width: 0; }
-  .album-side .image-set-actions button { flex: 1 1 0; min-width: 0; padding: 6px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .image-set-actions button { width: auto; margin: 0; padding: 6px 10px; font-size: .78rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
   .image-set-actions .del { background: transparent; color: var(--muted); }
+  /* Icons, one size: they always fit, and line up from one set to the next. The words are in their labels. */
+  .image-set-actions .icon-btn { flex: none; width: 40px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+  .icon-btn svg { width: 17px; height: 17px; pointer-events: none; }
   .pipeline-form .option-choice { display: inline-block; width: auto; max-width: 100%; margin: 4px 0 0 8px; padding: 3px 6px; font-size: .85rem; text-overflow: ellipsis; }
   .pipeline-form .option-strength { display: inline-block; width: 5.5em; margin-left: 8px; padding: 3px 6px; font-size: .85rem; }
   .shot-image { max-width: 100%; max-height: 300px; margin-top: 8px; border-radius: 8px; display: block; background: #000; }
@@ -1187,7 +1188,7 @@ function disarm(button) {
   clearTimeout(button._disarm);
   if (!button.classList.contains('armed')) return;
   button.classList.remove('armed');
-  button.textContent = button.dataset.label;
+  button.innerHTML = button.dataset.label;
   button.style.width = '';
 }
 function secondTap(button) {
@@ -1195,11 +1196,11 @@ function secondTap(button) {
     disarm(button);
     return true;
   }
-  button.dataset.label = button.textContent;
+  button.dataset.label = button.innerHTML;
   // Held at its width, so "Confirm" doesn't move what's beside it.
   button.style.width = `${button.getBoundingClientRect().width}px`;
   button.classList.add('armed');
-  button.textContent = 'Confirm';
+  if (button.classList.contains('icon-btn')) button.innerHTML = ICONS.check; else button.textContent = 'Confirm';
   button._disarm = setTimeout(() => disarm(button), ARMED_MS);
   return false;
 }
@@ -1831,23 +1832,30 @@ let imageSets = [];
 function lorasLine(loras) {
   return loras && loras.length ? `<div class="meta loras">LoRA: ${loras.map(esc).join(', ')}</div>` : '';
 }
+const ICON_SVG = path => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+const ICONS = {
+  download: ICON_SVG('<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>'),
+  prompts: ICON_SVG('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>'),
+  trash: ICON_SVG('<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/>'),
+  check: ICON_SVG('<path d="m5 12 5 5 9-10"/>'),
+};
 function imageSetHtml(set) {
   const id = encodeURIComponent(set.id);
   const picture = (p, extra = '') => `<a href="/image-runs/${id}/files/${p.position}?v=${p.version}" data-view-set="${esc(set.id)}" data-view-position="${p.position}" title="${esc(p.title)}"${extra}><img loading="lazy" alt="${esc(p.title)}" src="/image-runs/${id}/thumbnails/${p.position}?v=${p.version}">`;
   const all = set.images.length > 1 ? `Download all ${set.images.length}` : 'Download';
-  const actions = `<div class="image-set-actions"><button type="button" data-download-set="${esc(set.id)}" title="${all}">Download</button><button type="button" data-shots="${esc(set.id)}">Prompts</button><button type="button" class="del" data-delete-set="${esc(set.id)}">Delete</button></div>`;
-  // One image: it and its buttons on a line. An album: its cover as tall as the strip of the rest and the buttons beside it.
-  const row = set.images.length > 1 ? `
+  const actions = `<div class="image-set-actions">`
+    + `<button type="button" class="icon-btn" data-download-set="${esc(set.id)}" title="${all}" aria-label="${all}">${ICONS.download}</button>`
+    + `<button type="button" class="icon-btn" data-shots="${esc(set.id)}" title="Prompts" aria-label="Prompts">${ICONS.prompts}</button>`
+    + `<button type="button" class="icon-btn del" data-delete-set="${esc(set.id)}" title="Delete" aria-label="Delete">${ICONS.trash}</button></div>`;
+  // Every set alike: its picture (an album's cover, with how many), and beside it the strip of the rest above its icons.
+  const many = set.images.length > 1;
+  const row = `
     <div class="image-set-row album">
-      ${picture(set.images[0], ' class="album-cover"')}<span class="album-count">${set.images.length}</span></a>
+      ${set.images.length ? `${picture(set.images[0], ' class="album-cover"')}${many ? `<span class="album-count">${set.images.length}</span>` : ''}</a>` : ''}
       <div class="album-side">
-        <div class="album-strip">${set.images.slice(1).map(p => picture(p) + '</a>').join('')}</div>
+        ${many ? `<div class="album-strip">${set.images.slice(1).map(p => picture(p) + '</a>').join('')}</div>` : ''}
         ${actions}
       </div>
-    </div>` : `
-    <div class="image-set-row">
-      <div class="image-grid">${set.images.map(p => picture(p) + '</a>').join('')}</div>
-      ${actions}
     </div>`;
   return `
   <div class="image-set">
