@@ -798,7 +798,8 @@ assert(/\.output-filter-line \{ display: flex; justify-content: center;/.test(ht
 
 assert(/dialog\.viewer::backdrop \{ background: rgba\(0, 0, 0, \.55\);[^}]*backdrop-filter: blur\(6px\)/.test(html), 'the page behind the preview, as behind Quota');
 
-assert(/dialog\.viewer\[open\] \{ display: grid; grid-template-columns: min-content;/.test(html) && /\.viewer-bar \{[^}]*background: var\(--panel\);[^}]*border-radius: 0 0 10px 10px;/.test(html), 'a panel under the picture, as wide as it');
+assert(/dialog\.viewer\[open\] \{ display: grid; grid-template-columns: minmax\(min\(380px, calc\(100vw - 24px\)\), max-content\);/.test(html)
+  && /dialog\.viewer\[open\] #viewerImage, dialog\.viewer\[open\] #viewerVideo \{ width: 100%; object-fit: contain;/.test(html) && /\.viewer-bar \{[^}]*background: var\(--panel\);[^}]*border-radius: 0 0 10px 10px;/.test(html), 'a panel under the picture, as wide as it');
 
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/maximum-scale=1, user-scalable=no/.test(base) && /html \{ overflow-x: clip; touch-action: manipulation; \}/.test(base), 'no zooming the page out from under the footer');

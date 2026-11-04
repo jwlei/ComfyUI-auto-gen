@@ -312,9 +312,11 @@
   /* The image viewer: the picture as large as fits, its buttons under it. */
   dialog.viewer { width: auto; max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); background: transparent; border: 0;
     display: none; flex-direction: column; align-items: center; gap: 10px; overflow: visible; }
-  /* One column as wide as the picture: the panel under it lines up with its edges. */
-  dialog.viewer[open] { display: grid; grid-template-columns: min-content; justify-content: center; gap: 0; animation: viewer-in .2s ease; }
-  dialog.viewer[open] #viewerImage, dialog.viewer[open] #viewerVideo { border-radius: 10px 10px 0 0; }
+  /* One column, as wide as the picture but never narrower than the buttons need: a tall wallpaper sits whole in the
+     middle of it on black, so the panel under it lines up with its edges and the buttons keep one size. */
+  dialog.viewer[open] { display: grid; grid-template-columns: minmax(min(380px, calc(100vw - 24px)), max-content); justify-content: center; gap: 0;
+    animation: viewer-in .2s ease; }
+  dialog.viewer[open] #viewerImage, dialog.viewer[open] #viewerVideo { width: 100%; object-fit: contain; border-radius: 10px 10px 0 0; }
   /* The page behind the preview: dimmed and out of focus, as behind Finished, Log and Quota. */
   dialog.viewer::backdrop { background: rgba(0, 0, 0, .55); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
   /* Its own display would otherwise beat [hidden]: after a film, the video showed under the next image. */
