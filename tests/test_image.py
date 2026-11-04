@@ -737,6 +737,12 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(run.options, {"prompt_enhancer": "1"})
         # Named after its title and the workflow that made it: the folder, and each file in it.
         self.assertEqual(run.output_name, "a_lighthouse_text")
+        # While a set is going, each image it has made is under Finished already.
+        with mock.patch.object(type(webapp.job), "running", new_callable=mock.PropertyMock, return_value=True),                 mock.patch.object(webapp.job, "pipeline", "image"), mock.patch.dict(webapp.job.progress, {"run_id": run.id}):
+            made = webapp.made_in_this_run()
+        self.assertEqual([entry["label"] for entry in made], [f"{run.title} · Version 1", f"{run.title} · Version 2"])
+        self.assertEqual({entry["pipeline"] for entry in made}, {"image"})
+        self.assertEqual(webapp.made_in_this_run(), [], "and once it is done, the set's own line says so")
         self.assertEqual(sorted(os.listdir(run.output_dir))[0][:len("a_lighthouse_text_001")], "a_lighthouse_text_001")
         self.assertIn("TextGenerate", [node["class_type"] for node in self.comfy.prompts[0]["prompt"].values()])
 

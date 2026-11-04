@@ -313,7 +313,7 @@ class JobQueue:
     a Shut down or crash, on hold for the same reason.
     """
 
-    KEPT_RESULTS = 8
+    KEPT_RESULTS = 5  # Finished shows the last five, and starts empty after a restart
 
     def __init__(self, job, prepare, blocked=lambda: False, path=None):
         self.job = job
@@ -418,7 +418,7 @@ class JobQueue:
 
     def _record(self, item, outcome, note=None):
         self.results.append({"label": item["label"], "outcome": outcome, "note": note, "pipeline": item.get("pipeline"),
-                             "at": datetime.now().strftime("%H:%M")})
+                             "at": datetime.now().strftime("%H:%M"), "t": time.time()})
         del self.results[:-self.KEPT_RESULTS]
 
     def hold(self):
@@ -946,6 +946,26 @@ def read_outcome(folder):
         return None
 
 
+def made_in_this_run():
+    """
+    What the job going now has already made: each finished image of a set, under Finished as it comes, rather than
+    only once the whole set is done.
+    """
+    run_id = (job.progress or {}).get("run_id")
+    if not job.running or job.pipeline != "image" or not run_id:
+        return []
+    try:
+        state = PIPELINES["image"].load_run(run_id)
+        made = []
+        for shot in (state.done if state else []):
+            made_at = os.path.getmtime(state.image_path(shot))
+            made.append({"label": f"{state.title or state.brief} · {shot.get('title') or shot['number']}", "outcome": "done",
+                         "pipeline": "image", "at": datetime.fromtimestamp(made_at).strftime("%H:%M"), "t": made_at})
+        return made
+    except (OSError, ValueError, AttributeError, KeyError):
+        return []  # Being written as we look: the next poll has it
+
+
 def stopped_runs():
     """What can be continued, with why it stopped if it didn't finish on its own. A finished film is reached from its video instead."""
     busy = busy_runs()
@@ -1157,6 +1177,7 @@ def status():
     payload["server_started"] = STARTED_AT
     payload["queue"] = queue
     payload["stopped_runs"] = stopped_runs()
+    payload["made_now"] = made_in_this_run()
     payload["upload"] = uploads.snapshot()
     payload["upload"]["queue"] = upload_queue.snapshot()
     payload["videos"] = {folder: list_videos(folder) for folder in FOLDERS}

@@ -1037,7 +1037,7 @@ function syncForm() {
   $('clipsSlider').classList.toggle('hidden', $('avatar_clips').value !== 'auto');
   $('avatar_style').disabled = !!$('workflow').value;
   const avatars = $('avatar_clips').value !== '0';
-  syncOptions('shortsOptions', 'shortsOptionsBox', avatars ? (shortsTakes[$('workflow').value] || {}).options || [] : []);
+  syncOptions('shortsOptions', 'shortsOptionsBox', avatars ? (shortsTakes[$('workflow').value] || {}).options || [] : [], $('workflow').value);
   syncSliders();
 }
 $('formShorts').addEventListener('change', () => { syncForm(); saveForm(); });
@@ -1501,7 +1501,7 @@ function syncAudio() {
 }
 function syncVideoForm() {
   syncImageInput();
-  syncOptions('videoOptions', 'videoOptionsBox', (workflowTakes[$('videoWorkflow').value] || {}).options || []);
+  syncOptions('videoOptions', 'videoOptionsBox', (workflowTakes[$('videoWorkflow').value] || {}).options || [], $('videoWorkflow').value);
   syncMediaInput();
   syncSize();
   syncAudio();
@@ -1564,8 +1564,9 @@ async function loadImageWorkflows() {
   select.innerHTML = select.options[0].outerHTML + data.workflows.map(w =>
     `<option value="${esc(w.name)}"${w.problem ? ' disabled' : ''}>${esc(w.label)}${w.problem ? ' (can\'t run)' : ''}</option>`).join('');
   if (usable.some(w => w.name === wanted)) select.value = wanted;
-  imageWorkflows = Object.fromEntries(usable.map(w => [w.name, w.takes]));
-  imageWorkflowList = usable.map(w => w.takes);
+  // Each knows its name, so what you set for it is remembered under it, Automatic's pick too.
+  imageWorkflows = Object.fromEntries(usable.map(w => [w.name, { ...w.takes, name: w.name }]));
+  imageWorkflowList = usable.map(w => ({ ...w.takes, name: w.name }));
   const notes = stuck.map(w => `${w.label}: ${w.problem}`);
   if (!data.workflows.length) notes.push('Save one in ComfyUI with a name starting image_ and it appears here.');
   if (!data.online) notes.push('ComfyUI is off: this is the last list.');
@@ -1707,15 +1708,43 @@ function imageOptionHtml(option, all) {
 }
 // Any form's: its section shows when the workflow has any. A way for the workflow to write its own prompt is chosen
 // with the LLM instead (syncImageLlm), so it isn't drawn here.
-function syncOptions(section, box, options) {
+function syncOptions(section, box, options, workflow = '') {
   options = options.filter(option => !option.role);
-  const key = JSON.stringify(options);
+  const key = JSON.stringify([workflow, options]);
   $(section).hidden = !options.length;
   if ($(box).dataset.key === key) return;
   $(box).dataset.key = key;
+  $(box).dataset.workflow = `${section}|${workflow}`;
   $(box).innerHTML = options.map(option => imageOptionHtml(option, options)).join('');
+  restoreOptions($(box));
 }
-function syncImageOptions() { syncOptions('imageOptions', 'imageOptionsBox', imageTakes().options || []); }
+// --- Each workflow's options as you last set them (per browser) ---
+const OPTIONS_KEY = 'comfyui-auto-gen.workflow-options';
+function savedOptions() {
+  try { return JSON.parse(localStorage.getItem(OPTIONS_KEY)) || {}; } catch (e) { return {}; }
+}
+// The inputs you set: a checkbox's hidden "0" beside it is only there for the form.
+const optionInputs = box => [...box.querySelectorAll('input[name], select[name]')].filter(el => el.type !== 'hidden');
+function rememberOptions(box) {
+  const all = savedOptions();
+  all[box.dataset.workflow] = Object.fromEntries(optionInputs(box).map(el => [el.name, el.type === 'checkbox' ? el.checked : el.value]));
+  try { localStorage.setItem(OPTIONS_KEY, JSON.stringify(all)); } catch (e) {}
+}
+function restoreOptions(box) {
+  const mine = savedOptions()[box.dataset.workflow];
+  if (!mine) return;
+  for (const el of optionInputs(box)) {
+    if (!(el.name in mine) || el.disabled) continue;
+    if (el.type === 'checkbox') el.checked = !!mine[el.name];
+    // A choice the workflow no longer has stays as it was saved in ComfyUI.
+    else if (!el.options || [...el.options].some(o => o.value === String(mine[el.name]))) el.value = mine[el.name];
+  }
+}
+for (const box of ['shortsOptionsBox', 'videoOptionsBox', 'imageOptionsBox']) {
+  $(box).addEventListener('change', () => rememberOptions($(box)));
+  $(box).addEventListener('input', () => rememberOptions($(box)));
+}
+function syncImageOptions() { syncOptions('imageOptions', 'imageOptionsBox', imageTakes().options || [], baseImageTakes().name); }
 // The workflow writing its own prompts, beside Gemini and Claude: its prompt enhancer, or image to prompt.
 const ROLE_LABELS = { prompt_enhancer: "The workflow's own prompt enhancer, in ComfyUI", image_to_prompt: 'The workflow, from your image (image to prompt)' };
 function syncImageLlm() {
@@ -2358,10 +2387,13 @@ function renderQueue(el, q, doneIn, moving = false) {
   }
 }
 // Every run and upload that has ended, in one list, newest first.
-function renderFinished(runs, uploads) {
-  const all = [...runs.map(r => ({ ...r, type: SIDE_NAMES[r.pipeline] || 'Shorts', side: r.pipeline || 'shorts' })),
-    ...uploads.map(r => ({ ...r, type: 'Upload', side: 'shorts', tab: r.outcome === 'done' ? 'uploaded' : 'output' }))]
-    .sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+const FINISHED_SHOWN = 5;  // The last five; a restart starts it empty
+function renderFinished(runs, uploads, madeNow = []) {
+  // Whole jobs, and what the one going now has made so far, such as each image of a set.
+  const all = [...runs, ...madeNow].map(r => ({ ...r, type: SIDE_NAMES[r.pipeline] || 'Shorts', side: r.pipeline || 'shorts' }))
+    .concat(uploads.map(r => ({ ...r, type: 'Upload', side: 'shorts', tab: r.outcome === 'done' ? 'uploaded' : 'output' })))
+    .sort((a, b) => (b.t || 0) - (a.t || 0) || (b.at || '').localeCompare(a.at || ''))
+    .slice(0, FINISHED_SHOWN);
   $('finished').hidden = $('finishedToggle').hidden = !all.length;
   if (!all.length) {
     showStatusPanel($('logBox').open && !WIDE.matches ? 'log' : null);
@@ -2589,7 +2621,7 @@ async function poll() {
   renderUpload(data.upload);
   renderQueue($('runQueue'), queue, queue.held ? 0 : queueAhead, nextUp);
   renderStopped(data.stopped_runs);
-  renderFinished(queue.results, upq.results);
+  renderFinished(queue.results, upq.results, data.made_now || []);
   $('dot').className = 'dot' + (running || nextUp ? ' on' : '');
   $('jumpDot').className = $('dot').className;
   renderStrips(data);

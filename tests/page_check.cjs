@@ -441,6 +441,16 @@ run("showStatusPanel('finished')");
 assert(els.logBox.open === false && els.finished.open === true, 'opening one closes the other');
 run('showStatusPanel(null)');
 assert(!els.logBox.open && !els.finished.open);
+// What a set going now has made is there too, as it comes, newest first.
+run(`renderFinished([{ label: 'Old set', outcome: 'done', at: '09:00', t: 100, pipeline: 'image' }], [],
+  [{ label: 'Looks · Version 1', outcome: 'done', at: '11:20', t: 300, pipeline: 'image' }, { label: 'Looks · Version 2', outcome: 'done', at: '11:22', t: 400, pipeline: 'image' }])`);
+assert(els.finishedToggle.innerHTML.startsWith('Finished (3)'));
+const madeOrder = ['Version 2', 'Version 1', 'Old set'].map(text => els.finishedList.innerHTML.indexOf(text));
+assert(madeOrder.every(i => i >= 0) && madeOrder[0] < madeOrder[1] && madeOrder[1] < madeOrder[2], 'each image as it is made, newest first');
+// Only the last five.
+context.many = Array.from({ length: 7 }, (_, i) => ({ label: `Job ${i}`, outcome: 'done', at: '10:00', t: i, pipeline: 'video' }));
+run('renderFinished(many, [])');
+assert(els.finishedToggle.innerHTML.startsWith('Finished (5)') && els.finishedList.innerHTML.includes('Job 6') && !els.finishedList.innerHTML.includes('Job 1<'));
 run('renderFinished([], [])');
 assert.strictEqual(els.finished.hidden, true);
 assert.strictEqual(els.finishedToggle.hidden, true);
@@ -609,6 +619,31 @@ assert(els.sideMenu.innerHTML.includes('data-side="video"') && els.sideMenu.inne
 assert(/\.side-menu \{[^}]*animation: menu-in/.test(html) && /@keyframes menu-in \{ from \{ opacity: 0; transform: translateY\(8px\) scale\(\.94\)/.test(html), 'grows and fades in, upwards');
 assert(/if \(page === document\.body\.dataset\.page && SIDE_PAGES\.includes\(page\)\)/.test(script) && /const SIDE_PAGES = \['status', 'generate', 'output'\]/.test(script), 'Status, Generate and Output; not Quota');
 assert(/\.switch button \{[^}]*padding: 4px 12px; font-size: \.78rem;/.test(html), 'the side switch at the top is small now');
+
+// Each workflow's options come back as you last set them, and another workflow's don't spill over.
+{
+  const stored = {};
+  context.localStorage = { getItem: key => stored[key] || null, setItem: (key, value) => { stored[key] = value; } };
+  const steps = { name: 'opt_steps', type: 'number', value: '20', disabled: false };
+  const upscale = { name: 'opt_up', type: 'checkbox', checked: false, disabled: false };
+  const hiddenZero = { name: 'opt_up', type: 'hidden', value: '0' };
+  const box = { dataset: { workflow: 'imageOptions|krea.json' }, querySelectorAll: () => [steps, hiddenZero, upscale] };
+  context.optBox = box;
+  steps.value = '12';
+  upscale.checked = true;
+  run('rememberOptions(optBox)');
+  assert.deepStrictEqual(JSON.parse(stored['comfyui-auto-gen.workflow-options'])['imageOptions|krea.json'], { opt_steps: '12', opt_up: true });
+  steps.value = '20';
+  upscale.checked = false;
+  run('restoreOptions(optBox)');
+  assert(steps.value === '12' && upscale.checked === true, 'as you left them');
+  box.dataset.workflow = 'imageOptions|qwen.json';
+  steps.value = '20';
+  run('restoreOptions(optBox)');
+  assert.strictEqual(steps.value, '20', "another workflow's settings are its own");
+  context.localStorage = { getItem: () => null, setItem() {} };
+}
+assert(/syncOptions\('imageOptions', 'imageOptionsBox', imageTakes\(\)\.options \|\| \[\], baseImageTakes\(\)\.name\)/.test(script), "Automatic's pick by its name");
 
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/html \{ overflow-x: clip; \}/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),
