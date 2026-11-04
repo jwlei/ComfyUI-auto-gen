@@ -27,7 +27,7 @@ const wide = { matches: false, addEventListener() {} };
 const context = {
   document: { getElementById: id => (els[id] = els[id] || element(id)), querySelectorAll: () => [], documentElement: { style: { setProperty() {} } }, body: element('body'), addEventListener() {}, hidden: false },
   history: { replaceState() {} },
-  window: { addEventListener() {}, innerHeight: 800, matchMedia: () => wide },
+  window: { addEventListener() {}, innerHeight: 800, matchMedia: () => wide, scrollTo() {} },
   localStorage: { getItem: () => null, setItem() {} },
   fetch: async () => { throw new Error('offline'); },
   FormData: class { delete() {} append() {} },
@@ -334,6 +334,28 @@ assert(stoppedBox.indexOf('class="stopped-actions"') < stoppedBox.indexOf('data-
 assert(/\.stopped-run \{[^}]*border: 1px solid/.test(html));
 run('renderStopped([])');
 
+// Each form starts with its workflow, above the line its sections start with, and there's no Check setup.
+for (const form of ['formShorts', 'formVideo', 'formImage']) {
+  const start = html.indexOf(`id="${form}"`), section = html.indexOf('<details class="section"', start);
+  const top = html.indexOf('class="workflow-top"', start);
+  assert(top > start && top < section, `${form}: Workflow first`);
+  assert(/<label for="\w+">Workflow<\/label>/.test(html.slice(top, section)), `${form}: called Workflow`);
+}
+assert(!html.includes('first-child > .section:first-child'), 'every form has the line above Generation');
+assert(!html.includes('id="check"') && !script.includes('/check/'), 'no Check setup');
+
+// A phone shows one section at a time, from the footer, and the bars over it ease in and out.
+for (const page of ['status', 'generate', 'quota', 'output']) {
+  assert(new RegExp(`data-page="${page}"`).test(status0() + html), page);
+  assert(html.includes(`body[data-page="${page}"] .dashboard > [data-page="${page}"]`), `${page} shows alone`);
+}
+run("showPage('status')");
+assert.strictEqual(context.document.body.dataset.page, 'status');
+run("showPage('generate')");
+assert.strictEqual(context.document.body.dataset.page, 'generate');
+assert(/\.stick \.strip\[hidden\] \{ display: block; max-height: 0; opacity: 0;/.test(html), 'a bar eases out rather than vanishing');
+assert(/@keyframes page-in/.test(html) && /prefers-reduced-motion/.test(html), 'pages slide in, unless motion is turned down');
+
 // Films.
 run("folder = 'video'");
 const film = { name: 'A_run_20261101_120000.mp4', run: 'run_20261101_120000', title: 'A <i>film</i>', created: '01/11 12:00', size_mb: 40, mtime: 1 };
@@ -438,7 +460,7 @@ assert.deepStrictEqual(links.map(id => html.indexOf(`id="${id}"`)), links.map(id
 // Status comes first, Generate is called just that, and it sits with the options.
 assert(html.indexOf('id="runCard"') < html.indexOf('id="optionsCard"'));
 assert(/id="go">Generate</.test(html) && script.includes("'Add to queue'"), 'Generate, or Add to queue while something runs');
-assert(/<a href="#videosCard" id="jumpResults">Videos<\/a>/.test(html) && !html.includes('jumpCount'), 'the footer has no count on Videos');
+assert(/<a href="#videosCard" data-page="output" id="jumpResults">Videos<\/a>/.test(html) && !html.includes('jumpCount'), 'the footer has no count on Videos');
 // Each heading holds its section, and the first is called Generation.
 assert(!html.includes('What to make'));
 assert(/<details class="section" id="formTopic">\s*<summary class="section-title">Generation</.test(html));
@@ -489,7 +511,7 @@ assert(/id="shutdown" aria-label="Shut down"[^>]*><svg/.test(html));
 const status = html.slice(html.indexOf('id="runCard"'), html.indexOf('id="optionsCard"'));
 assert(status.indexOf('id="runQueue"') > 0 && status.indexOf('id="runQueue"') < status.indexOf('id="logBox"') && status.indexOf('id="logBox"') < status.indexOf('id="log"'));
 assert(/<details class="log-box" id="logBox">\s*<summary>Expand to see/.test(status) && !/id="logBox" open/.test(html));
-assert(/<a href="#optionsCard">Generate<\/a>/.test(html) && !html.includes('href="#queueCard"') && !html.includes('href="#logCard"'));
+assert(/<a href="#optionsCard" data-page="generate">Generate<\/a>/.test(html) && !html.includes('href="#queueCard"') && !html.includes('href="#logCard"'));
 // The log is folded on a phone. On a desktop it is always open, with no heading to fold it by, beside the run at half the width.
 assert.strictEqual(els.logBox.open, false, 'folded on a phone');
 wide.matches = true;

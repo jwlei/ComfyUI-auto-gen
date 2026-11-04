@@ -42,6 +42,11 @@ PREVIEW = "PreviewImage"
 SWITCHES = ("ComfySwitchNode",)
 # Snap the source image to a size of their own. The pipeline fits it to the size you chose instead.
 IMAGE_SCALERS = ("FluxKontextImageScale",)
+# What a model file's name can differ by and still be that model: a precision or format after it, such as
+# krea2_turbo_fp8 installed as krea2_turbo_fp8_scaled. Its folder can differ too.
+FORMAT_SUFFIX = re.compile(r"(?:[_.-](?:scaled|fp8|fp16|bf16|fp32|int8|convrot|e4m3fn|e5m2|mixed|nvfp4|awq|q\d\w*))+", re.I)
+# A prompt the node feeding the sampler is told to follow, rather than the one to fill: a prompt writer's instructions.
+SYSTEM_PROMPT = re.compile(r"system", re.I)
 # What saves a video, so a workflow that saves images and none of these is for the Image side, whatever its name.
 VIDEO_SAVES = ("SaveVideo", "VHS_VideoCombine", "CreateVideo", "SaveWEBM", "SaveAnimatedWEBP", "SaveAnimatedPNG")
 # The image models whose prompts or limits are their own (pipelines/image/models.py), by the node that says which it is,
@@ -309,14 +314,15 @@ def _replace_uses(api, node_id, slot, source):
                     node["inputs"][name] = source
 
 
-def _settle_switches(api):
+def _settle_switches(api, enhance=False):
     """
     A switch set on the workflow's face goes the way it's set, for good. So a style LoRA that's off needs
     no file, and with Refine Prompt off nothing rewrites the prompt: the LLM's or yours reaches the model as it is.
+    enhance turns it on instead, for the workflow's own enhancer to write the prompt from yours.
     """
     for node in api.values():
         if re.search(r"refine|enhance", node["_meta"]["title"], re.I) and isinstance(node["inputs"].get("value"), bool):
-            node["inputs"]["value"] = False
+            node["inputs"]["value"] = enhance
     while True:
         for node_id, node in api.items():
             if node["class_type"] not in SWITCHES:
@@ -351,6 +357,28 @@ def _upstream(api, roots):
     return {node_id: api[node_id] for node_id in api if node_id in kept}
 
 
+def _installed_as(value, options):
+    """The installed file a missing one is, in another folder or another precision. None unless just one fits."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    parts = lambda name: os.path.splitext(os.path.basename(name.replace("\\", "/")))
+    stem, extension = parts(value)
+    same, formats = [], []
+    for option in options:
+        if not isinstance(option, str):
+            continue
+        other, other_extension = parts(option)
+        if other_extension.lower() != extension.lower() or not other.lower().startswith(stem.lower()):
+            continue
+        rest = other[len(stem):]
+        if not rest:
+            same.append(option)
+        elif FORMAT_SUFFIX.fullmatch(rest):
+            formats.append(option)
+    found = same or formats
+    return found[0] if len(found) == 1 else None
+
+
 def _check_installed(api, info):
     for node in api.values():
         spec = _input_spec(info[node["class_type"]])
@@ -358,15 +386,21 @@ def _check_installed(api, info):
             value = node["inputs"].get(name)
             options = _options(config)
             if options and value is not None and not isinstance(value, list) and value not in options:
-                raise Unusable(f"Needs {value}, which isn't installed.")
+                installed = _installed_as(value, options)
+                if not installed:
+                    raise Unusable(f"Needs {value}, which isn't installed.")
+                node["inputs"][name] = installed
         for name, config in info[node["class_type"]].get("input", {}).get("required", {}).items():
             # A growing list of inputs is saved as name.a, name.b, and can be empty.
             if name not in node["inputs"] and config[0] != "COMFY_AUTOGROW_V3":
                 raise Unusable(f"{node['_meta']['title']} has nothing set for {name}.")
 
 
-def to_api(ui, info, images=False):
-    """The saved workflow as ComfyUI's API takes it. images: it makes images rather than a video. Raises Unusable."""
+def to_api(ui, info, images=False, enhance=False):
+    """
+    The saved workflow as ComfyUI's API takes it. images: it makes images rather than a video. enhance: its own
+    prompt enhancer, if it has one, is on. Raises Unusable.
+    """
     ui = _without_subgraphs(_with_hidden_links(ui))
     graph = _Graph(ui, info)
     api = {}
@@ -383,7 +417,7 @@ def to_api(ui, info, images=False):
         saves = _save_images_to_temp(api, info)
         if not saves:
             raise Unusable("It doesn't save an image the pipeline can pick up: it needs a Save Image node.")
-        _settle_switches(api)
+        _settle_switches(api, enhance)
         _skip_image_scalers(api)
     else:
         _keep_out_of_output_folder(api, info)
@@ -423,7 +457,7 @@ def _prompt_input(api):
             continue
         seen.add(node_id)
         inputs = api[node_id]["inputs"]
-        for name in PROMPT_INPUTS:
+        for name in PROMPT_INPUTS if not SYSTEM_PROMPT.search(api[node_id]["_meta"]["title"]) else ():
             if isinstance(inputs.get(name), str):
                 return [node_id, name]
         waiting += [value[0] for name, value in inputs.items() if isinstance(value, list) and name != "negative"]
@@ -605,6 +639,11 @@ def image_takes(fields, model=None, options=None):
     return {**found, "options": options} if options else found
 
 
+def with_options(found, options):
+    """takes() with what a run can change in the workflow, if anything (core/workflow_options.py)."""
+    return {**found, "options": options} if options else found
+
+
 def image_model(api):
     """Which image model a workflow runs, if it's one with prompts or limits of its own. None otherwise."""
     for node in api.values():
@@ -749,28 +788,22 @@ def _add_media_references(api, node, group, most, sounds):
 
 def _prepare(name, ui, info, folder, pipeline):
     """Writes what the pipeline runs. Returns its path, and how many images it takes."""
-    model = options = None
     stem = os.path.join(folder, _file_stem(name))
-    if pipeline == "image":
-        # Here and not at the top: it builds on this module.
-        from core import workflow_options
-        api, fields, model, _ = workflow_options.convert(ui, info)
-        options = workflow_options.offered(ui, info)
-        if options:
-            # A run with other options makes its workflow again from these.
-            kinds = {node["type"] for node in _without_subgraphs(_with_hidden_links(ui))["nodes"]} | {PREVIEW, "LoraLoader"}
-            _write_json(stem + ".ui.json", ui)
-            _write_json(stem + ".info.json", {kind: info[kind] for kind in kinds if kind in info})
-    else:
-        api = to_api(ui, info)
-        if not is_for_shorts(name):
-            _grow_references(api, info)
-        fields = find_fields(api, info, needs_audio=is_for_shorts(name))
+    # Here and not at the top: it builds on this module.
+    from core import workflow_options
+    api, fields, model, _ = workflow_options.convert(ui, info, pipeline=pipeline)
+    options = workflow_options.offered(ui, info, pipeline)
+    if options:
+        # A run with other options makes its workflow again from these, with what the pipeline adds to it.
+        kinds = {node["type"] for node in _without_subgraphs(_with_hidden_links(ui))["nodes"]}
+        kinds |= {PREVIEW, COMBINE, "LoraLoader", "LoadImage", "LoadVideo", "LoadAudio", "GetVideoComponents"}
+        _write_json(stem + ".ui.json", ui)
+        _write_json(stem + ".info.json", {kind: info[kind] for kind in kinds if kind in info})
     _write_json(stem + ".json", api)
     _write_json(stem + ".map.json", {"_saved_as": name, "_pipeline": pipeline, **({"_model": model} if model else {}),
                                      **({"_options": options} if options else {}),
                                      **{field: value if field.startswith("_") else f"{value[0]}.{value[1]}" for field, value in fields.items()}})
-    return stem + ".json", image_takes(fields, model, options) if pipeline == "image" else takes(fields)
+    return stem + ".json", image_takes(fields, model, options) if pipeline == "image" else with_options(takes(fields), options)
 
 
 def _from_comfyui(url, folder):
@@ -828,7 +861,8 @@ def _from_earlier(folder):
             pipeline = fields.get("_pipeline") or pipeline_of(name)
             if os.path.exists(path) and ("audio" in fields or not is_for_shorts(name)):
                 found.append({"name": name, "label": _label(name), "pipeline": pipeline, "path": path,
-                              "takes": image_takes(fields, fields.get("_model"), fields.get("_options")) if pipeline == "image" else takes(fields)})
+                              "takes": image_takes(fields, fields.get("_model"), fields.get("_options")) if pipeline == "image"
+                              else with_options(takes(fields), fields.get("_options"))})
     return found
 
 

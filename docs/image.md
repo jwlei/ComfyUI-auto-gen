@@ -28,6 +28,15 @@ Choosing one yourself asks for what it takes.
 | **The LLM writes one per image** | Its own prompt, written from what you say. A sentence or two is enough. They're written together in one request, so they can differ from each other. |
 | **Use my prompt, word for word** | Your prompt exactly, on a new seed each time. No LLM, so no key or quota needed. |
 
+A workflow that writes its own prompts adds them to **Who writes the prompts**, beside Gemini and Claude:
+
+| Choice | What happens |
+|---|---|
+| **The workflow's own prompt enhancer, in ComfyUI** | Your prompt goes in, and the workflow's enhancer (Krea-2's Refine Prompt, or a Prompt enhancer group) expands it in ComfyUI. Each image's seed reaches the enhancer too, so a set's prompts differ. No LLM is asked. |
+| **The workflow, from your image (image to prompt)** | Where a workflow has an Image to prompt group, as LatentHeart's Krea2 does: it takes one image, describes it in ComfyUI and makes new images from that and your prompt. |
+
+Otherwise both stay off: the LLM or you write the prompt.
+
 **How many images:** 1 to 100, or 30 when the LLM writes Fibo 2.0's prompts (see below).
 
 **Resolution:**
@@ -91,7 +100,7 @@ size you chose, as the edit lines up with it pixel for pixel; several are each s
 
 **Workflow options**, on the form, are the chosen workflow's own switches and settings, as it was saved in ComfyUI. Each
 run can change them; what you don't change stays as saved. They come from the workflow itself, so any workflow you save
-gets them:
+gets them, on Shorts and Video too, where a run keeps them for Continue and redoing a shot:
 
 | In the workflow | On the form |
 |---|---|
@@ -115,10 +124,14 @@ any of these, and may decline an explicit brief: your own prompt, word for word,
 
 ## Workflows
 
-The form lists what you saved in ComfyUI for images: a name starting `image_`, or any other that saves or previews images
+**Workflow**, at the top of the form, lists what you saved in ComfyUI for images: a name starting `image_`, or any other that saves or previews images
 and no video, such as `Fibo2_turbo_edit_test`. Renamed in ComfyUI, a workflow shows under its new name within half a
 minute, still on the Image side; runs made under its old name can't be continued, as its converted copy goes with it. One that can't run is greyed out, and the hint under the list says why, such as a
 model that isn't installed. Automatic tries them in name order, those made for what you gave it first.
+
+A model file the workflow names that isn't installed, but is in another folder or another precision, is used as installed:
+`krea2_turbo_fp8` runs on `krea2_turbo_fp8_scaled`. Only when just one fits: two candidates, or another model, still say
+it isn't installed.
 
 What the pipeline does to a saved workflow, in the copy it runs. Your saved one in ComfyUI is left as it is.
 

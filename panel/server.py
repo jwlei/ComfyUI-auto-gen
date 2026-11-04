@@ -460,6 +460,30 @@ class JobQueue:
                     "held": self.held}
 
 
+def form_options(form, takes):
+    """
+    The workflow's own options as the form sets them (core/workflow_options.py): only what differs from the workflow as
+    saved. Returns (chosen, error). A checkbox sends a hidden "0" before its own "1", so the last value is the one that
+    counts. A way for the workflow to write its own prompt is chosen with the LLM instead, so it isn't here.
+    """
+    from core import workflow_options
+    options = takes.get("options") or []
+    chosen = {}
+    for option in options:
+        name = f"opt_{option['id']}"
+        if option.get("role"):
+            continue
+        if option["kind"] == "strength":
+            if f"{name}_on" in form:
+                on = form.getlist(f"{name}_on")[-1] == workflow_options.ON
+                chosen[option["id"]] = (form.get(f"{name}_strength") or option.get("usual") or "1").strip() if on else workflow_options.OFF
+        elif name in form:
+            chosen[option["id"]] = form.getlist(name)[-1].strip()
+    chosen = {key: value for key, value in chosen.items() if value != next(option["default"] for option in options if option["id"] == key)}
+    error = workflow_options.check(options, chosen)
+    return (None, error) if error else (chosen, None)
+
+
 def password_required(view):
     @wraps(view)
     def wrapper(*args, **kwargs):

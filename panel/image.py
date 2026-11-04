@@ -7,7 +7,8 @@ from types import SimpleNamespace
 from flask import abort, request, send_file
 
 from core import seeds, workflow_options
-from panel.server import (IMAGE_TIMINGS, PIPELINES, _runs_cache, app, busy_runs, job, password_required, run_queue, saved_at, saved_workflows)
+from panel.server import (IMAGE_TIMINGS, PIPELINES, _runs_cache, app, busy_runs, form_options, password_required, run_queue, saved_at,
+                          saved_workflows)
 from panel.video import clean_inputs, queue_label, shot_seeds
 from pipelines.image import media, models
 from pipelines.image import planner as image_planner
@@ -62,24 +63,19 @@ def automatic(usable, image_count):
 
 
 def chosen_options(form, takes):
-    """
-    The workflow's own options as the form sets them, as --option flags. Returns (flags, error). A checkbox sends a
-    hidden "0" before its own "1", so the last value is the one that counts.
-    """
-    chosen = {}
-    for option in takes.get("options") or []:
-        name = f"opt_{option['id']}"
-        if option["kind"] == "strength":
-            if f"{name}_on" in form:
-                on = form.getlist(f"{name}_on")[-1] == workflow_options.ON
-                chosen[option["id"]] = (form.get(f"{name}_strength") or option.get("usual") or "1").strip() if on else workflow_options.OFF
-        elif name in form:
-            chosen[option["id"]] = form.getlist(name)[-1].strip()
-    # Only what differs from the workflow as saved: the rest needs no making again.
-    chosen = {key: value for key, value in chosen.items()
-              if value != next(option["default"] for option in takes["options"] if option["id"] == key)}
-    error = workflow_options.check(takes.get("options") or [], chosen)
+    """The workflow's own options as the form sets them, as --option flags. Returns (flags, error)."""
+    chosen, error = form_options(form, takes)
     return (None, error) if error else ([flag for key, value in chosen.items() for flag in ("--option", f"{key}={value}")], None)
+
+
+# What the LLM select says when the workflow writes its own prompts (core/workflow_options.py).
+ROLE_NAMES = {"prompt_enhancer": "the workflow's prompt enhancer", "image_to_prompt": "the workflow, from the image"}
+
+
+def role_of(flags):
+    """Which way of writing its own prompt the workflow was asked for, if any."""
+    return next((value.split("=")[0] for flag, value in zip(flags, flags[1:])
+                 if flag == "--option" and value.split("=")[0] in workflow_options.ROLES), None)
 
 
 def model_problem(flags, takes, source):
@@ -119,6 +115,23 @@ def describe_run(state):
             "size": f"{state.width}x{state.height}", "estimate": RunEta(resume_argv(state), env, IMAGE_TIMINGS).plan()["total"]}
 
 
+def size_flags(form):
+    """The size flags from the form. Returns (flags, error)."""
+    aspect = form.get("aspect") or media.FROM_IMAGE
+    # An exact size is typed in, or one of the screens on the list.
+    size = (form.get("size") or "").strip().lower() if aspect == "custom" else aspect if media.parse_size(aspect) else None
+    if aspect == "custom" and not media.parse_size(size):
+        return [], f"An exact size must look like 1920x1080, with each side {media.MIN_EDGE}-{media.MAX_EDGE}."
+    if size:
+        return ["--size", size], None
+    if aspect != media.FROM_IMAGE and not media.parse_aspect(aspect):
+        return [], "Unknown aspect ratio."
+    megapixels = form.get("megapixels") or str(media.DEFAULT_MEGAPIXELS)
+    if megapixels != media.FROM_IMAGE and not media.parse_megapixels(megapixels):
+        return [], f"Megapixels must be a number up to {media.MAX_MEGAPIXELS:g}."
+    return ["--aspect", aspect, "--megapixels", megapixels], None
+
+
 def build_options(form):
     """Turns the form's options into main.py's flags. Returns (flags, error). What it's of isn't needed for that."""
     try:
@@ -142,25 +155,18 @@ def build_options(form):
         flags.append("--direct")
     else:
         llm = form.get("llm") or planner.default_llm()
-        if llm not in dict(planner.LLMS):
+        if llm in workflow_options.ROLES:
+            # The workflow writes them from yours, on its own: no LLM is asked.
+            flags += ["--direct", "--option", f"{llm}={workflow_options.ON}"]
+        elif llm not in dict(planner.LLMS):
             return None, "Unknown LLM."
-        flags += ["--llm", llm]
-        if form.get("review"):
-            flags.append("--plan-only")
+        else:
+            flags += ["--llm", llm]
+            if form.get("review"):
+                flags.append("--plan-only")
 
-    aspect = form.get("aspect") or media.FROM_IMAGE
-    # An exact size is typed in, or one of the screens on the list.
-    size = (form.get("size") or "").strip().lower() if aspect == "custom" else aspect if media.parse_size(aspect) else None
-    if aspect == "custom" and not media.parse_size(size):
-        return None, f"An exact size must look like 1920x1080, with each side {media.MIN_EDGE}-{media.MAX_EDGE}."
-    if size:
-        return flags + ["--size", size], None
-    if aspect != media.FROM_IMAGE and not media.parse_aspect(aspect):
-        return None, "Unknown aspect ratio."
-    megapixels = form.get("megapixels") or str(media.DEFAULT_MEGAPIXELS)
-    if megapixels != media.FROM_IMAGE and not media.parse_megapixels(megapixels):
-        return None, f"Megapixels must be a number up to {media.MAX_MEGAPIXELS:g}."
-    return flags + ["--aspect", aspect, "--megapixels", megapixels], None
+    flags_, error = size_flags(form)
+    return (None, error) if error else (flags + flags_, None)
 
 
 @app.route("/api/estimate/image", methods=["POST"], endpoint="image_estimate")
@@ -196,6 +202,7 @@ def generate():
     if not prompt:
         return {"ok": False, "error": "Say what you want." if "--direct" not in flags else "Write the prompt to use."}, 400
     llm = option(flags, "--llm")
+    role = role_of(flags)
     if llm and not planner.llm_configured(llm):
         return {"ok": False, "error": f"{llm} has no credentials. See .env.example, or use your own prompt."}, 400
 
@@ -203,6 +210,14 @@ def generate():
     env, takes, error = chosen_workflow(request.form, len(uploads))
     if error:
         return {"ok": False, "error": error}, 400
+    if role:
+        found = next((option for option in takes.get("options") or [] if option["id"] == role), None)
+        if not found:
+            return {"ok": False, "error": f"This workflow has no {'prompt enhancer' if role == 'prompt_enhancer' else 'image to prompt'} of its own: choose Gemini or Claude, or another workflow."}, 400
+        if found.get("problem"):
+            return {"ok": False, "error": f"{found['label']} can't run: {found['problem']}"}, 400
+        # Image to prompt needs the picture it describes.
+        takes = {**takes, **found.get("takes", {})}
     if len(uploads) < takes["min_images"]:
         return {"ok": False, "error": "This workflow edits an image: choose one." if takes["min_images"] == 1 else f"This workflow needs {takes['min_images']} images."}, 400
     if len(uploads) > takes["max_images"]:
@@ -240,7 +255,7 @@ def generate():
     plan_only = "--plan-only" in flags
     count = int(option(flags, "--count"))
     detail = [f"{count} {'image' if count == 1 else 'images'}", "edits an image" if images else "from text",
-              llm or "your prompt, word for word", *(["review the prompts first"] if plan_only else [])]
+              ROLE_NAMES.get(role) or llm or "your prompt, word for word", *(["review the prompts first"] if plan_only else [])]
     if env.get("COMFYUI_WORKFLOW"):
         detail.append(os.path.splitext(os.path.basename(env["COMFYUI_WORKFLOW"]))[0])
     item = {"pipeline": "image", "label": queue_label(prompt), "detail": " · ".join(detail), "argv": argv, "env": env,
@@ -400,24 +415,6 @@ def discard_run(run_id):
         return refused
     state.remove()
     _runs_cache["at"] = 0.0
-    return {"ok": True}
-
-
-@app.route("/check/image", methods=["POST"], endpoint="image_check")
-@password_required
-def check():
-    """Runs the preflight on the workflow a real run would use."""
-    if job.running:
-        return {"ok": False, "error": "A run is already in progress."}, 409
-    flags, error = build_options(request.form)
-    if error:
-        return {"ok": False, "error": error}, 400
-    env, _, error = chosen_workflow(request.form)
-    if error:
-        return {"ok": False, "error": error}, 400
-    argv = [*COMMAND, "--check", *(["--llm", option(flags, "--llm")] if option(flags, "--llm") else [])]
-    if not job.start(argv, env, pipeline="image"):
-        return {"ok": False, "error": "A run is already in progress."}, 409
     return {"ok": True}
 
 

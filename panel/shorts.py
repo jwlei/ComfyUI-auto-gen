@@ -1,4 +1,5 @@
 """The panel's Shorts side: its options, its runs and YouTube uploads."""
+import json
 import os
 import re
 import sys
@@ -8,7 +9,7 @@ from flask import request
 
 from core import seeds
 from core.paths import PROJECT_ROOT, WORKFLOWS_DIR
-from panel.server import (PIPELINES, SHORTS_TIMINGS, _runs_cache, app, busy_runs, job, list_videos, password_required, saved_at,
+from panel.server import (form_options, PIPELINES, SHORTS_TIMINGS, _runs_cache, app, busy_runs, job, list_videos, password_required, saved_at,
                           run_queue, safe_video_path, saved_workflows, upload_queue)
 from pipelines.shorts.avatar_generator import avatar_clip_range, on_screen_range
 from pipelines.shorts.paths import avatar_still_path, thumbnail_path
@@ -51,7 +52,6 @@ def saved_workflow_path(name):
 
 def resume_argv(state):
     return [*COMMAND, *state.argv, "--resume", state.id]
-
 
 
 def describe_stopped(state):
@@ -139,6 +139,13 @@ def build_run(form):
         env["COMFYUI_WORKFLOW"], error = saved_workflow_path(workflow)
         if error:
             return None, None, error
+        entry = next(w for w in saved_workflows() if w["name"] == workflow)
+        chosen, error = form_options(form, entry.get("takes") or {})
+        if error:
+            return None, None, error
+        if chosen:
+            # Kept with each video's run (run_state.RUN_ENV), for continuing it.
+            env["COMFYUI_OPTIONS"] = json.dumps(chosen)
 
     for field, low_name, high_name, lowest, highest in AVATAR_SLIDERS:
         try:
@@ -276,21 +283,6 @@ def discard_run(run_id):
         return {"ok": False, "error": "That run is going or queued. Stop it or take it out of the queue first."}, 409
     state.remove()
     _runs_cache["at"] = 0.0
-    return {"ok": True}
-
-
-@app.route("/check/shorts", methods=["POST"], endpoint="shorts_check")
-@password_required
-def check():
-    """Runs the preflight with the same options as a real run would use."""
-    if job.running:
-        return {"ok": False, "error": "A run is already in progress."}, 409
-    argv, env, error = build_run(request.form)
-    if error:
-        return {"ok": False, "error": error}, 400
-    argv.append("--check")
-    if not job.start(argv, env):
-        return {"ok": False, "error": "A run is already in progress."}, 409
     return {"ok": True}
 
 

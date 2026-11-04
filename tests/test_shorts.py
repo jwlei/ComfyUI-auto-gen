@@ -17,6 +17,7 @@ from unittest import mock
 from zoneinfo import ZoneInfo
 
 import ffmpeg
+from werkzeug.datastructures import MultiDict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -596,11 +597,23 @@ class SwitchTest(unittest.TestCase):
 
     def test_upload_is_only_on_shorts(self):
         page = self.client.get("/").get_data(as_text=True)
-        video_form = page[page.index('id="formVideo"'):page.index('<div class="side">')]
+        video_form = page[page.index('id="formVideo"'):page.index('<div class="side"')]
         self.assertNotIn('name="upload"', video_form)
         self.assertNotIn('name="privacy"', video_form)
         shorts_form = page[page.index('id="formShorts"'):page.index('id="formVideo"')]
         self.assertIn('name="upload"', shorts_form)
+
+    def test_a_shorts_workflow_options_go_with_its_run(self):
+        steps = {"id": "steps", "kind": "number", "label": "Steps", "default": "20", "min": 1, "max": 150, "step": 1}
+        saved = [{"name": "a_ytautoshort.json", "label": "a_ytautoshort", "path": "x/a_ytautoshort.json", "takes": {"options": [steps]}}]
+        form = lambda **fields: MultiDict({"workflow": "a_ytautoshort.json", "avatar_source": "comfyui", **fields})
+        with mock.patch.object(shorts_panel, "saved_workflows", lambda: saved), mock.patch.object(webapp, "saved_workflows", lambda: saved):
+            _, env, error = shorts_panel.build_run(form(opt_steps="12"))
+            self.assertIsNone(error)
+            self.assertEqual(json.loads(env["COMFYUI_OPTIONS"]), {"steps": "12"})
+            self.assertIn("COMFYUI_OPTIONS", run_state.RUN_ENV, "kept with the run, for continuing it")
+            self.assertNotIn("COMFYUI_OPTIONS", shorts_panel.build_run(form(opt_steps="20"))[1], "as saved, nothing to change")
+            self.assertIn("1 to 150", shorts_panel.build_run(form(opt_steps="0"))[2])
 
     def test_workflows_are_kept_apart_by_their_name(self):
         saved = [{"name": "a_ytautoshort.json", "label": "a_ytautoshort", "takes": {}}, {"name": "b.json", "label": "b", "takes": {}},

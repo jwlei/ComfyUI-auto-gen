@@ -40,8 +40,9 @@ def apply(workflow, seed):
     """Sets every seed input in the workflow to this seed. Returns whether it has any."""
     found = False
     for node in workflow.values():
-        for key in SEED_INPUTS:
-            if isinstance(node.get("inputs", {}).get(key), int):
+        # A prompt writer's own, such as TextGenerate's sampling_mode.seed, too: each image's prompt comes out new.
+        for key in [key for key in node.get("inputs", {}) if key in SEED_INPUTS or key.endswith(".seed")]:
+            if isinstance(node["inputs"][key], int) and not isinstance(node["inputs"][key], bool):
                 node["inputs"][key] = seed
                 found = True
     return found

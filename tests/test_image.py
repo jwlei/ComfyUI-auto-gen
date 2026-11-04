@@ -568,6 +568,8 @@ class PanelTest(unittest.TestCase):
             {"name": "image_text.json", "label": "image_text", "takes": {"min_images": 0, "max_images": 0, "size": True, "model": None, "options": [
                 {"id": "face_enable_lora", "kind": "switch", "label": "Enable LoRA", "default": "0", "node": 30, "input": "value_3",
                  "problem": "Needs krea2_darkbrush.safetensors, which isn't installed."},
+                {"id": "prompt_enhancer", "kind": "switch", "role": "llm", "label": "Prompt enhancer", "default": "0",
+                 "takes": {"min_images": 0, "max_images": 0}},
                 {"id": "steps", "kind": "number", "label": "Steps", "default": "8", "min": 1, "max": 150, "step": 1}]}}])
         self.assertEqual(self.client.get("/api/workflows?pipeline=video").get_json()["workflows"], [], "they don't turn up among the films")
         reply = self.generate(image=True)
@@ -680,6 +682,20 @@ class PanelTest(unittest.TestCase):
         self.wait_idle()
         self.assertIsNone(self.only_run().options)
 
+    def test_the_workflows_own_prompt_enhancer_writes_them(self):
+        self.make(llm="prompt_enhancer", prompt="a lighthouse", count="2", workflow="image_text.json")
+        run = self.only_run()
+        self.assertTrue(run.finished, [l["text"] for l in webapp.job.lines][-15:])
+        self.assertEqual(self.claude.requests, [], "no LLM is asked")
+        self.assertTrue(run.direct)
+        self.assertEqual(run.options, {"prompt_enhancer": "1"})
+        self.assertIn("TextGenerate", [node["class_type"] for node in self.comfy.prompts[0]["prompt"].values()])
+
+    def test_a_workflow_without_one_says_so(self):
+        reply = self.generate(llm="image_to_prompt", workflow="image_text.json")
+        self.assertEqual(reply.status_code, 400)
+        self.assertIn("no image to prompt", reply.get_json()["error"])
+
     def test_an_option_that_cant_run_is_refused(self):
         for fields in ({"opt_group_color_correction": ["0", "1"]}, {"opt_steps": "0"}, {"opt_group_upscaler.choice": "8K"}):
             reply = self.switchable(**fields)
@@ -693,12 +709,6 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(many["images"], 15)
         self.assertGreater(many["total"], one["total"])
         self.assertFalse(self.client.post("/api/estimate/image", data={"count": "0"}).get_json()["ok"])
-        self.assertEqual(self.comfy.prompts, [])
-
-    def test_a_setup_check_makes_nothing(self):
-        self.assertTrue(self.client.post("/check/image", data={"prompt_mode": "direct", "workflow": "image_text.json"}).get_json()["ok"])
-        self.wait_idle()
-        self.assertEqual(webapp.job.returncode, 0, [l["text"] for l in webapp.job.lines][-15:])
         self.assertEqual(self.comfy.prompts, [])
 
     def test_progress_is_read_from_the_log(self):

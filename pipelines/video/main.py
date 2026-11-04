@@ -1,4 +1,5 @@
 import argparse
+import json
 import math
 import os
 import re
@@ -11,6 +12,7 @@ import requests
 from dotenv import load_dotenv
 
 from core import seeds
+from core import workflow_options
 from core.audio import AudioEngine
 from core.paths import LOGS_DIR
 from pipelines.video import media, paths, planner, roles
@@ -221,6 +223,7 @@ def plan_run(args, stages):
     state = RunState.new(args.prompt, args.duration, start, width, height, llm,
                          os.getenv("COMFYUI_WORKFLOW") or None, len(images))
     state.inputs = inputs
+    state.options = workflow_options.chosen_in_env() or None
     print_stage("Plan", stages)
     keep_references(state, videos, audios)
     audio = args.audio or (voiced_narration(args) if args.narration else None)
@@ -355,6 +358,8 @@ def run(args):
         # The rest of the film has to match the clips already made.
         if state.workflow:
             os.environ["COMFYUI_WORKFLOW"] = state.workflow
+        # The rest of the film is made with the options the first clips were.
+        os.environ["COMFYUI_OPTIONS"] = json.dumps(state.options or {})
         if args.redo is not None:
             if not 1 <= args.redo <= len(state.shots):
                 raise RuntimeError(f"This film has shots 1-{len(state.shots)}, not {args.redo}.")

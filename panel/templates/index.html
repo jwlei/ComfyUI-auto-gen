@@ -83,7 +83,9 @@
   .range input:focus-visible::-moz-range-thumb { outline: 2px solid var(--text); }
   h2 { font-size: .95rem; margin: 0 0 4px; }
   .section { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 4px; }
-  .form-col:first-child > .section:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+  /* What the form is for, above the line that starts its sections. */
+  .workflow-top { grid-column: 1 / -1; padding-bottom: 6px; }
+  .workflow-top > label:first-child { margin-top: 0; }
   .section-title { font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin: 14px 0 0; font-weight: 700; }
   .check { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; cursor: pointer; text-transform: none; letter-spacing: 0; font-size: .95rem; color: var(--text); }
   .check input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
@@ -250,7 +252,10 @@
     padding-bottom: env(safe-area-inset-bottom);
     background: var(--bg); border-top: 1px solid var(--line);
   }
-  .stick .strip { order: -1; padding-top: 6px; }
+  /* The bars over the footer ease in and out, rather than jumping the page. */
+  .stick .strip { order: -1; padding-top: 6px; max-height: 5em; opacity: 1; overflow: hidden;
+    transition: max-height .28s ease, opacity .22s ease, padding .28s ease; }
+  .stick .strip[hidden] { display: block; max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
   .wrap { padding-bottom: calc(var(--head, 130px) + 16px); }
   .jump { display: grid; grid-template-columns: 1.7fr 1fr .8fr 1fr; gap: 5px; padding: 6px 16px; }
   .jump a {
@@ -300,7 +305,24 @@
   #uploadBox .progress { margin-bottom: 8px; }
   /* On Generate, the button and its estimate stay at the bottom. */
   .go-bar { order: -1; display: flex; align-items: center; gap: 10px; padding: 8px 16px 2px; }
-  .go-bar[hidden] { display: none; }
+  .go-bar { max-height: 70px; opacity: 1; overflow: hidden; transition: max-height .28s ease, opacity .22s ease, padding .28s ease; }
+  .go-bar[hidden] { display: flex; max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; pointer-events: none; }
+  /* Small, quick movements as you get around: pages slide up into place, and what's chosen fades across. */
+  .jump a, .switch button, .tabs button { transition: background-color .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease; }
+  .jump a:active { transform: scale(.97); }
+  @keyframes page-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    .stick .strip, .go-bar, .jump a, .switch button, .tabs button { transition: none; }
+    .dashboard > [data-page] { animation: none !important; }
+  }
+  /* Phones: one section at a time, chosen in the footer. */
+  @media (max-width: 999px) {
+    .dashboard > [data-page] { display: none; }
+    body[data-page="status"] .dashboard > [data-page="status"], body[data-page="generate"] .dashboard > [data-page="generate"],
+    body[data-page="quota"] .dashboard > [data-page="quota"], body[data-page="output"] .dashboard > [data-page="output"] {
+      display: block; animation: page-in .24s ease-out;
+    }
+  }
   .go-eta { flex: 1; min-width: 0; font-size: .8rem; color: var(--muted); }
   .go-eta b { color: var(--text); }
   .go-bar button { width: auto; flex: none; margin: 0; padding: 11px 18px; font-size: .95rem; }
@@ -352,7 +374,6 @@
     .pipeline-form input:not([type=checkbox]):not([type=file]), .pipeline-form select { padding: 9px 11px; font-size: .95rem; }
     .pipeline-form label { margin: 9px 0 4px; }
     .pipeline-form .section { margin-top: 12px; }
-    .pipeline-form .form-col > .section:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
     .pipeline-form .section-title { margin-top: 10px; }
   }
   @media (min-width: 1280px) {
@@ -391,10 +412,10 @@
 
 <div class="stick" id="stick">
   <nav class="jump" id="jump" aria-label="Sections">
-    <a href="#runCard" class="run"><span class="dot" id="jumpDot"></span>Status<small id="jumpRun">Idle</small></a>
-    <a href="#optionsCard">Generate</a>
-    <a href="#quotaCard">Quota</a>
-    <a href="#videosCard" id="jumpResults">Videos</a>
+    <a href="#runCard" data-page="status" class="run"><span class="dot" id="jumpDot"></span>Status<small id="jumpRun">Idle</small></a>
+    <a href="#optionsCard" data-page="generate">Generate</a>
+    <a href="#quotaCard" data-page="quota">Quota</a>
+    <a href="#videosCard" data-page="output" id="jumpResults">Videos</a>
   </nav>
   <div class="strip" id="runStrip" hidden>
     <div class="strip-head"><b id="runStripText"></b><span id="runStripRight"></span></div>
@@ -413,7 +434,7 @@
 </div>
 
 <div class="dashboard">
-<div class="card run-card" id="runCard">
+<div class="card run-card" id="runCard" data-page="status">
   <div class="status-head" id="statusHead" role="button" tabindex="0" aria-expanded="false" aria-controls="misc" title="Show how to open this on your phone">
     <div class="section-title">Status <span class="status-chevron" aria-hidden="true">▸</span></div>
     <div class="comfy-status" title="Generate starts it when the run needs avatar clips and COMFYUI_LAUNCHER is set in .env."><span class="dot" id="comfyDot"></span><span id="comfyText">ComfyUI: checking…</span></div>
@@ -484,19 +505,18 @@
   </div>
 </div>
 
-<div class="options-col" id="optionsCard">
+<div class="options-col" id="optionsCard" data-page="generate">
 <form class="card pipeline-form only-shorts" id="formShorts">
+  <div class="workflow-top" id="workflowBox">
+    <label for="workflow">Workflow</label>
+    <select id="workflow" name="workflow">
+      <option value="">LTX-2.3</option>
+    </select>
+    <button type="button" class="ghost" id="comfyStart" title="Only ComfyUI can list what's saved in it." hidden>Start ComfyUI</button>
+  </div>
   <div class="form-col">
     <details class="section" id="formTopic">
       <summary class="section-title">Generation</summary>
-
-      <div id="workflowBox">
-        <label for="workflow">ComfyUI workflow</label>
-        <select id="workflow" name="workflow">
-          <option value="">LTX-2.3</option>
-        </select>
-        <button type="button" class="ghost" id="comfyStart" title="Only ComfyUI can list what's saved in it." hidden>Start ComfyUI</button>
-      </div>
 
       <label for="topic">Topic</label>
       <input id="topic" name="topic" placeholder="e.g. Why the Sahara was once green" autocomplete="off">
@@ -523,6 +543,11 @@
       <select id="voice" name="voice">
         {% for value, label in voices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
       </select>
+    </details>
+    <details class="section" id="shortsOptions" hidden>
+      <summary class="section-title">Workflow options</summary>
+      <div class="hint">This workflow's own switches, as it was saved.</div>
+      <div id="shortsOptionsBox"></div>
     </details>
   </div>
 
@@ -621,13 +646,15 @@
 </form>
 
 <form class="card pipeline-form only-video" id="formVideo">
-  <details class="section" id="videoGeneration">
-    <summary class="section-title">Generation</summary>
-    <label for="videoWorkflow">ComfyUI workflow</label>
+  <div class="workflow-top">
+    <label for="videoWorkflow">Workflow</label>
     <select id="videoWorkflow" name="workflow">
       <option value="">Built-in LTX</option>
     </select>
     <div class="hint" id="videoWorkflowHint">The image boxes below change to what it takes.</div>
+  </div>
+  <details class="section" id="videoGeneration">
+    <summary class="section-title">Generation</summary>
 
     <div class="image-boxes" id="imageBoxes"></div>
     <button type="button" class="ghost" id="addImage" aria-label="Add another image" title="Add another image" hidden>+</button>
@@ -691,6 +718,12 @@
     <div class="hint">Empty: a new random seed for every clip. A number: clip 1 uses it and each clip after it the next one, so the same film comes out again. Each clip's seed shows under <b>Shots</b>.</div>
   </details>
 
+  <details class="section" id="videoOptions" hidden>
+    <summary class="section-title">Workflow options</summary>
+    <div class="hint">This workflow's own switches, as it was saved.</div>
+    <div id="videoOptionsBox"></div>
+  </details>
+
   <details class="section" id="videoHow">
     <summary class="section-title">How</summary>
     <label for="llm">Who writes the prompts</label>
@@ -715,13 +748,15 @@
 </form>
 
 <form class="card pipeline-form only-image" id="formImage">
-  <details class="section" id="imageGeneration">
-    <summary class="section-title">Generation</summary>
-    <label for="imageWorkflow">ComfyUI workflow</label>
+  <div class="workflow-top">
+    <label for="imageWorkflow">Workflow</label>
     <select id="imageWorkflow" name="workflow">
       <option value="">Automatic: edits if you give it an image, otherwise from text</option>
     </select>
     <div class="hint" id="imageWorkflowHint" hidden></div>
+  </div>
+  <details class="section" id="imageGeneration">
+    <summary class="section-title">Generation</summary>
 
     <div id="imageSources"></div>
 
@@ -792,7 +827,7 @@
       <select id="imageLlm" name="llm">
         {% for llm in image_llms %}<option value="{{ llm.name }}" {% if not llm.ready %}disabled{% endif %}>{{ llm.label }}{% if not llm.ready %} (no key in .env){% endif %}</option>{% endfor %}
       </select>
-      <label class="check">
+      <label class="check" id="imageReviewBox">
         <input type="checkbox" name="review" id="imageReview">
         <span>Let me read the prompts before rendering
           <div class="hint">Stops after the prompts are written, so you can change them.</div>
@@ -805,7 +840,7 @@
 
 </div>
 
-<div class="side">
+<div class="side" data-page="quota">
 <div class="card" id="quotaCard">
   <div class="section-title">Quota today</div>
   <div id="quota"></div>
@@ -813,7 +848,7 @@
 </div>
 </div>
 
-<div class="card videos-card" id="videosCard">
+<div class="card videos-card" id="videosCard" data-page="output">
   <div class="vhead">
     <div class="tabs only-shorts">
       <button type="button" id="tabOutput" class="active">Ready (<span id="countOutput">0</span>)</button>
@@ -834,7 +869,6 @@
 
 <div class="form-actions" id="formActions">
   <div class="btns">
-    <button type="button" class="ghost" id="check" title="Verifies keys, ffmpeg and ComfyUI for these options without making anything.">Check setup</button>
     <button type="button" id="go">Generate</button>
   </div>
   <div class="err" id="formError" hidden></div>
@@ -892,7 +926,7 @@ function loadForm() {
   }
 }
 // --- Workflows saved in ComfyUI ---
-let workflowsFor = null;
+let workflowsFor = null, shortsTakes = {};
 function rememberedWorkflow() {
   try { return (JSON.parse(localStorage.getItem(STORE_KEY)) || {}).workflow || ''; } catch (e) { return ''; }
 }
@@ -910,6 +944,7 @@ async function loadWorkflows() {
     `<option value="${esc(w.name)}">${esc(w.label)}</option>`).join('')
     + (none ? '<option disabled>Yours appear once ComfyUI is on</option>' : '');
   if (data.workflows.some(w => w.name === wanted)) select.value = wanted;
+  shortsTakes = Object.fromEntries(data.workflows.map(w => [w.name, w.takes]));
   syncForm();
 }
 $('workflow').addEventListener('focus', loadWorkflows);
@@ -925,6 +960,8 @@ function syncForm() {
   $('clipsSlider').classList.toggle('hidden', $('avatar_clips').value !== 'auto');
   $('workflow').disabled = $('avatar_source').value !== 'comfyui';
   $('avatar_style').disabled = $('avatar_source').value !== 'comfyui' || !!$('workflow').value;
+  const avatars = $('avatar_clips').value !== '0' && $('avatar_source').value === 'comfyui';
+  syncOptions('shortsOptions', 'shortsOptionsBox', avatars ? (shortsTakes[$('workflow').value] || {}).options || [] : []);
   syncSliders();
 }
 $('formShorts').addEventListener('change', () => { syncForm(); saveForm(); });
@@ -1367,6 +1404,7 @@ function syncAudio() {
 }
 function syncVideoForm() {
   syncImageInput();
+  syncOptions('videoOptions', 'videoOptionsBox', (workflowTakes[$('videoWorkflow').value] || {}).options || []);
   syncMediaInput();
   syncSize();
   syncAudio();
@@ -1448,7 +1486,13 @@ function automaticTakes(count) {
   return madeFor[0] || fits[0] || null;
 }
 // What the form is for now: the workflow chosen, or the one Automatic would pick with the images given.
+// With image to prompt, the workflow takes the picture it describes.
 function imageTakes() {
+  const takes = baseImageTakes(), role = imageRole();
+  const found = role && (takes.options || []).find(option => option.id === role);
+  return found && found.takes ? { ...takes, ...found.takes } : takes;
+}
+function baseImageTakes() {
   const chosen = imageWorkflows[$('imageWorkflow').value];
   if (chosen) return chosen;
   const most = Math.max(1, ...imageWorkflowList.map(t => t.max_images));
@@ -1564,21 +1608,42 @@ function imageOptionHtml(option, all) {
   }
   return '';
 }
-function syncImageOptions() {
-  const options = imageTakes().options || [];
+// Any form's: its section shows when the workflow has any. A way for the workflow to write its own prompt is chosen
+// with the LLM instead (syncImageLlm), so it isn't drawn here.
+function syncOptions(section, box, options) {
+  options = options.filter(option => !option.role);
   const key = JSON.stringify(options);
-  $('imageOptions').hidden = !options.length;
-  if ($('imageOptionsBox').dataset.key === key) return;
-  $('imageOptionsBox').dataset.key = key;
-  $('imageOptionsBox').innerHTML = options.map(option => imageOptionHtml(option, options)).join('');
+  $(section).hidden = !options.length;
+  if ($(box).dataset.key === key) return;
+  $(box).dataset.key = key;
+  $(box).innerHTML = options.map(option => imageOptionHtml(option, options)).join('');
 }
+function syncImageOptions() { syncOptions('imageOptions', 'imageOptionsBox', imageTakes().options || []); }
+// The workflow writing its own prompts, beside Gemini and Claude: its prompt enhancer, or image to prompt.
+const ROLE_LABELS = { prompt_enhancer: "The workflow's own prompt enhancer, in ComfyUI", image_to_prompt: 'The workflow, from your image (image to prompt)' };
+function syncImageLlm() {
+  const select = $('imageLlm');
+  const roles = (baseImageTakes().options || []).filter(option => option.role && !option.problem);
+  const key = roles.map(option => option.id).join(',');
+  if (select.dataset.roles === key) return;
+  select.dataset.roles = key;
+  const wanted = select.value;
+  for (const option of [...(select.options || [])].filter(option => option.dataset && option.dataset.role)) option.remove();
+  for (const role of roles) select.insertAdjacentHTML('beforeend', `<option value="${esc(role.id)}" data-role="1">${esc(ROLE_LABELS[role.id] || role.label)}</option>`);
+  if ([...(select.options || [])].some(option => option.value === wanted)) select.value = wanted;
+  else if (ROLE_LABELS[wanted]) select.value = IMAGE_DEFAULTS.llm;
+}
+function imageRole() { return ROLE_LABELS[$('imageLlm').value] && $('imagePromptMode').value === 'llm' ? $('imageLlm').value : null; }
 function syncImageForm() {
+  syncImageLlm();
   syncImageSources();
   syncImageOptions();
   syncImageSize();
   const direct = $('imagePromptMode').value === 'direct';
   const editing = !!chosenSources();
   $('imageLlmBox').classList.toggle('hidden', direct);
+  // The workflow's own writing has nothing to read before rendering.
+  $('imageReviewBox').classList.toggle('hidden', !!imageRole());
   $('imageHowDirect').hidden = !direct;
   $('imagePromptLabel').textContent = direct ? 'The prompt' : 'What you want';
   $('imagePrompt').placeholder = direct
@@ -2237,8 +2302,6 @@ async function poll() {
     // The prompts you asked to read before rendering are ready.
     const planned = data.pipeline !== 'shorts' && data.returncode === 0 && (data.command || '').includes('--plan-only') && data.progress.run_id;
     if (planned && !$('shotsDialog').open) openShots(data.progress.run_id);
-    // A setup check's answer is in the log.
-    if ((data.command || '').includes('--check')) $('logBox').open = true;
   }
   wasRunning = running;
   const queue = data.queue, upq = data.upload.queue;
@@ -2267,8 +2330,6 @@ async function poll() {
   renderStrips(data);
   $('go').disabled = $('goStick').disabled = submitting;
   $('go').textContent = $('goStick').textContent = running || runsQueued ? 'Add to queue' : 'Generate';
-  $('check').hidden = running;
-  $('check').disabled = submitting;
   $('currentWork').hidden = !running;
   if (running) $('currentWork').textContent = `${SIDE_NAMES[data.pipeline] || 'Shorts'}: ${(queue.current || {}).label || 'Starting'}`;
   // A job on the other side still has the GPU, so the switch says so.
@@ -2277,8 +2338,6 @@ async function poll() {
   }
   if (data.stopped_runs.length !== stoppedCount) { stoppedCount = data.stopped_runs.length; refreshPlan(); }
   $('runActions').hidden = !running;
-  // A setup check has nothing to come back to.
-  $('skip').hidden = (data.command || '').includes('--check');
 
   renderNow(data);
   renderEtaDetail(running ? (data.progress || {}).eta : null);
@@ -2330,13 +2389,9 @@ async function startJob(url) {
   $('formError').hidden = true;
   submitting = true;
   $('go').disabled = $('goStick').disabled = true;
-  $('check').disabled = true;
   let body;
   try {
     const form = new FormData($(SIDE_FORMS[pipeline]));
-    // A setup check makes nothing, so it has no use for the images.
-    if (url.startsWith('/check') && pipeline === 'video') withoutImages(form);
-    if (url.startsWith('/check') && pipeline === 'image') for (const box of sourceBoxes()) form.delete(box.querySelector('input').name);
     body = await (await fetch(url, { method: 'POST', body: form })).json();
   } catch (e) {
     body = { error: 'Could not reach the panel. Try again.' };
@@ -2384,7 +2439,6 @@ $('go').addEventListener('click', () => {
   if (pipeline === 'video') saveVideoForm(); else if (pipeline === 'image') saveImageForm(); else saveForm();
   startJob(`/generate/${pipeline}`);
 });
-$('check').addEventListener('click', () => startJob(`/check/${pipeline}`));
 $('goStick').addEventListener('click', () => $('go').click());
 
 function setPipeline(side, remember = true) {
@@ -2449,18 +2503,40 @@ $('shutdown').addEventListener('click', async e => {
 
 // The section under the header, lit up in it.
 const JUMPS = [...$('jump').querySelectorAll('a')];
+// A phone shows one section at a time, the one chosen in the footer. A desktop shows them all, with no footer.
+const PAGE_KEY = 'comfyui-auto-gen.page';
+function showPage(page) {
+  document.body.dataset.page = page;
+  try { sessionStorage.setItem(PAGE_KEY, page); } catch (e) {}
+  if (!WIDE.matches) window.scrollTo(0, 0);
+  markJump();
+}
+$('jump').addEventListener('click', e => {
+  const link = e.target.closest && e.target.closest('a');
+  if (!link || WIDE.matches) return;  // A desktop scrolls there instead
+  e.preventDefault();
+  showPage(link.dataset.page);
+});
 function markJump() {
   const line = 16;
-  const here = JUMPS.filter(a => $(a.hash.slice(1)).getBoundingClientRect().top <= line).pop() || JUMPS[0];
+  const here = WIDE.matches ? JUMPS.filter(a => $(a.hash.slice(1)).getBoundingClientRect().top <= line).pop() || JUMPS[0]
+    : JUMPS.find(a => a.dataset.page === document.body.dataset.page) || JUMPS[0];
   JUMPS.forEach(a => a.classList.toggle('active', a === here));
   // The form's own button is in sight at its end, so this one would only repeat it.
   $('goBar').hidden = !here || here.hash !== '#optionsCard' || inView('formActions');
   syncStrips();
 }
+// The footer's height, once its bars have eased in or out.
+$('stick').addEventListener('transitionend', () => document.documentElement.style.setProperty('--head', `${$('stick').offsetHeight}px`));
 window.addEventListener('scroll', markJump, { passive: true });
 
 for (const section of document.querySelectorAll('details.section')) section.addEventListener('toggle', markJump);
 
+{
+  let page = 'generate';
+  try { page = sessionStorage.getItem(PAGE_KEY) || page; } catch (e) {}
+  document.body.dataset.page = page;
+}
 loadForm();
 syncForm();
 loadVideoForm();

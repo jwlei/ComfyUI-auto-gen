@@ -1,4 +1,5 @@
 """The panel's Video side: films from an image and a prompt, whose prompts you can read and change before rendering."""
+import json
 import os
 import re
 import secrets
@@ -8,7 +9,7 @@ from types import SimpleNamespace
 from flask import abort, request, send_file
 
 from core import seeds
-from panel.server import (PIPELINES, VIDEO_TIMINGS, _runs_cache, app, busy_runs, item_images, job,
+from panel.server import (form_options, PIPELINES, VIDEO_TIMINGS, _runs_cache, app, busy_runs, item_images, job,
                           password_required, saved_at, run_queue, saved_runs, saved_workflows)
 from panel.shorts import VOICES
 from pipelines.video import media, paths, planner, roles
@@ -57,7 +58,6 @@ def clean_inputs(keep=()):
 def resume_argv(state, redo=None):
     argv = [*COMMAND, "--resume", state.id]
     return argv + ["--redo", str(redo)] if redo else argv
-
 
 
 def describe_run(state):
@@ -209,6 +209,12 @@ def generate():
     env, takes, error = chosen_workflow(request.form)
     if error:
         return {"ok": False, "error": error}, 400
+    chosen, error = form_options(request.form, takes)
+    if error:
+        return {"ok": False, "error": error}, 400
+    if chosen:
+        # Kept with the run, for the rest of its clips (pipelines/video/main.py).
+        env = {**env, "COMFYUI_OPTIONS": json.dumps(chosen)}
     prompt = (request.form.get("prompt") or "").strip()
     if not prompt:
         return {"ok": False, "error": "Say what should happen in the video."}, 400
@@ -257,6 +263,8 @@ def generate():
             os.remove(path)
         if "--plan-only" in flags:
             return {"ok": True, "queued": False, "shots": state.id, "continued": state.title}
+        # Options change how the rest is made, not the plan: what's paid for stays.
+        state.options = json.loads(env.get("COMFYUI_OPTIONS") or "{}") or None
         state.adopt(flags)
         reply = queue_saved_run(state)
         return reply if isinstance(reply, tuple) else {**reply, "continued": state.title}
@@ -416,24 +424,6 @@ def discard_run(run_id):
         return refused
     state.remove()
     _runs_cache["at"] = 0.0
-    return {"ok": True}
-
-
-@app.route("/check/video", methods=["POST"], endpoint="video_check")
-@password_required
-def check():
-    """Runs the preflight with the same LLM as a real run would use."""
-    if job.running:
-        return {"ok": False, "error": "A run is already in progress."}, 409
-    flags, error = build_options(request.form)
-    if error:
-        return {"ok": False, "error": error}, 400
-    env, _, error = chosen_workflow(request.form)
-    if error:
-        return {"ok": False, "error": error}, 400
-    argv = [*COMMAND, "--check", "--llm", flags[flags.index("--llm") + 1]]
-    if not job.start(argv, env):
-        return {"ok": False, "error": "A run is already in progress."}, 409
     return {"ok": True}
 
 

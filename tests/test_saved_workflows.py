@@ -11,6 +11,8 @@ from fakes import (OBJECT_INFO, edit_image_workflow, fibo2_workflow, h3_workflow
 
 from core import saved_workflows, workflow_options
 from fakes import _ui_node
+from core import seeds
+from core.saved_workflows import _installed_as
 from core.saved_workflows import (Unusable, _from_comfyui, _grow_references, _from_earlier, _prepare, find_fields, find_image_fields, frames_for,
                                   image_model, image_takes, is_for_image, is_for_shorts, pipeline_of, takes, to_api)
 
@@ -216,7 +218,8 @@ class OptionsTest(unittest.TestCase):
     def test_each_switch_and_setting_is_an_option(self):
         options = self.options()
         self.assertEqual(sorted(options), ["group_color_correction", "group_sharpen", "group_upscaler", "group_upscaler.choice",
-                                           "lora_knpv3_1", "prompt_boost", "steps"])
+                                           "lora_knpv3_1", "prompt_boost", "prompt_enhancer", "steps"])
+        self.assertEqual(options["prompt_enhancer"]["role"], "llm", "chosen with the LLM, not as a switch")
         self.assertNotIn("group_prompt_enhancer", options, "the pipeline writes the prompt: its own enhancer stays off")
         self.assertEqual((options["group_sharpen"]["default"], options["steps"]["default"]), ("0", "8"))
         self.assertEqual(options["group_upscaler.choice"]["choices"], ["720p", "1080p", "4K"])
@@ -260,6 +263,60 @@ class OptionsTest(unittest.TestCase):
         self.assertNotIn("problem", self.options(ui)["face_enable_lora"])
         api = workflow_options.convert(ui, OBJECT_INFO, {"face_enable_lora": "1"})[0]
         self.assertIn("LoraLoaderModelOnly", [node["class_type"] for node in api.values()], "its switch went the way chosen")
+
+
+class InstalledAsTest(unittest.TestCase):
+    def test_another_precision_of_the_same_model(self):
+        installed = ["krea2_turbo_fp8_scaled.safetensors", "krea2_turbo_int8_convrot.safetensors"]
+        self.assertEqual(_installed_as("krea2_turbo_fp8.safetensors", installed), "krea2_turbo_fp8_scaled.safetensors")
+        self.assertEqual(_installed_as("krea2_turbo.safetensors", ["krea2_turbo_fp8_scaled.safetensors"]), "krea2_turbo_fp8_scaled.safetensors")
+
+    def test_another_folder(self):
+        self.assertEqual(_installed_as("Krea2\\KNPV3_1.safetensors", ["KNPV3_1.safetensors"]), "KNPV3_1.safetensors")
+
+    def test_never_a_guess(self):
+        self.assertIsNone(_installed_as("krea2_turbo.safetensors", installed := ["krea2_turbo_fp8_scaled.safetensors", "krea2_turbo_bf16.safetensors"]),
+                          "two would fit: which is meant can't be told")
+        self.assertIsNone(_installed_as("krea2.safetensors", ["krea2_turbo_fp8.safetensors"]), "turbo is another model, not a format")
+        self.assertIsNone(_installed_as("model.gguf", ["model.safetensors"]))
+
+    def test_a_workflow_runs_on_the_one_installed(self):
+        ui = saved_workflow()
+        next(node for node in ui["nodes"] if node["id"] == 1)["widgets_values"] = ["model_fp16.safetensors"]
+        info = {**OBJECT_INFO, "CheckpointLoader": {"display_name": "x", "input": {"required": {"ckpt_name": [["model_fp16_scaled.safetensors"]]}}}}
+        self.assertEqual(to_api(ui, info)["1"]["inputs"]["ckpt_name"], "model_fp16_scaled.safetensors")
+
+
+class PromptWriterTest(unittest.TestCase):
+    def test_a_templates_refine_switch_is_its_prompt_enhancer(self):
+        options = {option["id"]: option for option in workflow_options.offered(text_to_image_workflow(), OBJECT_INFO)}
+        self.assertEqual((options["prompt_enhancer"]["role"], options["prompt_enhancer"]["default"]), ("llm", "0"))
+        off = workflow_options.convert(text_to_image_workflow(), OBJECT_INFO)[0]
+        on = workflow_options.convert(text_to_image_workflow(), OBJECT_INFO, {"prompt_enhancer": "1"})[0]
+        self.assertNotIn("TextGenerate", [node["class_type"] for node in off.values()], "off unless chosen")
+        self.assertIn("TextGenerate", [node["class_type"] for node in on.values()])
+
+    def test_prompt_groups_are_prompt_writers_on_the_image_side_only(self):
+        ui = switchable_workflow()
+        ui["groups"].append({"title": "Image to prompt", "color": "#3f789e", "bounding": [850, 200, 200, 150]})
+        ui["nodes"].append({**_ui_node(30, "LoadImage", {"image": "a.png"}, values=["a.png", "image"], mode=4), "pos": [900, 250]})
+        ui["nodes"].append({**_ui_node(31, "Fast Groups Bypasser (rgthree)"), "pos": [0, 1150], "properties": {"matchTitle": "Image to prompt"}})
+        image = {option["id"]: option for option in workflow_options.describe(ui, OBJECT_INFO, "image")}
+        self.assertEqual({key for key, option in image.items() if option.get("role")}, {"prompt_enhancer", "image_to_prompt"})
+        self.assertEqual(image["image_to_prompt"]["label"], "Image to prompt")
+        video = workflow_options.describe(ui, OBJECT_INFO, "video")
+        self.assertFalse([option for option in video if option.get("role")], "the LLM always writes a film's prompts")
+        turned_on = workflow_options._before(ui, list(image.values()), {"image_to_prompt": "1"})
+        self.assertEqual(next(node for node in turned_on["nodes"] if node["id"] == 30)["mode"], 0)
+        turned_off = workflow_options._before(ui, list(image.values()), {})
+        self.assertEqual(next(node for node in turned_off["nodes"] if node["id"] == 16)["mode"], 4, "an enhancer stays off unless chosen")
+
+    def test_each_image_gets_its_own_prompt_from_the_enhancer(self):
+        workflow = {"1": {"class_type": "TextGenerate", "inputs": {"sampling_mode.seed": 0, "seed": 1}},
+                    "2": {"class_type": "KSampler", "inputs": {"noise_seed": 5, "denoise": True}}}
+        seeds.apply(workflow, 42)
+        self.assertEqual((workflow["1"]["inputs"]["sampling_mode.seed"], workflow["1"]["inputs"]["seed"], workflow["2"]["inputs"]["noise_seed"]), (42, 42, 42))
+        self.assertIs(workflow["2"]["inputs"]["denoise"], True)
 
 
 class PrepareTest(unittest.TestCase):

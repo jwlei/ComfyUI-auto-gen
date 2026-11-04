@@ -17,6 +17,7 @@ Each option is {id, kind, label, default, ...}, and a run's choice is a string:
     strength  "0" for off, or the strength: a LoRA, or the Krea2T Enhancer
 """
 import copy
+import json
 import os
 import re
 
@@ -38,7 +39,15 @@ ON, OFF = "1", "0"
 BYPASSED = 4
 # What a subgraph's face sets that isn't for the form: what the pipeline sets itself (prompt, size, seed), the
 # settings of a prompt writer it keeps off, and which model files it loads.
-FACE_SKIP = re.compile(r"prompt|enhance|refine|thinking|max_tok|max_length|width|height|seed|unet|clip|vae|ckpt|trigger", re.I)
+FACE_SKIP = re.compile(r"prompt|enhance|refine|thinking|max_tok|max_length|width|height|seed|unet|clip|vae|ckpt|trigger"
+                       r"|text.?to.?video|duration|length|frames|fps|audio", re.I)
+# The two ways a workflow can write its own prompt, offered beside Gemini and Claude on the Image side: a prompt
+# enhancer that expands yours, and image to prompt, which describes a picture. Each is a group, or for the enhancer
+# a Refine Prompt switch as Krea-2's template has. On Video and Shorts the LLM always writes them, so they stay off.
+ENHANCER_GROUP = re.compile(r"enhanc", re.I)
+IMAGE_TO_PROMPT = re.compile(r"image.?to.?prompt|img.?2.?prompt|caption", re.I)
+REFINE_SWITCH = re.compile(r"refine|enhance", re.I)
+ROLES = ("prompt_enhancer", "image_to_prompt")
 # Words a switch's name has that say nothing about what it switches.
 SWITCH_WORDS = {"enable", "enabled", "use", "mode", "on"}
 MOST_STEPS = 150
@@ -144,7 +153,11 @@ def _face_settings(instance, subgraph, info):
     return found
 
 
-def describe(ui, info=None):
+def _role(role, label, group=None):
+    return {"id": role, "kind": "switch", "role": "llm", "label": label, "default": OFF, **({"group": group} if group else {})}
+
+
+def describe(ui, info=None, pipeline="image"):
     """The options this workflow offers, as saved. A problem with one is for the caller to find, by trying it."""
     options = []
     subgraphs = _subgraphs(ui)
@@ -153,7 +166,12 @@ def describe(ui, info=None):
             options += _face_settings(node, subgraphs[node["type"]], info or {})
     for group in _switched_groups(ui):
         title = group.get("title") or "Group"
-        if PROMPT_GROUPS.search(title) or SIZE_GROUPS.search(title):
+        if PROMPT_GROUPS.search(title):
+            role = "prompt_enhancer" if ENHANCER_GROUP.search(title) else "image_to_prompt" if IMAGE_TO_PROMPT.search(title) else None
+            if pipeline == "image" and role and role not in [option["id"] for option in options]:
+                options.append(_role(role, title, title))
+            continue
+        if SIZE_GROUPS.search(title):
             continue
         members = [node for node in ui["nodes"] if _inside(node, group) and node["type"] not in sw.NOTES + sw.EDITOR_ONLY]
         if not members:
@@ -175,6 +193,10 @@ def describe(ui, info=None):
             enabled, strength = (list(node.get("widgets_values") or []) + [True, 1.0])[:2]
             options.append({"id": "prompt_boost", "kind": "strength", "label": "Krea2T Enhancer (prompt adherence)", "node": node["id"],
                             "default": str(strength) if enabled else OFF, "min": 0, "max": 2, "step": 0.05, "usual": str(strength or 1)})
+    every = list(ui["nodes"]) + [node for subgraph in subgraphs.values() for node in subgraph.get("nodes", [])]
+    if pipeline == "image" and "prompt_enhancer" not in [option["id"] for option in options] and any(
+            node["type"] == "PrimitiveBoolean" and REFINE_SWITCH.search(node.get("title") or "") for node in every):
+        options.append(_role("prompt_enhancer", "Prompt enhancer"))
     return options
 
 
@@ -193,7 +215,10 @@ def _before(ui, options, chosen):
     for group in _switched_groups(ui):
         title = group.get("title") or ""
         option = next((option for option in options if option["kind"] == "switch" and option["label"] == title), None)
-        wanted = OFF if PROMPT_GROUPS.search(title) else chosen.get(option["id"], option["default"]) if option else None
+        if option and option.get("role"):
+            wanted = chosen.get(option["id"], OFF)
+        else:
+            wanted = OFF if PROMPT_GROUPS.search(title) else chosen.get(option["id"], option["default"]) if option else None
         if wanted is None:
             continue
         for node in ui["nodes"]:
@@ -266,13 +291,14 @@ def lora_problem(option, info):
     return None
 
 
-def convert(ui, info, chosen=None):
-    """The workflow made for the Image side with these options. Returns (api, fields, model, options). Raises Unusable."""
+def convert(ui, info, chosen=None, pipeline="image"):
+    """The workflow made for this side (image, video or shorts) with these options. Returns (api, fields, model, options). Raises Unusable."""
     chosen = chosen or {}
-    options = describe(ui, info)
-    api = sw.to_api(_before(ui, options, chosen), info, images=True)
-    # Fibo 2.0 edits with up to 16 references, of which a saved workflow wires one.
-    sw._grow_references(api, info)
+    options = describe(ui, info, pipeline)
+    api = sw.to_api(_before(ui, options, chosen), info, images=pipeline == "image", enhance=chosen.get("prompt_enhancer") == ON)
+    # References that grow, such as Fibo 2.0's 16 or MiniMax H3's: a saved workflow wires one or two. Shorts gives one.
+    if pipeline != "shorts":
+        sw._grow_references(api, info)
     _after(api, options, chosen, info)
     steps = _steps(api)
     if steps:
@@ -280,22 +306,64 @@ def convert(ui, info, chosen=None):
         options.append({"id": "steps", "kind": "number", "label": "Steps", "default": str(api[node_id]["inputs"][name]), "min": 1, "max": MOST_STEPS, "step": 1})
         if "steps" in chosen:
             api[node_id]["inputs"][name] = int(float(chosen["steps"]))
-    return api, sw.find_image_fields(api, info), sw.image_model(api), options
+    if pipeline == "image":
+        return api, sw.find_image_fields(api, info), sw.image_model(api), options
+    return api, sw.find_fields(api, info, needs_audio=pipeline == "shorts"), None, options
 
 
-def offered(ui, info):
-    """The options as the form shows them: each with a problem, if choosing the other way can't run."""
-    _, _, _, options = convert(ui, info)
+def offered(ui, info, pipeline="image"):
+    """
+    The options as the form shows them: each with a problem, if choosing the other way can't run. A way for the
+    workflow to write its own prompt also says how many images it takes then: image to prompt needs its picture.
+    """
+    _, _, _, options = convert(ui, info, pipeline=pipeline)
     for option in options:
         problem = lora_problem(option, info)
         if not problem and option["kind"] == "switch":
             try:
-                convert(ui, info, {option["id"]: ON if option["default"] == OFF else OFF})
+                _, fields, _, _ = convert(ui, info, {option["id"]: ON if option["default"] == OFF else OFF}, pipeline)
+                if option.get("role"):
+                    option["takes"] = sw.takes(fields)
             except sw.Unusable as e:
                 problem = str(e)
         if problem:
             option["problem"] = problem
     return options
+
+
+def remake(workflow_path, chosen, pipeline=None):
+    """
+    The workflow a run makes with these options, from the copy kept when it was listed: (api, {field: (node, input)}).
+    For ComfyClient and Shorts' AvatarGenerator. Raises RuntimeError, saying why.
+    """
+    stem = os.path.splitext(workflow_path)[0]
+    try:
+        with open(stem + ".map.json", "r", encoding="utf-8") as f:
+            saved = json.load(f)
+        offered_ = saved.get("_options") or []
+        problem = check(offered_, chosen)
+        if problem:
+            raise RuntimeError(problem)
+        with open(stem + ".ui.json", "r", encoding="utf-8") as f:
+            ui = json.load(f)
+        with open(stem + ".info.json", "r", encoding="utf-8") as f:
+            info = json.load(f)
+    except OSError:
+        raise RuntimeError("This workflow's options need it listed again: open the panel with ComfyUI on.")
+    try:
+        api, fields, _, _ = convert(ui, info, chosen, pipeline or saved.get("_pipeline") or "video")
+    except sw.Unusable as e:
+        raise RuntimeError(f"With these options the workflow can't run: {e}")
+    return api, {field: tuple(value) for field, value in fields.items() if isinstance(value, list)}
+
+
+def chosen_in_env():
+    """The options the panel chose for this run, kept with it: COMFYUI_OPTIONS, as JSON."""
+    try:
+        found = json.loads(os.getenv("COMFYUI_OPTIONS") or "{}")
+    except ValueError:
+        return {}
+    return found if isinstance(found, dict) else {}
 
 
 def check(options, chosen):

@@ -10,6 +10,9 @@ Makes videos and images with ComfyUI from one panel, with three pipelines behind
 | Publishing | Uploads to YouTube | Download only | Download only |
 | Details | [docs/shorts.md](docs/shorts.md) | [docs/video.md](docs/video.md) | [docs/image.md](docs/image.md) |
 
+On a phone, the footer shows one section at a time: Status, Generate, Quota or the videos and images, with a small bar
+over the footer for what's running when you're elsewhere.
+
 They share one queue, because there is one GPU, and a job started on either side shows on both. They also share one
 record of API use: when a provider says a model is used up for the day, every run moves to the next model until the
 reset that reply gave (`logs/exhausted_models.json`).

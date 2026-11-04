@@ -8,7 +8,7 @@ import requests
 from PIL import Image
 
 from pipelines.video import h3_prompt, wan_prompt
-from core import seeds
+from core import seeds, workflow_options
 from core.paths import WORKFLOWS_DIR, comfyui_client_id as client_id
 from core.saved_workflows import MOST_REFERENCES_FIELD, frames_for, image_slots, media_slots, takes
 
@@ -33,7 +33,7 @@ class ComfyClient:
     Every 'seed' / 'noise_seed' input gets the render's seed: the one asked for, or a random one.
     """
 
-    def __init__(self):
+    def __init__(self, options=None):
         self.url = (os.getenv("COMFYUI_URL") or DEFAULT_COMFYUI_URL).rstrip("/")
         self.workflow_path = os.getenv("COMFYUI_WORKFLOW") or DEFAULT_WORKFLOW
         self.timeout = int(os.getenv("COMFYUI_TIMEOUT") or DEFAULT_TIMEOUT)
@@ -42,6 +42,16 @@ class ComfyClient:
         # cancelling never touches anyone else's renders.
         self.client_id = client_id()
         self.workflow, self.fields, self.limits = self._load_workflow()
+        self.options = self._offered()
+        # The workflow's own options, as the panel chose them for this run.
+        chosen = workflow_options.chosen_in_env() if options is None else options
+        if chosen:
+            self.workflow, self.fields = workflow_options.remake(self.workflow_path, chosen)
+
+    def _offered(self):
+        """What a run can change in this workflow, as the panel listed it."""
+        with open(os.path.splitext(self.workflow_path)[0] + ".map.json", "r", encoding="utf-8") as f:
+            return json.load(f).get("_options") or []
 
     def _load_workflow(self):
         map_path = os.path.splitext(self.workflow_path)[0] + ".map.json"

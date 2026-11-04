@@ -144,6 +144,10 @@ ComfyUI if the panel started it. Queued jobs come back on hold next time.
 
 If a continuous take drifts away from how your image looks, try separate moments.
 
+**Workflow options**, under Generation, are the chosen workflow's own switches and settings, such as a sampler's steps
+or a switched group, as the [Image side](image.md#workflow-options) has them. A run keeps them, so the rest of its clips and
+any shot made again come out the same way.
+
 ## Time and cost
 
 Rendering takes about 30 minutes per minute of film on the GPU this was built on, so a 10-minute film takes around
@@ -184,7 +188,7 @@ Ctrl+C cancels the clip in ComfyUI, and `--resume` continues. The plan is in `ru
 
 ## Using another workflow
 
-**ComfyUI workflow** in the panel lists what you saved in ComfyUI, except those ending in `_ytautoshort`, which are tuned for yt-auto-shorts, and those starting `image_`, which are for [Image](image.md). The panel converts the one you pick into API
+**Workflow**, at the top of the form, lists what you saved in ComfyUI, except those ending in `_ytautoshort`, which are tuned for yt-auto-shorts, and those starting `image_`, which are for [Image](image.md). The panel converts the one you pick into API
 format when it lists them, and finds its prompt, image, length and size inputs from the graph. **Built-in LTX**
 stays the default and works as before.
 

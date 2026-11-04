@@ -1,8 +1,6 @@
 import copy
-import json
 import os
 
-from core import workflow_options
 from core.saved_workflows import image_model, image_takes
 from pipelines.image import media
 from pipelines.video.comfy import ComfyClient
@@ -20,32 +18,8 @@ class ImageClient(ComfyClient):
     def __init__(self, options=None):
         if not os.getenv("COMFYUI_WORKFLOW"):
             raise RuntimeError("No workflow chosen: save one in ComfyUI named image_<something>, or set COMFYUI_WORKFLOW.")
-        super().__init__()
-        self.options = self._offered()
-        if options:
-            problem = workflow_options.check(self.options, options)
-            if problem:
-                raise RuntimeError(problem)
-            self.workflow, self.fields = self._with(options)
-
-    def _saved(self, part):
-        with open(os.path.splitext(self.workflow_path)[0] + f".{part}.json", "r", encoding="utf-8") as f:
-            return json.load(f)
-
-    def _offered(self):
-        """What a run can change in this workflow, as the panel listed it."""
-        with open(os.path.splitext(self.workflow_path)[0] + ".map.json", "r", encoding="utf-8") as f:
-            return json.load(f).get("_options") or []
-
-    def _with(self, options):
-        """The workflow made again with these options, from the copy kept when it was listed."""
-        try:
-            api, fields, _, _ = workflow_options.convert(self._saved("ui"), self._saved("info"), options)
-        except OSError:
-            raise RuntimeError("This workflow's options need it listed again: open the Image side with ComfyUI on.")
-        except workflow_options.sw.Unusable as e:
-            raise RuntimeError(f"With these options the workflow can't run: {e}")
-        return api, {field: tuple(value) for field, value in fields.items() if isinstance(value, list)}
+        # Its options come with the run's flags (--option), and are kept with the run.
+        super().__init__(options or {})
 
     def model(self):
         """The image model it runs, if it's one with prompts or limits of its own (pipelines/image/models.py)."""

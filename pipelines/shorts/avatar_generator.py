@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 
 from core import seeds
 from core.paths import comfyui_client_id
+from core import workflow_options
 from core.saved_workflows import frames_for, image_slots
 
 # Where avatar scenes come from, chosen with AVATAR_SOURCE in .env:
@@ -257,6 +258,10 @@ class AvatarGenerator:
             raise RuntimeError(f"AVATAR_SIZE must look like 736x1280, got '{os.getenv('AVATAR_SIZE')}'.")
 
         self.workflow, self.fields = self._load_workflow()
+        # The workflow's own options, as the panel chose them for this run, kept with it (run_state.RUN_ENV).
+        chosen = workflow_options.chosen_in_env()
+        if chosen:
+            self.workflow, self.fields = workflow_options.remake(self.workflow_path, chosen, "shorts")
         self.lipsync = "audio" in self.fields
 
         if self.reference_image and "image" not in self.fields:

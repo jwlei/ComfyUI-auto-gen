@@ -432,16 +432,6 @@ class PanelTest(unittest.TestCase):
         self.assertTrue(any("ANTHROPIC_API_KEY" in line["text"] for line in status["lines"]), status["lines"])
         self.assertEqual(list_runs(), [])
 
-    def test_check_setup(self):
-        self.assertTrue(self.client.post("/check/video", data={"llm": "claude"}).get_json()["ok"])
-        self.wait_until(lambda: webapp.job.idle, "the check to end")
-        status = self.status()
-        self.assertEqual(status["returncode"], 0, status["lines"])
-        self.assertEqual(self.comfy.prompts, [])
-        self.assertEqual(self.claude.requests, [], "a check spends nothing")
-
-    # --- Refusals ---
-
     def test_bad_forms_are_refused(self):
         for fields, expected in (
             ({"prompt": ""}, "what should happen"),
@@ -499,8 +489,23 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(self.client.get("/api/workflows?pipeline=shorts").get_json()["workflows"], [], "none are tuned for Shorts")
         self.assertEqual(reply["workflows"], [
             {"name": "r2v.json", "label": "r2v", "takes": {"min_images": 0, "max_images": 20}, "clip_seconds": [5, 10, 8]},
-            {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0}, "clip_seconds": [5, 10, 8]},
-            {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1}, "clip_seconds": [5, 10, 8]}])
+            {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0, "options": [{"id": "steps", "kind": "number", "label": "Steps", "default": "20", "min": 1, "max": 150, "step": 1}]}, "clip_seconds": [5, 10, 8]},
+            {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1, "options": [{"id": "steps", "kind": "number", "label": "Steps", "default": "20", "min": 1, "max": 150, "step": 1}]}, "clip_seconds": [5, 10, 8]}],
+            "each with the workflow's own options: a KSampler's steps here")
+
+    def test_a_films_workflow_options_are_used_and_kept(self):
+        self.save_workflows()
+        self.assertTrue(self.generate(workflow="wan.json", opt_steps="12").get_json()["ok"])
+        self.wait_idle()
+        run = self.only_run()
+        self.assertTrue(run.final, [l["text"] for l in webapp.job.lines][-15:])
+        self.assertEqual(run.options, {"steps": "12"})
+        self.assertTrue(all(p["prompt"]["6"]["inputs"]["steps"] == 12 for p in self.comfy.prompts), "every clip")
+        clips = len(self.comfy.prompts)
+        self.assertTrue(self.client.post(f"/runs/{run.id}/redo/1").get_json()["ok"])
+        self.wait_idle()
+        self.assertEqual(self.comfy.prompts[clips]["prompt"]["6"]["inputs"]["steps"], 12, "a shot made again is made the same way")
+        self.assertEqual(self.generate(workflow="wan.json", opt_steps="0").status_code, 400)
 
     def test_a_run_renders_with_the_chosen_workflow_and_keeps_it(self):
         self.save_workflows()
@@ -638,8 +643,8 @@ class PanelTest(unittest.TestCase):
             self.assertFalse(reply["online"])
             self.assertEqual(reply["workflows"], [
                 {"name": "r2v.json", "label": "r2v", "takes": {"min_images": 0, "max_images": 20}, "clip_seconds": [5, 10, 8]},
-                {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0}, "clip_seconds": [5, 10, 8]},
-                {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1}, "clip_seconds": [5, 10, 8]}])
+                {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0, "options": [{"id": "steps", "kind": "number", "label": "Steps", "default": "20", "min": 1, "max": 150, "step": 1}]}, "clip_seconds": [5, 10, 8]},
+                {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1, "options": [{"id": "steps", "kind": "number", "label": "Steps", "default": "20", "min": 1, "max": 150, "step": 1}]}, "clip_seconds": [5, 10, 8]}])
             self.assertEqual(os.path.basename(video_panel.chosen_workflow({"workflow": "wan.json"})[0]["COMFYUI_WORKFLOW"]), "wan.json")
         webapp._comfyui_cache.update(at=0.0)
 
