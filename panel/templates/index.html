@@ -204,8 +204,9 @@
   }
   .carousel::-webkit-scrollbar { display: none; }
   .carousel.as-list { display: block; overflow: visible; }
-  .output-filter-line { margin-bottom: 10px; }
-  .output-filter-line select { width: auto; max-width: 100%; padding: 5px 10px; font-size: .82rem; }
+  /* Centred, one size whatever is picked: a long workflow name is cut short rather than stretching it. */
+  .output-filter-line { display: flex; justify-content: center; margin-bottom: 10px; }
+  .output-filter-line select { width: 220px; max-width: 100%; padding: 5px 10px; font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* A film's poster says it plays. */
   .film-cover .play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff;
     font-size: 1.4rem; text-shadow: 0 1px 6px rgba(0, 0, 0, .8); pointer-events: none; }

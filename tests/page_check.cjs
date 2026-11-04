@@ -794,6 +794,8 @@ run(`announceResults([{ label: 'Old', outcome: 'done', t: 1 }, { label: 'A <b>st
 assert(els.toast.hidden === false && els.toast.textContent === '✔ Finished: A <b>storm', 'then a note, as text');
 assert(/starts \$\{new Date\(item\.not_before \* 1000\)/.test(script), 'a job set to start later says when');
 
+assert(/\.output-filter-line \{ display: flex; justify-content: center;/.test(html) && /\.output-filter-line select \{ width: 220px;/.test(html), 'the filter: centred, one size');
+
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/maximum-scale=1, user-scalable=no/.test(base) && /html \{ overflow-x: clip; touch-action: manipulation; \}/.test(base), 'no zooming the page out from under the footer');
 assert(/html \{ overflow-x: clip;/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),
