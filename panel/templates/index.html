@@ -163,7 +163,7 @@
   .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
   .top a { color: var(--muted); font-size: .8rem; text-decoration: none; }
   .top { align-items: center; margin-bottom: 14px; }
-  .top .switch { flex: 1; max-width: 420px; }
+  .top .switch { flex: none; }
   .top-icons { display: flex; gap: 12px; align-items: center; }
   .top-icons a { display: flex; opacity: .7; }
   .top-icons a:hover { opacity: 1; color: var(--text); }
@@ -197,12 +197,12 @@
   body.on-video .only-shorts, body.on-shorts .only-video,
   body.on-image .only-shorts, body.on-image .only-video, body.on-image .not-image,
   body.on-shorts .only-image, body.on-video .only-image { display: none !important; }
-  .switch { display: flex; gap: 4px; }
+  .switch { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 999px; }
   .switch button {
-    flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0; padding: 9px; font-size: .95rem;
-    background: transparent; color: var(--muted); border: 1px solid var(--line); border-radius: 10px; font-weight: 500;
+    width: auto; display: flex; align-items: center; justify-content: center; gap: 6px; margin: 0; padding: 4px 12px; font-size: .78rem;
+    background: transparent; color: var(--muted); border: 1px solid transparent; border-radius: 999px; font-weight: 500;
   }
-  .switch button.active { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 800; box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+  .switch button.active { background: var(--panel-2); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); font-weight: 600; }
   /* Each mode has its own colour across the page, so you can tell which you're in at a glance. */
   body.on-shorts { --accent: #ff0033; }
   body.on-video { --accent: #4c8dff; }
@@ -330,6 +330,18 @@
     color: var(--muted); font-size: .76rem; font-weight: 600; text-decoration: none; white-space: nowrap;
   }
   .jump a.active { background: var(--panel); color: var(--text); border-color: var(--accent); }
+  /* Tap the page you're on again: the same page on the other sides, growing up out of its button. */
+  .side-menu { position: absolute; z-index: 11; display: flex; flex-direction: column; gap: 4px; padding: 5px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+    transform-origin: bottom center; animation: menu-in .2s ease; }
+  .side-menu[hidden] { display: none; }
+  .side-menu.closing { animation: menu-out .15s ease forwards; pointer-events: none; }
+  .side-menu button { width: 100%; margin: 0; padding: 9px 14px; font-size: .85rem; font-weight: 600; text-align: left;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; color: var(--text); }
+  .side-menu button .side-dot { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; }
+  @keyframes menu-in { from { opacity: 0; transform: translateY(8px) scale(.94); } to { opacity: 1; transform: none; } }
+  @keyframes menu-out { to { opacity: 0; transform: translateY(6px) scale(.96); } }
+  @media (prefers-reduced-motion: reduce) { .side-menu, .side-menu.closing { animation: none; } }
   .jump small { font-size: .74rem; font-weight: 400; overflow: hidden; text-overflow: ellipsis; }
   .strip { padding: 0 16px 7px; font-size: .78rem; }
   .strip-head { display: flex; justify-content: space-between; gap: 10px; }
@@ -477,6 +489,7 @@
 </div>
 
 <div class="stick" id="stick">
+  <div class="side-menu" id="sideMenu" role="menu" hidden></div>
   <nav class="jump" id="jump" aria-label="Sections">
     <a href="#runCard" data-page="status" class="run"><span class="dot" id="jumpDot"></span>Status<small id="jumpRun">Idle</small></a>
     <a href="#optionsCard" data-page="generate">Generate</a>
@@ -2780,12 +2793,53 @@ function showPage(page) {
   if (!WIDE.matches) window.scrollTo(0, 0);
   markJump();
 }
+// Each side's colour, for the menu's dots.
+const SIDE_COLOURS = { shorts: '#ff0033', video: '#4c8dff', image: '#2fbf71' };
+// Pages that are a side's own: tapped again, they offer the same page on the other sides.
+const SIDE_PAGES = ['status', 'generate', 'output'];
+function openSideMenu(link) {
+  const menu = $('sideMenu');
+  menu.innerHTML = Object.keys(SIDE_NAMES).filter(side => side !== pipeline).map(side =>
+    `<button type="button" role="menuitem" data-side="${side}"><span class="side-dot" style="background:${SIDE_COLOURS[side]}"></span>${SIDE_NAMES[side]}</button>`).join('');
+  menu.classList.remove('closing');
+  menu.hidden = false;
+  // Over the button it came from, at least as wide.
+  menu.style.minWidth = `${link.offsetWidth}px`;
+  menu.style.left = `${Math.max(8, Math.min(link.offsetLeft, $('stick').offsetWidth - menu.offsetWidth - 8))}px`;
+  menu.style.bottom = `${$('stick').offsetHeight - link.offsetTop + 6}px`;
+  link.setAttribute('aria-expanded', 'true');
+}
+function closeSideMenu() {
+  const menu = $('sideMenu');
+  if (menu.hidden || menu.classList.contains('closing')) return;
+  JUMPS.forEach(a => a.removeAttribute('aria-expanded'));
+  menu.classList.add('closing');
+  setTimeout(() => { if (menu.classList.contains('closing')) { menu.hidden = true; menu.classList.remove('closing'); } }, 150);
+}
 $('jump').addEventListener('click', e => {
   const link = e.target.closest && e.target.closest('a');
   if (!link || WIDE.matches) return;  // A desktop scrolls there instead
   e.preventDefault();
-  showPage(link.dataset.page);
+  const page = link.dataset.page;
+  if (page === document.body.dataset.page && SIDE_PAGES.includes(page)) {
+    if ($('sideMenu').hidden || $('sideMenu').classList.contains('closing')) openSideMenu(link); else closeSideMenu();
+    return;
+  }
+  closeSideMenu();
+  showPage(page);
 });
+$('sideMenu').addEventListener('click', e => {
+  const choice = e.target.closest && e.target.closest('[data-side]');
+  if (!choice) return;
+  closeSideMenu();
+  setPipeline(choice.dataset.side);
+  showPage(document.body.dataset.page);
+});
+// A tap anywhere else, or Escape, puts it away.
+document.addEventListener('click', e => {
+  if (!$('sideMenu').hidden && !(e.target.closest && (e.target.closest('#sideMenu') || e.target.closest('#jump')))) closeSideMenu();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSideMenu(); });
 function markJump() {
   const line = 16;
   // A desktop lights the last section scrolled past, in the page's order rather than the footer's.

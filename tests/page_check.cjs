@@ -601,6 +601,19 @@ assert(!script.includes('failed_films') && !script.includes('filmsHtml'), 'Outpu
 context.oneImage = { id: 'image_1', label: 'One', total: 1, size: '1024x1024', when: 'now', images: [{ position: 1, title: 'x', version: 1 }] };
 assert(!run('imageSetHtml(oneImage)').includes('1 of 1'), 'one image on its own says no "1 of 1"');
 
+// The footer: tapping the page you're on again offers the same page on the other sides.
+context.document.body.dataset.page = 'generate';
+run("setPipeline('shorts', false)");
+const genLink = { dataset: { page: 'generate' }, offsetWidth: 80, offsetLeft: 100, offsetTop: 40, setAttribute() {}, removeAttribute() {} };
+context.genLink = genLink;
+run('openSideMenu(genLink)');
+assert.strictEqual(els.sideMenu.hidden, false);
+assert(els.sideMenu.innerHTML.includes('data-side="video"') && els.sideMenu.innerHTML.includes('data-side="image"') && !els.sideMenu.innerHTML.includes('data-side="shorts"'),
+  'the other two sides, not the one you are on');
+assert(/\.side-menu \{[^}]*animation: menu-in/.test(html) && /@keyframes menu-in \{ from \{ opacity: 0; transform: translateY\(8px\) scale\(\.94\)/.test(html), 'grows and fades in, upwards');
+assert(/if \(page === document\.body\.dataset\.page && SIDE_PAGES\.includes\(page\)\)/.test(script) && /const SIDE_PAGES = \['status', 'generate', 'output'\]/.test(script), 'Status, Generate and Output; not Quota');
+assert(/\.switch button \{[^}]*padding: 4px 12px; font-size: \.78rem;/.test(html), 'the side switch at the top is small now');
+
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/html \{ overflow-x: clip; \}/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),
   'nothing makes a phone page wider than its screen, so the footer stays put');
@@ -651,7 +664,7 @@ run("setPipeline('video', false)");
 assert(buttons.switchVideo.active === true && buttons.switchShorts.active === false && buttons.switchVideo.selected === true);
 run("setPipeline('shorts', false)");
 assert(buttons.switchShorts.active === true && buttons.switchVideo.active === false && buttons.switchShorts.selected === true);
-assert(/\.switch button\.active \{ background: var\(--accent\)/.test(html) && /body\.on-video \{ --accent:/.test(html));
+assert(/\.switch button\.active \{[^}]*color: var\(--accent\)/.test(html) && /body\.on-video \{ --accent:/.test(html));
 
 // The switch is the top of the page, with the title gone and two icons beside it.
 assert(html.indexOf('id="switchShorts"') < html.indexOf('id="stick"') && !/<h1>/.test(html.slice(0, html.indexOf('<script>'))));
