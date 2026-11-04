@@ -450,6 +450,8 @@
     display: flex; flex-direction: column;
     padding-bottom: env(safe-area-inset-bottom);
     background: var(--bg); border-top: 1px solid var(--line);
+    /* A layer of its own, painted once: scrolled fast, a phone's browser otherwise showed it half drawn. */
+    transform: translateZ(0); will-change: transform; backface-visibility: hidden; contain: paint;
   }
   /* The bars over the footer ease in and out, rather than jumping the page. */
   .stick .strip { order: -1; padding-top: 6px; max-height: 3em; opacity: 1; overflow: hidden; cursor: pointer;

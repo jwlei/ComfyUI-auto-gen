@@ -802,6 +802,8 @@ assert(/dialog\.viewer\[open\] \{ display: grid;[^}]*padding: 10px; background: 
 
 assert(/\.pipeline-form \.row > div \{ display: flex; flex-direction: column; justify-content: flex-end; \}/.test(html), 'fields side by side line up by their boxes');
 
+assert(/\.stick \{[^}]*transform: translateZ\(0\); will-change: transform;/.test(html), 'the footer on a layer of its own, never half drawn');
+
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/maximum-scale=1, user-scalable=no/.test(base) && /html \{ overflow-x: clip; touch-action: manipulation; \}/.test(base), 'no zooming the page out from under the footer');
 assert(/html \{ overflow-x: clip;/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),
