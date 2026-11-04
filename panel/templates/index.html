@@ -2193,7 +2193,7 @@ $('imageSets').addEventListener('click', async e => {
   } else if (d.shots) openShots(d.shots);
   else if (d.deleteSet) {
     if (!secondTap(e.target)) return;
-    await stopJob(`/runs/${d.deleteSet}/discard`);
+    await stopJob(`/image-runs/${encodeURIComponent(d.deleteSet)}/delete`);
   }
 });
 
@@ -2753,7 +2753,7 @@ function renderStopped(runs) {
         <span class="when">${fmtEta(run.estimate)}</span>
         ${run.pipeline !== 'shorts' ? `<button type="button" data-shots="${esc(run.id)}">Prompts</button>` : ''}
         <button type="button" data-continue="${esc(run.id)}">${run.pipeline !== 'shorts' && !run.clips ? 'Render' : 'Continue'}</button>
-        <button type="button" data-discard="${esc(run.id)}" data-pipeline="${esc(run.pipeline)}" data-clips="${run.clips}" aria-label="Discard this run" title="Discard this run">✕</button>
+        <button type="button" class="icon-btn" data-discard="${esc(run.id)}" data-pipeline="${esc(run.pipeline)}" data-clips="${run.clips}" aria-label="Discard this run" title="Discard what it has still to do: anything it made stays">✕</button>
       </div>
     </div>`).join('');
   // Only when it changed, so a poll can't swallow a click on a button it just replaced.
@@ -2771,10 +2771,8 @@ $('stoppedRuns').addEventListener('click', async e => {
   } else if (d.continue) {
     url = `/runs/${d.continue}/continue`;
   } else if (d.discard) {
-    const made = d.pipeline === 'image' ? 'image' : 'clip';
-    const clips = +d.clips ? ` and ${d.clips} ${made}${+d.clips === 1 ? '' : 's'}` : '';
-    const what = d.pipeline === 'shorts' ? 'script, voice' : 'prompts';
-    if (!confirm(`Discard this run? Its ${what}${clips} are deleted and can't be continued, and the tokens they cost are gone. Generate would otherwise pick it up again.`)) return;
+    // Two taps, as a delete: what it already made stays in Output.
+    if (!secondTap(e.target)) return;
     url = `/runs/${d.discard}/discard`;
   } else {
     return;

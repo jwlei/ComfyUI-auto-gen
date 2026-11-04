@@ -583,6 +583,22 @@ class PanelTest(unittest.TestCase):
         self.assertTrue(os.path.exists(run.image_path(run.shots[0])))
         self.assertNotIn("redo", run.shots[0])
 
+    def test_discarding_keeps_what_was_made_and_delete_takes_the_set(self):
+        self.make()
+        run = self.only_run()
+        made = run.shots[0]["file"]
+        # As if it stopped with one still to make.
+        os.remove(run.image_path(run.shots[2]))
+        run.shots[2]["file"] = None
+        run.save()
+        webapp._runs_cache["at"] = 0.0
+        self.assertTrue(self.client.post(f"/runs/{run.id}/discard").get_json()["ok"])
+        run = self.only_run()
+        self.assertEqual((len(run.shots), run.finished), (2, True), "what it made stays, as a set of those")
+        self.assertTrue(os.path.exists(os.path.join(run.output_dir, made)))
+        self.assertTrue(self.client.post(f"/image-runs/{run.id}/delete").get_json()["ok"])
+        self.assertFalse(os.path.exists(run.output_dir), "Output's Delete takes the whole set")
+
     def test_deleting_an_image_keeps_it_from_coming_back(self):
         self.make()
         run = self.only_run()
@@ -604,7 +620,7 @@ class PanelTest(unittest.TestCase):
     def test_deleting_a_set_takes_its_images(self):
         self.make()
         run = self.only_run()
-        self.assertTrue(self.client.post(f"/runs/{run.id}/discard").get_json()["ok"])
+        self.assertTrue(self.client.post(f"/image-runs/{run.id}/delete").get_json()["ok"])
         self.assertEqual(list_runs(), [])
         self.assertFalse(os.path.exists(run.output_dir))
         self.assertEqual(self.status()["image_sets"], [])

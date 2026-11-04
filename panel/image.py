@@ -429,7 +429,27 @@ def continue_run(run_id):
 
 
 def discard_run(run_id):
-    """Deletes a set: its prompts, and the images it has made in output/."""
+    """
+    Gives up on what a stopped set has still to make. The images it did make stay, in Output, as a set of those;
+    one that made none goes altogether.
+    """
+    state, refused = load_idle_run(run_id)
+    if refused:
+        return refused
+    made = state.done
+    if made:
+        state.shots = made
+        state.save()
+    else:
+        state.remove()
+    _runs_cache["at"] = 0.0
+    return {"ok": True}
+
+
+@app.route("/image-runs/<run_id>/delete", methods=["POST"])
+@password_required
+def delete_image_set(run_id):
+    """Deletes a whole set from Output: its prompts, and the images it made."""
     state, refused = load_idle_run(run_id)
     if refused:
         return refused

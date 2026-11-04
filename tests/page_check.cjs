@@ -734,6 +734,10 @@ assert(/\.viewer-title \{[^}]*-webkit-line-clamp: 2/.test(html), 'a long title s
 assert(/class="meta loras" role="button" tabindex="0" title="LoRA: a, b">LoRA: a, b<\/div>/.test(run("lorasLine(['a', 'b'])")));
 assert(/\.meta\.loras \{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis;/.test(html) && /\.meta\.loras\.open \{ white-space: normal;/.test(html));
 
+// Discarding a stopped run takes two taps, with no pop-up; deleting a whole set from Output has its own address.
+assert(!script.includes('Discard this run? Its') && /else if \(d\.discard\) \{\s*\/\/[^\n]*\n\s*if \(!secondTap\(e\.target\)\) return;/.test(script));
+assert(script.includes("stopJob(`/image-runs/${encodeURIComponent(d.deleteSet)}/delete`)"));
+
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/html \{ overflow-x: clip; \}/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),
   'nothing makes a phone page wider than its screen, so the footer stays put');
