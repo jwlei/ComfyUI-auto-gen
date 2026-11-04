@@ -300,6 +300,17 @@
   .image-grid a { display: block; flex: none; }
   .image-grid img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; display: block; background: #000; }
   .image-set-actions { flex: none; display: flex; gap: 6px; }
+  /* An album: the cover spans the strip and the buttons, so it sits like a single image beside its buttons. */
+  .image-set-row.album { align-items: stretch; }
+  .album-cover { position: relative; flex: none; display: block; width: 92px; min-height: 92px; }
+  .album-cover img { width: 100%; height: 100%; object-fit: cover; border-radius: 8px; display: block; background: #000; }
+  .album-count { position: absolute; right: 4px; bottom: 4px; padding: 0 6px; border-radius: 999px; background: rgba(0, 0, 0, .7);
+    color: #fff; font-size: .7rem; font-weight: 600; line-height: 1.5; pointer-events: none; }
+  .album-side { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; gap: 6px; }
+  .album-strip { display: flex; gap: 4px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; overscroll-behavior-x: contain; }
+  .album-strip::-webkit-scrollbar { display: none; }
+  .album-strip a { flex: none; scroll-snap-align: start; }
+  .album-strip img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; display: block; background: #000; }
   .image-set-actions button { width: auto; margin: 0; padding: 6px 10px; font-size: .78rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
   .image-set-actions .del { background: transparent; color: var(--muted); }
   .pipeline-form .option-choice { display: inline-block; width: auto; max-width: 100%; margin: 4px 0 0 8px; padding: 3px 6px; font-size: .85rem; text-overflow: ellipsis; }
@@ -1818,16 +1829,27 @@ function lorasLine(loras) {
 }
 function imageSetHtml(set) {
   const id = encodeURIComponent(set.id);
-  const pictures = set.images.map(picture => `<a href="/image-runs/${id}/files/${picture.position}?v=${picture.version}" data-view-set="${esc(set.id)}" data-view-position="${picture.position}" title="${esc(picture.title)}"><img loading="lazy" alt="${esc(picture.title)}" src="/image-runs/${id}/thumbnails/${picture.position}?v=${picture.version}"></a>`).join('');
+  const picture = (p, extra = '') => `<a href="/image-runs/${id}/files/${p.position}?v=${p.version}" data-view-set="${esc(set.id)}" data-view-position="${p.position}" title="${esc(p.title)}"${extra}><img loading="lazy" alt="${esc(p.title)}" src="/image-runs/${id}/thumbnails/${p.position}?v=${p.version}">`;
   const all = set.images.length > 1 ? `Download all ${set.images.length}` : 'Download';
+  const actions = `<div class="image-set-actions"><button type="button" data-download-set="${esc(set.id)}" title="${all}">Download</button><button type="button" data-shots="${esc(set.id)}">Prompts</button><button type="button" class="del" data-delete-set="${esc(set.id)}">Delete</button></div>`;
+  // One image: it and its buttons on a line. An album: its cover as tall as the strip of the rest and the buttons beside it.
+  const row = set.images.length > 1 ? `
+    <div class="image-set-row album">
+      ${picture(set.images[0], ' class="album-cover"')}<span class="album-count">${set.images.length}</span></a>
+      <div class="album-side">
+        <div class="album-strip">${set.images.slice(1).map(p => picture(p) + '</a>').join('')}</div>
+        ${actions}
+      </div>
+    </div>` : `
+    <div class="image-set-row">
+      <div class="image-grid">${set.images.map(p => picture(p) + '</a>').join('')}</div>
+      ${actions}
+    </div>`;
   return `
   <div class="image-set">
     <h3>${esc(set.label)}</h3>
     <div class="meta">${[set.model && esc(set.model), set.total > 1 && `${set.images.length} of ${set.total}`, esc(set.size), esc(set.when)].filter(Boolean).join(' · ')}</div>${lorasLine(set.loras)}
-    <div class="image-set-row">
-      <div class="image-grid">${pictures}</div>
-      <div class="image-set-actions"><button type="button" data-download-set="${esc(set.id)}" title="${all}">Download</button><button type="button" data-shots="${esc(set.id)}">Prompts</button><button type="button" class="del" data-delete-set="${esc(set.id)}">Delete</button></div>
-    </div>
+    ${row}
   </div>`;
 }
 function renderImageSets() {

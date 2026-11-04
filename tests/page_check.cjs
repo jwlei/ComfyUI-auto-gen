@@ -240,7 +240,7 @@ assert(setHtml.includes('/thumbnails/1?v=5') && setHtml.includes('/files/1?v=5')
 assert(setHtml.includes('data-delete-set=') && setHtml.includes('data-shots=') && setHtml.includes('data-download-set='));
 assert(setHtml.includes('krea2_&lt;SFW&gt; · 2 of 3'), 'the workflow by its short name, first');
 assert(!setHtml.includes('target="_blank"') && setHtml.includes('data-view-position="3"'), 'a picture opens in the viewer, not a new tab');
-const inRow = setHtml.slice(setHtml.indexOf('class="image-set-row"'));
+const inRow = setHtml.slice(setHtml.indexOf('class="image-set-row'));
 assert(inRow.includes('<img') && inRow.indexOf('<img') < inRow.indexOf('data-download-set') && inRow.indexOf('data-shots') < inRow.indexOf('data-delete-set'), 'the pictures and their buttons share one line');
 
 // Download on a set takes each image as a file of its own; the viewer's takes just the one it shows.
@@ -271,6 +271,12 @@ assert(/#viewerImage \{[^}]*touch-action: pan-y pinch-zoom/.test(html), 'a sidew
 run('closeViewer()');
 assert.strictEqual(els.imageViewer.open, false);
 assert(/\.image-set-row \{ display: flex/.test(html) && /\.image-grid img \{ width: 56px/.test(html), 'and small enough to');
+// An album: its cover, as tall as the strip of the rest above its buttons; one image stays on a line with its buttons.
+assert(/<div class="image-set-row album">\s*<a [^>]*class="album-cover"[^>]*><img[^>]*\/thumbnails\/1\?v=5"><span class="album-count">2<\/span><\/a>\s*<div class="album-side">\s*<div class="album-strip"><a [^>]*data-view-position="3"[\s\S]*?<\/div>\s*<div class="image-set-actions">/.test(setHtml),
+  'cover beside the strip, the strip above the buttons');
+const single = run("imageSetHtml({ id: 'image_9', label: 'One', total: 1, size: '1x1', when: 'now', images: [{ position: 1, title: 'x', version: 1 }] })");
+assert(single.includes('<div class="image-grid">') && !single.includes('album'), 'one image is just itself');
+assert(/\.image-set-row\.album \{ align-items: stretch; \}/.test(html) && /\.album-strip \{ display: flex;[^}]*overflow-x: auto/.test(html), 'the strip scrolls sideways');
 assert(/input\[type=file\]::file-selector-button/.test(html), 'choosing a file has a real button');
 run('imageSets = sets; renderImageSets()');
 const once = els.imageSets.innerHTML;
