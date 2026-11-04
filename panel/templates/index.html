@@ -27,6 +27,8 @@
   #uploadBox .status { margin-bottom: 8px; }
   #stopUpload { width: auto; margin: 0 0 0 auto; padding: 4px 10px; font-size: .8rem; }
   .queue { margin-top: 12px; font-size: .84rem; }
+  /* A line between what's going now and what's waiting, there only when something is. */
+  .status-queue:has(> :not([hidden])) { margin-top: 14px; padding-top: 2px; border-top: 1px solid var(--line); }
   /* What is on its way to the queue: there from the tap until the panel has taken it. */
   .queue-pending { margin-top: 12px; padding: 8px 11px; border: 1px dashed var(--line); border-radius: 10px; font-size: .84rem; animation: work-arrive .3s ease; }
   .queue-pending[hidden] { display: none; }
