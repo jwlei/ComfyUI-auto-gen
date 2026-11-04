@@ -452,7 +452,7 @@ run(`renderUpload({ lines: [{ n: 1, t: '17:00', text: 'x' }], running: false, st
 assert.strictEqual(els.uploadBox.hidden, true, 'an upload that ended has nothing to show here');
 run(`renderFinished([{ label: 'A <b>run', outcome: 'done', at: '17:05', pipeline: 'video' }, { label: 'B', outcome: 'failed', note: 'exit 1', at: '17:10', pipeline: 'image' }],
   [{ label: 'C', outcome: 'done', at: '17:20' }])`);
-assert.strictEqual(els.finishedToggle.hidden, false);
+assert.strictEqual(els.finishedToggle.disabled, false);
 assert(els.finishedToggle.innerHTML.startsWith('Finished (3)') && els.finishedToggle.innerHTML.includes('1 failed'));
 const order = ['>C<', '>B (exit 1)<', '>A &lt;b&gt;run<'].map(text => els.finishedList.innerHTML.indexOf(text));
 assert(order.every(i => i >= 0) && order[0] < order[1] && order[1] < order[2], 'newest first, escaped');
@@ -483,7 +483,7 @@ assert(!html.includes('Expand to see the log'));
 assert(/dialog\.panel-dialog::backdrop \{[^}]*backdrop-filter: blur\(6px\)/.test(html) && /\.panel-close \{ align-self: center;/.test(html), 'over a blurred page, with a close in the middle under it');
 assert(/\.status-queue:has\(> :not\(\[hidden\]\)\) \{[^}]*background: var\(--bg\)/.test(html), 'the runs in a darker box');
 run('renderFinished([], [])');
-assert.strictEqual(els.finishedToggle.hidden, true);
+assert(els.finishedToggle.disabled === true && els.finishedToggle.textContent === 'Finished (0)', 'still there, greyed out, when nothing has finished');
 assert(!script.includes("'Finished ✔'") && !script.includes('Upload finished') && !script.includes('Failed (exit'));
 
 // The header: a short status on Run, and a bar under it per job.

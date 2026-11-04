@@ -135,6 +135,7 @@
   #logToggle { grid-column: 2; justify-self: center; }
   #quotaToggle { grid-column: 3; justify-self: end; }
   .status-toggle[aria-haspopup]::after { content: none; }
+  .status-toggle:disabled { opacity: .45; cursor: default; }
   /* Finished, Log and Quota open over a blurred page, like the viewer, with a quiet Close under them. */
   dialog.panel-dialog { width: min(620px, calc(100vw - 24px)); max-height: calc(100dvh - 48px); padding: 14px 14px 12px;
     display: none; flex-direction: column; gap: 10px; animation: menu-in .2s ease; }
@@ -665,7 +666,7 @@
   </div>
   </div>
   <div class="status-toggles" id="statusToggles">
-    <button type="button" class="status-toggle" id="finishedToggle" aria-haspopup="dialog" hidden></button>
+    <button type="button" class="status-toggle" id="finishedToggle" aria-haspopup="dialog" disabled>Finished (0)</button>
     <button type="button" class="status-toggle" id="logToggle" aria-haspopup="dialog">Log</button>
     <button type="button" class="status-toggle" id="quotaToggle" aria-haspopup="dialog">Quota</button>
   </div>
@@ -2818,8 +2819,12 @@ function renderFinished(runs, uploads, madeNow = []) {
     .concat(uploads.map(r => ({ ...r, type: 'Upload', side: 'shorts', tab: r.outcome === 'done' ? 'uploaded' : 'output' })))
     .sort((a, b) => (b.t || 0) - (a.t || 0) || (b.at || '').localeCompare(a.at || ''))
     .slice(0, FINISHED_SHOWN);
-  $('finishedToggle').hidden = !all.length;
-  if (!all.length) return;
+  // Always there, so the line keeps its shape: greyed out while nothing has finished.
+  $('finishedToggle').disabled = !all.length;
+  if (!all.length) {
+    $('finishedToggle').textContent = 'Finished (0)';
+    return;
+  }
   const failed = all.filter(r => r.outcome === 'failed').length;
   const title = `Finished (${all.length})${failed ? ` · <span class="failed">${failed} failed</span>` : ''}`;
   const list = all.map(r => `<button type="button" class="result${r.outcome === 'failed' ? ' failed' : ''}" data-goto="${esc(r.side)}"${r.tab ? ` data-tab="${r.tab}"` : ''}>`
