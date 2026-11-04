@@ -18,6 +18,9 @@
     --err: #ff6b6b;
   }
   * { box-sizing: border-box; }
+  /* Nothing may make the page wider than the screen: a phone would shrink it, and the fixed footer slide off. */
+  html { overflow-x: clip; }
+  input, select, textarea { max-width: 100%; }
   body {
     margin: 0;
     background: var(--bg);
@@ -63,7 +66,7 @@
   button:disabled { opacity: .45; cursor: not-allowed; }
   button.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); margin-top: 10px; }
   .row { display: flex; gap: 12px; }
-  .row > * { flex: 1; }
+  .row > * { flex: 1; min-width: 0; }
   .err { color: var(--err); font-size: .9rem; margin-top: 10px; }
 </style>
 </head>

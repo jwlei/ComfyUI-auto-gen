@@ -517,6 +517,26 @@ run("setPipeline('shorts', false)");
 // Every link goes somewhere. The footer's order is its own: a desktop lights up by where the sections are.
 const links = [...html.matchAll(/<a href="#(\w+)"/g)].map(m => m[1]);
 for (const id of links) assert(ids.has(id), `#${id} is on the page`);
+// Deleting takes two taps, on every image and video delete button.
+for (const asked of ["confirm('Delete ' + d.del", "confirm('Delete this image?", "confirm('Delete this set?", 'confirm(`Delete image ${d.deleteImage}']) {
+  assert(!script.includes(asked), `${asked} is a second tap now`);
+}
+context.tapped = { textContent: 'Delete', dataset: {}, classList: classes() };
+assert.strictEqual(run('secondTap(tapped)'), false, 'the first tap only asks');
+assert(context.tapped.classList.contains('armed') && context.tapped.textContent === 'Tap again');
+assert.strictEqual(run('secondTap(tapped)'), true, 'the second deletes');
+assert.strictEqual(context.tapped.textContent, 'Delete');
+run('secondTap(tapped)');
+run('disarm(tapped)');
+assert(!context.tapped.classList.contains('armed') && context.tapped.textContent === 'Delete', 'and left alone it goes back');
+assert(/dialog\.viewer \.viewer-actions > \* \{ flex: 1 1 0; min-width: 96px; height: 40px; margin: 0;/.test(html), 'Download, Delete and Close are one size');
+context.oneImage = { id: 'image_1', label: 'One', total: 1, size: '1024x1024', when: 'now', images: [{ position: 1, title: 'x', version: 1 }] };
+assert(!run('imageSetHtml(oneImage)').includes('1 of 1'), 'one image on its own says no "1 of 1"');
+
+const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
+assert(/html \{ overflow-x: clip; \}/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),
+  'nothing makes a phone page wider than its screen, so the footer stays put');
+assert(/\.check > span \{ min-width: 0; overflow-wrap: anywhere; \}/.test(html) && /\.option-choice \{[^}]*max-width: 100%/.test(html), 'options wrap rather than widen it');
 assert(/JUMPS\.filter\(a => top\(a\) <= line\)\.sort\(/.test(script), 'by position, not the footer order');
 // Status comes first, Generate is called just that, and it sits with the options.
 assert(html.indexOf('id="runCard"') < html.indexOf('id="optionsCard"'));

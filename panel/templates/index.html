@@ -90,6 +90,10 @@
   .check { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; cursor: pointer; text-transform: none; letter-spacing: 0; font-size: .95rem; color: var(--text); }
   .check input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
   .check .hint { margin-top: 2px; }
+  button.armed, dialog.viewer .viewer-actions > button.armed { background: var(--err); border-color: var(--err); color: #fff; }
+  /* A long label or a select of long file names wraps and shrinks, rather than widening the page. */
+  .check > span { min-width: 0; overflow-wrap: anywhere; }
+  .card, .form-col, details.section { min-width: 0; }
   .btns { display: flex; gap: 10px; }
   .btns button { margin-top: 0; white-space: nowrap; }
   .btns .ghost { flex: 0 0 34%; }
@@ -226,10 +230,12 @@
   .viewer-title { color: #ddd; font-size: .85rem; text-align: center; overflow-wrap: anywhere; }
   .viewer-title:empty { display: none; }
   .viewer-actions { display: flex; gap: 8px; }
-  .viewer-actions > * { width: auto; margin: 0; padding: 8px 16px; font-size: .9rem; }
-  .viewer-actions a.button { display: inline-flex; align-items: center; border-radius: 10px; background: var(--accent); color: #fff; text-decoration: none; font-weight: 600; }
-  .viewer-actions button { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
-  .viewer-actions button.del { color: #ff6b6b; }
+  dialog.viewer .viewer-actions > * { flex: 1 1 0; min-width: 96px; height: 40px; margin: 0; padding: 0 16px; box-sizing: border-box;
+    display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 10px;
+    font-size: .9rem; font-weight: 600; white-space: nowrap; }
+  dialog.viewer .viewer-actions > a.button { background: var(--accent); border-color: var(--accent); color: #fff; text-decoration: none; }
+  dialog.viewer .viewer-actions > button { background: var(--panel-2); color: var(--text); }
+  dialog.viewer .viewer-actions > button.del { color: #ff6b6b; }
   @keyframes viewer-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
   @media (prefers-reduced-motion: reduce) { dialog.viewer[open] { animation: none; } }
   .shots-head { padding: 16px 16px 10px; border-bottom: 1px solid var(--line); }
@@ -258,7 +264,7 @@
   .image-set-actions { flex: none; display: flex; gap: 6px; }
   .image-set-actions button { width: auto; margin: 0; padding: 6px 10px; font-size: .78rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
   .image-set-actions .del { background: transparent; color: var(--muted); }
-  .pipeline-form .option-choice { display: inline-block; width: auto; margin-left: 8px; padding: 3px 6px; font-size: .85rem; }
+  .pipeline-form .option-choice { display: inline-block; width: auto; max-width: 100%; margin: 4px 0 0 8px; padding: 3px 6px; font-size: .85rem; text-overflow: ellipsis; }
   .pipeline-form .option-strength { display: inline-block; width: 5.5em; margin-left: 8px; padding: 3px 6px; font-size: .85rem; }
   .shot-image { max-width: 100%; max-height: 300px; margin-top: 8px; border-radius: 8px; display: block; background: #000; }
   /* Phones: the page is one long column, so this stays at the bottom to get around it. */
@@ -316,7 +322,7 @@
   .run-actions button { flex: 1; width: auto; margin: 0; }
   .card > .section-title:first-child { margin-top: 0; }
   /* Each heading folds what's under it away. */
-  summary.section-title { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; user-select: none; }
+  summary.section-title { min-width: 0; overflow-wrap: anywhere; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; user-select: none; }
   summary.section-title::-webkit-details-marker { display: none; }
   summary.section-title::after { content: "\203A"; font-size: 1.2rem; line-height: 1; color: var(--muted); transform: rotate(90deg); transition: transform .15s; }
   details.section:not([open]) > summary.section-title::after { transform: none; }
@@ -1104,12 +1110,30 @@ async function startUpload(fields) {
 }
 function privacyNote() { return `as ${$('privacy').value} (change it under Publish)`; }
 
+// Deleting takes two taps: the first turns the button red and asks, the second, within a few seconds, deletes.
+const ARMED_MS = 3000;
+function disarm(button) {
+  clearTimeout(button._disarm);
+  if (!button.classList.contains('armed')) return;
+  button.classList.remove('armed');
+  button.textContent = button.dataset.label;
+}
+function secondTap(button) {
+  if (button.classList.contains('armed')) {
+    disarm(button);
+    return true;
+  }
+  button.dataset.label = button.textContent;
+  button.classList.add('armed');
+  button.textContent = 'Tap again';
+  button._disarm = setTimeout(() => disarm(button), ARMED_MS);
+  return false;
+}
+
 $('videos').addEventListener('click', async e => {
   const d = e.target.dataset || {};
   if (d.del) {
-    const after = folder === 'video' ? ' Its clips and prompts go too, so its shots can\'t be redone.'
-      : folder === 'output' ? ' Its topic can be used again.' : ' Its topic stays used, as it is on YouTube.';
-    if (!confirm('Delete ' + d.del + '?' + after)) return;
+    if (!secondTap(e.target)) return;
     const body = await (await fetch(`/delete/${folder}/` + encodeURIComponent(d.del), { method: 'POST' })).json();
     if (body.warning) alert(body.warning);
     if (!body.ok) alert(body.error || 'Could not delete it.');
@@ -1707,7 +1731,7 @@ function imageSetHtml(set) {
   return `
   <div class="image-set">
     <h3>${esc(set.label)}</h3>
-    <div class="meta">${set.model ? `${esc(set.model)} · ` : ''}${set.images.length} of ${set.total} · ${esc(set.size)} · ${esc(set.when)}</div>
+    <div class="meta">${[set.model && esc(set.model), set.total > 1 && `${set.images.length} of ${set.total}`, esc(set.size), esc(set.when)].filter(Boolean).join(' · ')}</div>
     <div class="image-set-row">
       <div class="image-grid">${pictures}</div>
       <div class="image-set-actions"><button type="button" data-download-set="${esc(set.id)}" title="${all}">Download</button><button type="button" data-shots="${esc(set.id)}">Prompts</button><button type="button" class="del" data-delete-set="${esc(set.id)}">Delete</button></div>
@@ -1748,12 +1772,12 @@ function openViewer(id, position) {
 function closeViewer() {
   if ($('imageViewer').open) $('imageViewer').close();
 }
-$('imageViewer').addEventListener('close', () => { viewing = null; $('viewerImage').removeAttribute('src'); });
+$('imageViewer').addEventListener('close', () => { viewing = null; $('viewerImage').removeAttribute('src'); disarm($('viewerDelete')); });
 // A tap on the dimmed page around it closes it too.
 $('imageViewer').addEventListener('click', e => { if (e.target === $('imageViewer')) closeViewer(); });
 $('viewerClose').addEventListener('click', closeViewer);
 $('viewerDelete').addEventListener('click', async () => {
-  if (!viewing || !confirm('Delete this image? Its prompt goes with it.')) return;
+  if (!viewing || !secondTap($('viewerDelete'))) return;
   const { id, position } = viewing;
   let body;
   try {
@@ -1778,7 +1802,7 @@ $('imageSets').addEventListener('click', async e => {
     if (set) downloadImages(set.id, set.images.map(p => p.position));
   } else if (d.shots) openShots(d.shots);
   else if (d.deleteSet) {
-    if (!confirm('Delete this set? Its images and prompts all go, and it can\'t be continued.')) return;
+    if (!secondTap(e.target)) return;
     await stopJob(`/runs/${d.deleteSet}/discard`);
   }
 });
@@ -1948,7 +1972,7 @@ $('shotsBody').addEventListener('click', async e => {
   else if (d.render) {
     if (await saveShots()) runSaved(`/runs/${shotsRun.id}/continue`);
   } else if (d.deleteImage) {
-    if (!confirm(`Delete image ${d.deleteImage} and its prompt from this set?`)) return;
+    if (!secondTap(e.target)) return;
     if (!await saveShots()) return;
     const last = shotsRun.shots.length === 1, id = shotsRun.id;
     const data = await (await fetch(`${runUrl(id)}/delete/${d.deleteImage}`, { method: 'POST' })).json();
