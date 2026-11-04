@@ -188,6 +188,8 @@
   }
   .carousel::-webkit-scrollbar { display: none; }
   .carousel.as-list { display: block; overflow: visible; }
+  .output-filter-line { margin-bottom: 10px; }
+  .output-filter-line select { width: auto; max-width: 100%; padding: 5px 10px; font-size: .82rem; }
   /* A film's poster says it plays. */
   .film-cover .play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff;
     font-size: 1.4rem; text-shadow: 0 1px 6px rgba(0, 0, 0, .8); pointer-events: none; }
@@ -317,6 +319,10 @@
   dialog.viewer .viewer-actions > a.button { background: var(--accent); border-color: var(--accent); color: #fff; text-decoration: none; }
   dialog.viewer .viewer-actions > button { background: var(--panel-2); color: var(--text); }
   dialog.viewer .viewer-actions > button.del { color: #ff6b6b; }
+  .viewer-tools { display: flex; gap: 8px; justify-content: center; }
+  .viewer-tools[hidden] { display: none; }
+  .viewer-tools button { width: auto; margin: 0; padding: 5px 14px; font-size: .78rem; font-weight: 600; border-radius: 999px;
+    background: transparent; border: 1px solid var(--line); color: #ddd; }
   @keyframes viewer-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
   @media (prefers-reduced-motion: reduce) { dialog.viewer[open] { animation: none; } }
   .shots-head { padding: 16px 16px 10px; border-bottom: 1px solid var(--line); }
@@ -1035,6 +1041,9 @@
 </div>
 
 <div class="card videos-card" id="videosCard" data-page="output">
+  <div class="output-filter-line">
+    <select id="outputFilter" aria-label="Show the output of one workflow"><option value="">All workflows</option></select>
+  </div>
   <div class="vhead">
     <div class="tabs only-shorts">
       <button type="button" id="tabOutput" class="active">Ready (<span id="countOutput">0</span>)</button>
@@ -1077,6 +1086,10 @@
   <video id="viewerVideo" controls playsinline preload="none" hidden></video>
   <div class="viewer-bar">
     <div class="viewer-title" id="viewerTitle"></div>
+    <div class="viewer-tools" id="viewerTools" hidden>
+      <button type="button" id="viewerVariations" title="More like this one: its prompt and settings in Generate, on new seeds">More like this</button>
+      <button type="button" id="viewerUpscale" title="Upscale this one with SeedVR2, as a new image in its set">Upscale</button>
+    </div>
     <div class="viewer-actions">
       <a class="button" id="viewerDownload" href="#" download>Download</a>
       <button type="button" class="del" id="viewerDelete">Delete</button>
@@ -1237,15 +1250,38 @@ function unclaimedVideos() {
   return lastVideos.output.filter(v => !uploadingNow.has(v.name) && !uploadQueued.has(v.name));
 }
 
+// --- Output, one workflow at a time if you like ---
+let outputFilter = '';
+function filtered(list) { return outputFilter ? list.filter(item => item.model === outputFilter) : list; }
+// The filter offers the workflows there is output from, here.
+function syncFilter(list) {
+  const models = [...new Set(list.map(item => item.model).filter(Boolean))].sort();
+  const select = $('outputFilter'), key = models.join('|');
+  if (outputFilter && !models.includes(outputFilter)) outputFilter = '';
+  if (select.dataset.key !== key) {
+    select.dataset.key = key;
+    select.innerHTML = '<option value="">All workflows</option>' + models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+  }
+  select.value = outputFilter;
+  select.hidden = models.length < 2;
+}
+$('outputFilter').addEventListener('change', () => {
+  outputFilter = $('outputFilter').value;
+  $('videos').dataset.key = $('imageSets').dataset.key = '';
+  renderVideos();
+  renderImageSets();
+});
+function visibleFilms() { return filtered(lastVideos[folder] || []); }
 function renderVideos() {
-  const videos = lastVideos[folder] || [];
+  if (pipeline !== 'image') syncFilter(lastVideos[folder] || []);
+  const videos = visibleFilms();
   $('countOutput').textContent = lastVideos.output.length;
   $('countUploaded').textContent = lastVideos.uploaded.length;
   $('uploadAll').hidden = folder !== 'output';
   $('uploadAll').disabled = !CAN_UPLOAD || !unclaimedVideos().length;
   $('uploadAll').textContent = busy ? 'Queue upload all' : 'Upload all';
 
-  const key = folder + '|' + videos.map(v => v.name + v.mtime + (v.topic || v.title || '')).join(',');
+  const key = folder + '|' + outputFilter + '|' + videos.map(v => v.name + v.mtime + (v.topic || v.title || '')).join(',');
   // Keep players that already exist so a poll does not interrupt playback.
   if ($('videos').dataset.key !== key) {
     const was = (slides()[currentSlide()] || {}).dataset;
@@ -1995,18 +2031,23 @@ function imageSetHtml(set) {
   </div>`;
 }
 function renderImageSets() {
-  const key = JSON.stringify(imageSets.map(set => [set.id, set.label, set.total, set.images, set.model, set.loras]));
+  if (pipeline === 'image') syncFilter(imageSets);
+  const sets = filtered(imageSets);
+  const key = outputFilter + JSON.stringify(sets.map(set => [set.id, set.label, set.total, set.images, set.model, set.loras]));
   // Only when it changed, so a poll doesn't reload the pictures.
   if ($('imageSets').dataset.key === key) return;
   $('imageSets').dataset.key = key;
-  $('imageSets').innerHTML = imageSets.length ? imageSets.map(imageSetHtml).join('') : '<div class="empty">No images yet. Press Generate to make some.</div>';
+  $('imageSets').innerHTML = sets.length ? sets.map(imageSetHtml).join('') : '<div class="empty">No images yet. Press Generate to make some.</div>';
 }
 // --- The same again: a set's settings back in Generate, its images too, to change before pressing it ---
-async function sameAgain(id) {
+// With position: more like that one image: its own prompt, word for word, four times on new seeds.
+async function sameAgain(id, position = null) {
   let data;
   try { data = await (await fetch(`/image-runs/${encodeURIComponent(id)}`)).json(); } catch (e) { data = { error: 'Could not reach the panel. Try again.' }; }
   if (!data.ok) { alert(data.error || 'Could not open that set.'); return; }
-  const s = data.settings;
+  const s = { ...data.settings };
+  const shot = position && data.shots[position - 1];
+  if (shot) Object.assign(s, { prompt: shot.prompt, direct: true, count: VARIATIONS });
   if (pipeline !== 'image') setPipeline('image');
   await loadImageWorkflows();
   $('imageWorkflow').value = [...$('imageWorkflow').options].some(o => o.value === s.workflow && !o.disabled) ? s.workflow : '';
@@ -2106,6 +2147,24 @@ async function sameAgainFilm(id) {
   showFormError('');
   if (WIDE.matches) $('optionsCard').scrollIntoView({ behavior: 'smooth' }); else showPage('generate');
 }
+const VARIATIONS = 4;
+$('viewerVariations').addEventListener('click', () => {
+  if (!viewing || viewing.film) return;
+  const { id, position } = viewing;
+  closeViewer();
+  sameAgain(id, position);
+});
+$('viewerUpscale').addEventListener('click', async () => {
+  if (!viewing || viewing.film) return;
+  const { id, position } = viewing;
+  let body;
+  try { body = await (await fetch(`/image-runs/${encodeURIComponent(id)}/upscale/${position}`, { method: 'POST' })).json(); }
+  catch (e) { body = { error: 'Could not reach the panel. Try again.' }; }
+  if (!body.ok) { alert(body.error || 'Could not upscale it.'); return; }
+  $('viewerUpscale').textContent = body.queued ? 'Queued' : 'Upscaling…';
+  setTimeout(() => { $('viewerUpscale').textContent = 'Upscale'; }, 2500);
+  poll();
+});
 // Every option as a set had it: what it chose, else the workflow's own default.
 function applyOptions(box, options, chosen) {
   for (const option of options.filter(o => !o.role)) {
@@ -2134,13 +2193,14 @@ function downloadImages(id, positions) {
 // --- The image viewer: one picture over a dimmed page, with Download, Delete and Close ---
 let viewing = null;
 function showViewerMedia(video) {
+  $('viewerTools').hidden = video;
   $('viewerImage').hidden = video;
   $('viewerVideo').hidden = !video;
   if (!video) { $('viewerVideo').pause(); $('viewerVideo').removeAttribute('src'); }
 }
 // A film in the viewer, playing; a swipe goes to the one beside it in Output.
 function openFilm(name) {
-  const films = lastVideos[folder] || [], at = films.findIndex(v => v.name === name);
+  const films = visibleFilms(), at = films.findIndex(v => v.name === name);
   if (at < 0) return;
   const film = films[at], url = `/videos/${folder}/${encodeURIComponent(name)}`;
   viewing = { film: true, name };
@@ -2177,7 +2237,7 @@ function openViewer(id, position) {
 function stepViewer(by) {
   if (!viewing) return false;
   if (viewing.film) {
-    const films = lastVideos[folder] || [], next = films[films.findIndex(v => v.name === viewing.name) + by];
+    const films = visibleFilms(), next = films[films.findIndex(v => v.name === viewing.name) + by];
     if (!next) return false;
     disarm($('viewerDelete'));
     const video = $('viewerVideo');
@@ -3042,7 +3102,7 @@ function renderStrips(data) {
   const all = eta && queueAhead > eta.total_left + 30 ? ` · the whole queue around ${clockIn(queueAhead)}` : '';
   const total = eta ? `Done around ${clockIn(eta.total_left)}${all}` : `${fmt(data.elapsed)} so far`;
   setStrip('run', data.running,
-    { text: video + (stage[2] || 'Starting'), right: left, hint: p.detail || STAGE_HINTS[stage[2]] || '', total },
+    { text: video + (stage[2] || 'Starting'), right: left + (runsQueued ? ` · +${runsQueued} queued` : ''), hint: p.detail || STAGE_HINTS[stage[2]] || '', total },
     { text: p.run && p.run[1] > 1 ? `Video ${p.run[0]} of ${p.run[1]}` : 'This run', right: eta ? `${left}, done around ${clockIn(eta.total_left)}` : '' },
     eta && eta.adjusted_total ? 1 - eta.total_left / eta.adjusted_total : null);
   const up = data.upload, at = (up.progress || {}).upload;

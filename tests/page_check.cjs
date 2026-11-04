@@ -765,6 +765,19 @@ run('resetZoom()');
 assert.deepStrictEqual(JSON.parse(run('JSON.stringify(zoom)')), { scale: 1, x: 0, y: 0 });
 assert(/#viewerImage \{[^}]*touch-action: none;/.test(html) && /zoom\.scale === 1 \? \{ x: e\.touches\[0\]\.clientX/.test(script), 'zoomed in, a finger moves it rather than turning the page');
 
+// Output, one workflow at a time: the filter offers what there is, and the list and the viewer follow it.
+run(`lastVideos = { output: [], uploaded: [], video: [{ name: 'a.mp4', model: 'wan', mtime: 1 }, { name: 'b.mp4', model: 'ltx', mtime: 2 }, { name: 'c.mp4', model: 'wan', mtime: 3 }] }; folder = 'video'; pipeline = 'video'`);
+run('syncFilter(lastVideos.video)');
+assert(els.outputFilter.innerHTML.includes('<option value="ltx">ltx</option>') && els.outputFilter.innerHTML.includes('<option value="wan">wan</option>') && els.outputFilter.hidden === false);
+run(`outputFilter = 'wan'`);
+assert.deepStrictEqual(JSON.parse(run('JSON.stringify(visibleFilms().map(v => v.name))')), ['a.mp4', 'c.mp4']);
+run(`outputFilter = ''; folder = 'output'; pipeline = 'shorts'`);
+// The footer's bar says how many more are waiting.
+assert(/right: left \+ \(runsQueued \? ` · \+\$\{runsQueued\} queued` : ''\)/.test(script));
+// The viewer: more like this one, and upscale it, for an image only.
+assert(/<div class="viewer-tools" id="viewerTools" hidden>[\s\S]*?id="viewerVariations"[\s\S]*?id="viewerUpscale"/.test(html));
+assert(/if \(shot\) Object\.assign\(s, \{ prompt: shot\.prompt, direct: true, count: VARIATIONS \}\);/.test(script), 'its own prompt, word for word, on new seeds');
+
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/maximum-scale=1, user-scalable=no/.test(base) && /html \{ overflow-x: clip; touch-action: manipulation; \}/.test(base), 'no zooming the page out from under the footer');
 assert(/html \{ overflow-x: clip;/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),

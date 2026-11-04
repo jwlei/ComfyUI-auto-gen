@@ -608,6 +608,23 @@ class PanelTest(unittest.TestCase):
         self.assertTrue(self.client.post(f"/image-runs/{run.id}/delete").get_json()["ok"])
         self.assertFalse(os.path.exists(run.output_dir), "Output's Delete takes the whole set")
 
+    def test_upscaling_one_adds_it_beside_the_one_it_came_from(self):
+        self.make(count="2")
+        run = self.only_run()
+        self.assertEqual(self.client.post(f"/image-runs/{run.id}/upscale/9").status_code, 400)
+        prompts = len(self.comfy.prompts)
+        self.assertTrue(self.client.post(f"/image-runs/{run.id}/upscale/1").get_json()["ok"])
+        self.wait_idle()
+        run = self.only_run()
+        self.assertEqual(len(run.shots), 3)
+        upscaled = run.shots[1]
+        self.assertEqual((upscaled["upscaled_from"], upscaled["title"]), (1, run.shots[0]["title"] + " · upscaled"))
+        self.assertTrue(upscaled["file"].endswith("_upscaled.png") and os.path.exists(run.image_path(upscaled)))
+        sent = self.comfy.prompts[prompts]["prompt"]
+        self.assertEqual({node["class_type"] for node in sent.values()},
+                         {"LoadImage", "SeedVR2LoadDiTModel", "SeedVR2LoadVAEModel", "SeedVR2VideoUpscaler", "PreviewImage"})
+        self.assertEqual(next(n for n in sent.values() if n["class_type"] == "SeedVR2LoadDiTModel")["inputs"]["attention_mode"], "sdpa")
+
     def test_deleting_an_image_keeps_it_from_coming_back(self):
         self.make()
         run = self.only_run()

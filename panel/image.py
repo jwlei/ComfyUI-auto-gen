@@ -453,6 +453,28 @@ def discard_run(run_id):
     return {"ok": True}
 
 
+UPSCALE = [sys.executable, "-m", "pipelines.image.upscale"]
+UPSCALE_SECONDS = 180  # About what SeedVR2 takes for one image on this card
+
+
+@app.route("/image-runs/<run_id>/upscale/<int:position>", methods=["POST"])
+@password_required
+def upscale_image(run_id, position):
+    """Queues one image of a set to be made bigger with SeedVR2, as a new image in the set beside it."""
+    state, refused = load_idle_run(run_id)
+    if refused:
+        return refused
+    if not 1 <= position <= len(state.shots) or not state.shots[position - 1].get("file"):
+        return {"ok": False, "error": "That image isn't made yet."}, 400
+    item = {"pipeline": "image", "label": queue_label(f"Upscale: {state.shots[position - 1]['title']}"), "detail": "SeedVR2, twice the size",
+            "argv": [*UPSCALE, "--resume", state.id, "--image", str(position)], "env": {}, "resume": state.id, "estimate": UPSCALE_SECONDS}
+    queued = run_queue.add(item)
+    _runs_cache["at"] = 0.0
+    if item.get("error"):
+        return {"ok": False, "error": item["error"]}, 500
+    return {"ok": True, "queued": queued}
+
+
 @app.route("/image-runs/<run_id>/delete", methods=["POST"])
 @password_required
 def delete_image_set(run_id):
