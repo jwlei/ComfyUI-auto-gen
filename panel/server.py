@@ -908,7 +908,8 @@ MOST_WHY_LINES = 4
 def why_it_failed(job, code):
     """The run's own last lines that say what went wrong, or that it didn't say."""
     lines = [line["text"].strip() for line in job.lines if line["n"] > getattr(job, "first_line", 0)]
-    said = [line for line in lines if TROUBLE.search(line) and not line.startswith("=====")]
+    # A Generate turned down meanwhile is about another job, not this one.
+    said = [line for line in lines if TROUBLE.search(line) and not line.startswith(("=====", REFUSED))]
     if said:
         return "\n".join(dict.fromkeys(said[-MOST_WHY_LINES:]))
     last = lines[-1] if lines else "nothing"
@@ -1269,6 +1270,19 @@ def delete(folder, name):
 def never_cache_status(response):
     if request.path == "/api/status":
         response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+REFUSED = "🚫"
+
+
+@app.after_request
+def log_refused_generate(response):
+    """A Generate the panel turned down says why in the log, where it can still be read once the page has moved on."""
+    if request.path.startswith("/generate/") and response.status_code >= 400 and response.is_json:
+        error = (response.get_json(silent=True) or {}).get("error")
+        if error:
+            job.log(f"{REFUSED} Not added ({request.path.rsplit('/', 1)[-1]}): {error}")
     return response
 
 

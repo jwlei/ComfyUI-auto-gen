@@ -27,6 +27,14 @@
   #uploadBox .status { margin-bottom: 8px; }
   #stopUpload { width: auto; margin: 0 0 0 auto; padding: 4px 10px; font-size: .8rem; }
   .queue { margin-top: 12px; font-size: .84rem; }
+  /* What is on its way to the queue: there from the tap until the panel has taken it. */
+  .queue-pending { margin-top: 12px; padding: 8px 11px; border: 1px dashed var(--line); border-radius: 10px; font-size: .84rem; animation: work-arrive .3s ease; }
+  .queue-pending[hidden] { display: none; }
+  .queue-pending-head { display: flex; justify-content: space-between; gap: 10px; }
+  .queue-pending-head b { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .queue-pending-head span { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .queue-pending .bar { height: 3px; margin-top: 6px; }
+  .queue-pending .bar > div { transition: width .2s ease; }
   .queue-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; margin-bottom: 4px; }
   .queue-head b { font-weight: 600; }
   .queue-head .when { color: var(--muted); font-size: .78rem; }
@@ -422,6 +430,9 @@
     }
   }
   .go-eta { flex: 1; min-width: 0; font-size: .8rem; color: var(--muted); }
+  /* Why it wasn't added, beside the button you pressed: the form's own message may be off the screen. */
+  .go-error { flex: 1; min-width: 0; font-size: .78rem; line-height: 1.3; color: var(--err); overflow-wrap: anywhere; }
+  .go-error:not([hidden]) + .go-eta { display: none; }
   .go-eta b { color: var(--text); }
   .go-bar button { width: auto; flex: none; margin: 0; padding: 8px 14px; font-size: .85rem; }
   /* Desktop: options (two columns), the run, queue, log and
@@ -533,6 +544,7 @@
     </div>
   </div>
   <div class="go-bar" id="goBar" hidden>
+    <div class="go-error" id="goError" role="alert" hidden></div>
     <div class="go-eta" id="goBarEta"></div>
     <button type="button" id="goStick">Generate</button>
   </div>
@@ -579,6 +591,10 @@
     </div>
   </div>
   <div class="status-queue" id="queueBox">
+    <div class="queue-pending" id="queuePending" hidden>
+      <div class="queue-pending-head"><b id="queuePendingText"></b><span id="queuePendingPct"></span></div>
+      <div class="bar"><div id="queuePendingBar"></div></div>
+    </div>
     <div class="queue" id="runQueue" data-lane="run" data-title="Runs" hidden></div>
     <div class="queue" id="stoppedRuns" hidden></div>
     <div class="queue only-shorts" id="uploadQueue" data-lane="upload" data-title="Uploads" hidden></div>
@@ -2665,7 +2681,7 @@ async function poll() {
   $('jumpDot').className = $('dot').className;
   renderStrips(data);
   $('go').disabled = $('goStick').disabled = submitting;
-  $('go').textContent = $('goStick').textContent = running || runsQueued ? 'Add to queue' : 'Generate';
+  if (!submitting) $('go').textContent = $('goStick').textContent = running || runsQueued ? 'Add to queue' : 'Generate';
   showWork(running ? `${SIDE_NAMES[data.pipeline] || 'Shorts'}: ${(queue.current || {}).label || 'Starting'}`
     : nextUp ? `${SIDE_NAMES[queue.items[0].pipeline] || 'Shorts'}: ${queue.items[0].label}` : '');
   // A job on the other side still has the GPU, so the switch says so.
@@ -2726,23 +2742,45 @@ $('uploadLog').addEventListener('scroll', () => {
   if (el.clientHeight) uploadFollow = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
 });
 
+function showFormError(text) {
+  $('formError').textContent = $('goError').textContent = text || '';
+  $('formError').hidden = $('goError').hidden = !text;
+}
+for (const form of ['formShorts', 'formVideo', 'formImage']) $(form).addEventListener('input', () => { if (!$('goError').hidden) showFormError(''); });
+// Sends a form and reports how much of it is sent: an image over mobile data can take a while.
+function postForm(url, form, progress) {
+  return new Promise(resolve => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.responseType = 'json';
+    xhr.upload.onprogress = e => { if (e.lengthComputable) progress(e.loaded / e.total); };
+    xhr.onload = () => resolve(xhr.response || { error: `The panel answered ${xhr.status}. Try again.` });
+    xhr.onerror = xhr.ontimeout = () => resolve({ error: 'Could not reach the panel. Try again.' });
+    xhr.send(form);
+  });
+}
+// From the tap until the panel has it: the buttons say so, and Status shows it on its way to the queue.
+function showSending(share) {
+  const pct = share === null ? '' : ` ${Math.round(share * 100)}%`;
+  $('go').textContent = $('goStick').textContent = `Sending…${pct}`;
+  $('queuePending').hidden = false;
+  $('queuePendingText').textContent = `${SIDE_NAMES[pipeline]}: ${share !== null && share >= 1 ? 'adding to the queue…' : 'sending…'}`;
+  $('queuePendingPct').textContent = pct.trim();
+  $('queuePendingBar').style.width = `${Math.round((share || 0) * 100)}%`;
+}
 async function startJob(url) {
-  $('formError').hidden = true;
+  showFormError('');
   submitting = true;
   $('go').disabled = $('goStick').disabled = true;
-  let body;
-  try {
-    const form = new FormData($(SIDE_FORMS[pipeline]));
-    body = await (await fetch(url, { method: 'POST', body: form })).json();
-  } catch (e) {
-    body = { error: 'Could not reach the panel. Try again.' };
-  }
+  showSending(0);
+  const body = await postForm(url, new FormData($(SIDE_FORMS[pipeline])), showSending);
   submitting = false;
+  $('queuePending').hidden = true;
+  $('go').textContent = $('goStick').textContent = wasRunning || runsQueued ? 'Add to queue' : 'Generate';
   $('formNote').hidden = !body.continued;
   if (body.continued) $('formNote').textContent = `Continuing what was already paid for: ${body.continued}`;
   if (!body.ok) {
-    $('formError').textContent = body.error || 'Could not start.';
-    $('formError').hidden = false;
+    showFormError(body.error || 'Could not start.');
   } else if (url.startsWith('/generate/video')) {
     // The options stay for the next film, but the images and prompt belong to this one.
     autoScroll = true;

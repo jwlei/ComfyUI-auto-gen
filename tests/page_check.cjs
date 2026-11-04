@@ -664,6 +664,23 @@ assert(/\.switch button \{[^}]*padding: 4px 12px; font-size: \.78rem;/.test(html
 }
 assert(/syncOptions\('imageOptions', 'imageOptionsBox', imageTakes\(\)\.options \|\| \[\], baseImageTakes\(\)\.name\)/.test(script), "Automatic's pick by its name");
 
+// Why Generate was turned down shows beside the footer's button too, where it was pressed.
+run("showFormError('This workflow makes images from text alone: leave the image out.')");
+assert.strictEqual(els.goError.hidden, false);
+assert.strictEqual(els.goError.textContent, els.formError.textContent);
+run("showFormError('')");
+assert(els.goError.hidden && els.formError.hidden);
+assert(/<div class="go-error" id="goError" role="alert" hidden><\/div>/.test(html) && /\.go-error:not\(\[hidden\]\) \+ \.go-eta \{ display: none; \}/.test(html));
+// From the tap until the panel has it: the buttons count up, and Status shows it on its way to the queue.
+run('showSending(0.45)');
+assert.strictEqual(els.goStick.textContent, 'Sending… 45%');
+assert.strictEqual(els.queuePending.hidden, false);
+assert.strictEqual(els.queuePendingBar.style.width, '45%');
+run('showSending(1)');
+assert(els.queuePendingText.textContent.endsWith('adding to the queue…'), 'sent, and being taken in');
+assert(/if \(!submitting\) \$\('go'\)\.textContent/.test(script), 'a poll meanwhile leaves it saying so');
+assert(/xhr\.upload\.onprogress/.test(script) && /<div class="queue-pending" id="queuePending" hidden>/.test(html));
+
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/html \{ overflow-x: clip; \}/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),
   'nothing makes a phone page wider than its screen, so the footer stays put');

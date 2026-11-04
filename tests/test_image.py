@@ -750,6 +750,8 @@ class PanelTest(unittest.TestCase):
         reply = self.generate(llm="image_to_prompt", workflow="image_text.json")
         self.assertEqual(reply.status_code, 400)
         self.assertIn("no image to prompt", reply.get_json()["error"])
+        # And the log says so too, for when the page has moved on.
+        self.assertTrue(any(line["text"].startswith("🚫 Not added (image): This workflow has no image to prompt") for line in webapp.job.lines))
 
     def test_an_option_that_cant_run_is_refused(self):
         for fields in ({"opt_group_color_correction": ["0", "1"]}, {"opt_steps": "0"}, {"opt_group_upscaler.choice": "8K"}):
