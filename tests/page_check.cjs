@@ -801,6 +801,8 @@ assert(/dialog\.viewer::backdrop \{ background: rgba\(0, 0, 0, \.55\);[^}]*backd
 assert(/dialog\.viewer\[open\] \{ display: grid;[^}]*padding: 10px; background: var\(--panel\); border: 1px solid var\(--line\); border-radius: 14px;/.test(html)
   && /dialog\.viewer\[open\] #viewerImage, dialog\.viewer\[open\] #viewerVideo \{ width: 100%;[^}]*object-fit: contain; border-radius: 8px;/.test(html), 'the whole preview in one rounded card');
 
+assert(/\.pipeline-form \.row > div \{ display: flex; flex-direction: column; justify-content: flex-end; \}/.test(html), 'fields side by side line up by their boxes');
+
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/maximum-scale=1, user-scalable=no/.test(base) && /html \{ overflow-x: clip; touch-action: manipulation; \}/.test(base), 'no zooming the page out from under the footer');
 assert(/html \{ overflow-x: clip;/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),

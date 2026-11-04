@@ -276,6 +276,8 @@
   body.on-video { --accent: #4c8dff; }
   body.on-image { --accent: #2fbf71; }
   .pipeline-form textarea { min-height: 84px; resize: vertical; }
+  /* Side by side, the fields line up by their boxes, not their labels: a label that wraps doesn't push its box down. */
+  .pipeline-form .row > div { display: flex; flex-direction: column; justify-content: flex-end; }
   /* A dashed box to drop into, with a real button in it rather than the browser's own. */
   .pipeline-form input[type=file] { padding: 6px; font-size: .84rem; color: var(--muted); background: transparent; border: 1px dashed var(--line); cursor: pointer; transition: border-color .15s; }
   .pipeline-form input[type=file]:hover { border-color: var(--accent); }
