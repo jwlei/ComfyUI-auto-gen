@@ -37,6 +37,14 @@
   .queue button { width: auto; margin: 0; padding: 4px 10px; font-size: .78rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
   .queue .results { margin-top: 6px; }
   /* A stopped run in a box of its own: what it is, how far it got, then what you can do with it. */
+  .queue-item.leaving { overflow: hidden; animation: queue-leave .38s ease forwards; pointer-events: none; }
+  @keyframes queue-leave {
+    45% { opacity: 0; transform: translateY(-10px); }
+    100% { opacity: 0; transform: translateY(-10px); height: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0; border-width: 0; }
+  }
+  #currentWork.arrive { animation: work-arrive .45s ease; }
+  @keyframes work-arrive { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .queue-item.leaving, #currentWork.arrive { animation: none; } }
   .stopped-run { margin-top: 6px; padding: 9px 11px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; }
   .stopped-run .what { overflow-wrap: anywhere; font-weight: 600; }
   .stopped-run .hint { margin-top: 2px; }
@@ -90,7 +98,8 @@
   .check { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; cursor: pointer; text-transform: none; letter-spacing: 0; font-size: .95rem; color: var(--text); }
   .check input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
   .check .hint { margin-top: 2px; }
-  button.armed, dialog.viewer .viewer-actions > button.armed { background: var(--err); border-color: var(--err); color: #fff; }
+  button.armed, dialog.viewer .viewer-actions > button.armed { background: var(--err); border-color: var(--err); color: #fff;
+    flex-grow: 0; flex-shrink: 0; padding-left: 0; padding-right: 0; white-space: nowrap; overflow: hidden; }
   /* A long label or a select of long file names wraps and shrinks, rather than widening the page. */
   .check > span { min-width: 0; overflow-wrap: anywhere; }
   .card, .form-col, details.section { min-width: 0; }
@@ -1147,6 +1156,7 @@ function disarm(button) {
   if (!button.classList.contains('armed')) return;
   button.classList.remove('armed');
   button.textContent = button.dataset.label;
+  button.style.width = '';
 }
 function secondTap(button) {
   if (button.classList.contains('armed')) {
@@ -1154,8 +1164,10 @@ function secondTap(button) {
     return true;
   }
   button.dataset.label = button.textContent;
+  // Held at its width, so "Confirm" doesn't move what's beside it.
+  button.style.width = `${button.getBoundingClientRect().width}px`;
   button.classList.add('armed');
-  button.textContent = 'Tap again';
+  button.textContent = 'Confirm';
   button._disarm = setTimeout(() => disarm(button), ARMED_MS);
   return false;
 }
@@ -2298,16 +2310,31 @@ function renderUpload(up) {
 
 // --- Queues ---
 const RESULT_MARKS = { done: '✔', failed: '✖ failed', stopped: '■ stopped', skipped: '– skipped' };
-function renderQueue(el, q, doneIn) {
-  // What has finished is under Finished: this is what's waiting.
-  el.hidden = !q.items.length;
+const LEAVE_MS = 380;
+function renderQueue(el, q, doneIn, moving = false) {
+  // What has finished is under Finished: this is what's waiting. The one moving to start has left it already.
+  el._last = [q, doneIn, moving];
+  if (el._leaving) return;  // Drawn once it has gone
+  const waiting = moving ? q.items.slice(1) : q.items;
+  // What left since: it slides up out of the queue, towards Status, and the rest close up behind it.
+  const gone = [...el.querySelectorAll('.queue-item[data-id]')].filter(node => !waiting.some(item => String(item.id) === node.dataset.id));
+  if (gone.length && !el.hidden) {
+    el._leaving = true;
+    for (const node of gone) {
+      node.style.height = `${node.offsetHeight}px`;
+      node.classList.add('leaving');
+    }
+    setTimeout(() => { el._leaving = false; renderQueue(el, ...el._last); }, LEAVE_MS);
+    return;
+  }
+  el.hidden = !waiting.length;
   if (el.hidden) return;
-  const head = `<b>${el.dataset.title} (${q.items.length})</b>` + (q.held
+  const head = `<b>${el.dataset.title} (${waiting.length})</b>` + (q.held
     ? `<span class="when">On hold until you press Resume</span><button type="button" data-resume="1">Resume</button>`
     : doneIn ? `<span class="when">All done around ${clockIn(doneIn)}</span>` : '');
   const now = q.current && q.items.length ? `<div class="queue-item"><div class="what">Now: ${esc(q.current.label)}</div></div>` : '';
-  const items = q.items.map((item, i) => `
-    <div class="queue-item">
+  const items = waiting.map((item, i) => `
+    <div class="queue-item" data-id="${esc(String(item.id))}">
       <div class="what">${i + 1}. ${esc(item.label)}<div class="hint">${el.dataset.lane === 'run' ? `${SIDE_NAMES[item.pipeline] || 'Shorts'} · ` : ''}${esc(item.detail)}</div></div>
       ${item.estimate ? `<span class="when">${fmtEta(item.estimate)}</span>` : ''}
       <button type="button" data-remove="${item.id}" aria-label="Remove from the queue" title="Remove from the queue">✕</button>
@@ -2411,6 +2438,16 @@ for (const id of ['runQueue', 'uploadQueue']) {
 }
 
 // --- Header: the short status on Run, and a bar under it per job ---
+// What's being made, in Status. A new one slides in, as it leaves the queue below.
+function showWork(text) {
+  const el = $('currentWork');
+  el.hidden = !text;
+  if (!text || el.textContent === text) return;
+  el.textContent = text;
+  el.classList.remove('arrive');
+  void el.offsetWidth;  // So it plays again
+  el.classList.add('arrive');
+}
 function runShort(data, nextUp) {
   if (data.running) {
     const p = data.progress || {};
@@ -2548,7 +2585,7 @@ async function poll() {
   uploadRunning = data.upload.running;
   busy = uploadRunning || uploadsQueued > 0 || (running && (data.progress.stage || [])[2] === 'Upload');
   renderUpload(data.upload);
-  renderQueue($('runQueue'), queue, queue.held ? 0 : queueAhead);
+  renderQueue($('runQueue'), queue, queue.held ? 0 : queueAhead, nextUp);
   renderStopped(data.stopped_runs);
   renderFinished(queue.results, upq.results);
   $('dot').className = 'dot' + (running || nextUp ? ' on' : '');
@@ -2557,8 +2594,8 @@ async function poll() {
   renderStrips(data);
   $('go').disabled = $('goStick').disabled = submitting;
   $('go').textContent = $('goStick').textContent = running || runsQueued ? 'Add to queue' : 'Generate';
-  $('currentWork').hidden = !running;
-  if (running) $('currentWork').textContent = `${SIDE_NAMES[data.pipeline] || 'Shorts'}: ${(queue.current || {}).label || 'Starting'}`;
+  showWork(running ? `${SIDE_NAMES[data.pipeline] || 'Shorts'}: ${(queue.current || {}).label || 'Starting'}`
+    : nextUp ? `${SIDE_NAMES[queue.items[0].pipeline] || 'Shorts'}: ${queue.items[0].label}` : '');
   // A job on the other side still has the GPU, so the switch says so.
   for (const [id, side] of [['switchShorts', 'shorts'], ['switchVideo', 'video'], ['switchImage', 'image']]) {
     $(id).querySelector('.dot').classList.toggle('hidden', !(running && data.pipeline === side && side !== pipeline));

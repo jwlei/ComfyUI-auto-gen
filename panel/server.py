@@ -320,7 +320,7 @@ class JobQueue:
         self.prepare = prepare  # Last step before a job starts; returns why it can't run, or None.
         self.blocked = blocked
         self.path = path
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()  # snapshot_with_job() holds it around snapshot()
         self.items = []
         self.current = None
         self.results = []
@@ -453,6 +453,14 @@ class JobQueue:
         with self.lock:
             self._advance()
             return ([self.current] if self.current else []) + list(self.items)
+
+    def snapshot_with_job(self):
+        """
+        The job and this queue at one moment. Read apart, a status could fall between a job ending and the next one
+        starting: the old job done and the queue already empty, so nothing at all for a poll.
+        """
+        with self.lock:
+            return self.job.snapshot(), self.snapshot()
 
     def snapshot(self):
         with self.lock:
@@ -1145,9 +1153,9 @@ def launcher_refresh():
 @app.route("/api/status")
 @password_required
 def status():
-    payload = job.snapshot()
+    payload, queue = run_queue.snapshot_with_job()
     payload["server_started"] = STARTED_AT
-    payload["queue"] = run_queue.snapshot()
+    payload["queue"] = queue
     payload["stopped_runs"] = stopped_runs()
     payload["upload"] = uploads.snapshot()
     payload["upload"]["queue"] = upload_queue.snapshot()

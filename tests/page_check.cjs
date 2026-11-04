@@ -549,14 +549,39 @@ for (const id of links) assert(ids.has(id), `#${id} is on the page`);
 for (const asked of ["confirm('Delete ' + d.del", "confirm('Delete this image?", "confirm('Delete this set?", 'confirm(`Delete image ${d.deleteImage}']) {
   assert(!script.includes(asked), `${asked} is a second tap now`);
 }
-context.tapped = { textContent: 'Delete', dataset: {}, classList: classes() };
+context.tapped = { textContent: 'Delete', dataset: {}, classList: classes(), style: {}, getBoundingClientRect: () => ({ width: 72 }) };
 assert.strictEqual(run('secondTap(tapped)'), false, 'the first tap only asks');
-assert(context.tapped.classList.contains('armed') && context.tapped.textContent === 'Tap again');
+assert(context.tapped.classList.contains('armed') && context.tapped.textContent === 'Confirm');
+assert.strictEqual(context.tapped.style.width, '72px', 'at the size it was');
 assert.strictEqual(run('secondTap(tapped)'), true, 'the second deletes');
 assert.strictEqual(context.tapped.textContent, 'Delete');
 run('secondTap(tapped)');
 run('disarm(tapped)');
 assert(!context.tapped.classList.contains('armed') && context.tapped.textContent === 'Delete', 'and left alone it goes back');
+assert.strictEqual(context.tapped.style.width, '', 'and its own size again');
+
+// Moving on in the queue: the one starting leaves it at once, sliding up, and Status shows it arriving; never a blank.
+const queueEl = { dataset: { title: 'Runs', lane: 'run' }, hidden: false, innerHTML: '', nodes: [],
+  querySelectorAll() { return this.nodes; } };
+const queueTimers = [];
+context.queueEl = queueEl;
+context.setTimeout = (fn, ms) => { queueTimers.push([fn, ms]); return 1; };
+context.twoQueued = { items: [{ id: 1, label: 'First', pipeline: 'video', detail: 'd' }, { id: 2, label: 'Second', pipeline: 'image', detail: 'd' }], held: false };
+run('renderQueue(queueEl, twoQueued, 0)');
+assert(queueEl.innerHTML.includes('data-id="1"') && queueEl.innerHTML.includes('data-id="2"'));
+const first = { dataset: { id: '1' }, style: {}, offsetHeight: 40, classList: classes() };
+queueEl.nodes = [first, { dataset: { id: '2' }, style: {}, offsetHeight: 40, classList: classes() }];
+run('renderQueue(queueEl, twoQueued, 0, true)');
+assert(first.classList.contains('leaving') && first.style.height === '40px', 'the next one slides out of the queue');
+assert(queueEl.innerHTML.includes('data-id="1"'), 'drawn again only once it has gone');
+queueEl.nodes = [];
+queueTimers[queueTimers.length - 1][0]();
+assert(!queueEl.innerHTML.includes('data-id="1"') && queueEl.innerHTML.includes('data-id="2"') && queueEl.innerHTML.includes('Runs (1)'));
+context.setTimeout = () => 0;
+run("showWork('Video: First')");
+assert(els.currentWork.hidden === false && els.currentWork.textContent === 'Video: First');
+assert(/nextUp \? `\$\{SIDE_NAMES\[queue\.items\[0\]\.pipeline\]/.test(script), 'between two jobs, the next one already shows');
+assert(/#currentWork\.arrive \{ animation: work-arrive/.test(html) && /\.queue-item\.leaving \{[^}]*animation: queue-leave/.test(html));
 assert(/dialog\.viewer \.viewer-actions > \* \{ flex: 1 1 0; min-width: 96px; height: 40px; margin: 0;/.test(html), 'Download, Delete and Close are one size');
 context.withLoras = { ...context.oneImage0 = { id: 'image_2', label: 'L', total: 1, size: '1x1', when: 'now', images: [] }, loras: ['KNPV3_1 (0.8)', '<b>x'] };
 const loraHtml = run('imageSetHtml(withLoras)');
