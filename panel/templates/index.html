@@ -676,12 +676,12 @@
     <div class="comfy-status" title="Generate starts it when the run needs avatar clips and COMFYUI_LAUNCHER is set in .env."><span class="dot" id="comfyDot"></span><span id="comfyText">ComfyUI: checking…</span></div>
   </div>
   <div class="status-main">
-  <div class="current-work" id="currentWork" hidden></div>
   <div class="status">
     <span class="dot" id="dot"></span>
     <span id="statusText">Idle</span>
   </div>
   <div class="hint gpu" id="gpuLine"></div>
+  <div class="current-work" id="currentWork" hidden></div>
   <div class="progress" id="runProgress" hidden>
     <div class="strip-head"><b id="runProgressText"></b><span id="runProgressRight"></span></div>
     <div class="bar"><div id="runProgressBar"></div></div>
@@ -3230,8 +3230,9 @@ function setStrip(job, show, strip, status, share) {
   if (!show) return;
   const pct = share === null ? '' : `${Math.round(share * 100)}%`;
   for (const [where, say] of [['Strip', strip], ['Progress', status]]) {
-    $(`${job}${where}Text`).textContent = say.text;
-    $(`${job}${where}Right`).textContent = [pct, say.right].filter(Boolean).join(' · ');
+    const left = job === 'run' && where === 'Progress';
+    $(`${job}${where}Text`).textContent = left ? [pct, say.text].filter(Boolean).join(' · ') : say.text;
+    $(`${job}${where}Right`).textContent = left ? say.right : [pct, say.right].filter(Boolean).join(' · ');
     const bar = $(`${job}${where}Bar`);
     bar.parentElement.classList.toggle('busy', share === null);
     bar.style.width = `${share === null ? 30 : Math.round(share * 100)}%`;
@@ -3273,7 +3274,7 @@ function renderStrips(data) {
   const total = eta ? `Done around ${clockIn(eta.total_left)}${all}` : `${fmt(data.elapsed)} so far`;
   setStrip('run', data.running,
     { text: video + (stage[2] || 'Starting'), right: left + (runsQueued ? ` · +${runsQueued} queued` : ''), hint: p.detail || STAGE_HINTS[stage[2]] || '', total },
-    { text: p.run && p.run[1] > 1 ? `Video ${p.run[0]} of ${p.run[1]}` : 'This run', right: eta ? `${left}, done around ${clockIn(eta.total_left)}` : '' },
+    { text: p.run && p.run[1] > 1 ? `Video ${p.run[0]} of ${p.run[1]}` : '', right: eta ? `${left}, done around ${clockIn(eta.total_left)}` : '' },
     eta && eta.adjusted_total ? 1 - eta.total_left / eta.adjusted_total : null);
   const up = data.upload, at = (up.progress || {}).upload;
   const sending = at ? at[2] : 'Writing the title and description.';

@@ -512,8 +512,8 @@ run('renderStrips(rendering)');
 assert.strictEqual(els.runStrip.hidden, false, 'away from Status, the footer has the bar');
 assert.strictEqual(els.runProgress.hidden, false, 'and Status has it in full');
 assert.strictEqual(els.runProgressBar.style.width, '40%');
-assert(/^40% · ~10 min left, done around /.test(els.runProgressRight.textContent), 'Status has the one ETA, and when it ends');
-assert.strictEqual(els.runProgressText.textContent, 'This run', 'the stepper under it names the stage');
+assert.strictEqual(els.runProgressText.textContent, '40%', 'how far along on the left, nothing else');
+assert(/^~10 min left, done around /.test(els.runProgressRight.textContent), 'when it ends on the right');
 assert.strictEqual(els.runStripText.textContent, 'Clips');
 assert.strictEqual(els.runStripRight.textContent, '40% · ~10 min left');
 assert.strictEqual(els.runStripBar.style.width, '40%');
@@ -808,6 +808,8 @@ assert(/\.stick \{[^}]*transform: translateZ\(0\); will-change: transform;/.test
 assert(/safely\(\(\) => renderQueue\(\$\('runQueue'\)/.test(script) && /safely\(\(\) => renderPlan\(\)\)/.test(script));
 assert(run("(() => { let after = false; safely(() => { throw new Error('x'); }); safely(() => { after = true; }); return after; })()"), 'the next part still runs');
 assert(/data-title="Queue"/.test(html) && !script.includes('Now: ${esc(q.current.label)}'), 'called Queue, with no Now line');
+
+assert(html.indexOf('id="statusText"') < html.indexOf('id="currentWork"') && html.indexOf('id="gpuLine"') < html.indexOf('id="currentWork"'), 'running and the GPU above the title');
 
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/maximum-scale=1, user-scalable=no/.test(base) && /html \{ overflow-x: clip; touch-action: manipulation; \}/.test(base), 'no zooming the page out from under the footer');
