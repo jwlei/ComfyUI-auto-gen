@@ -1731,6 +1731,10 @@ function imageOptionsOnly() {
 
 // The sets made so far. Small pictures, because a set of big PNGs would crawl over a phone connection.
 let imageSets = [];
+// The LoRAs it was made with, on a line of their own under its details.
+function lorasLine(loras) {
+  return loras && loras.length ? `<div class="meta loras">LoRA: ${loras.map(esc).join(', ')}</div>` : '';
+}
 function imageSetHtml(set) {
   const id = encodeURIComponent(set.id);
   const pictures = set.images.map(picture => `<a href="/image-runs/${id}/files/${picture.position}?v=${picture.version}" data-view-set="${esc(set.id)}" data-view-position="${picture.position}" title="${esc(picture.title)}"><img loading="lazy" alt="${esc(picture.title)}" src="/image-runs/${id}/thumbnails/${picture.position}?v=${picture.version}"></a>`).join('');
@@ -1738,7 +1742,7 @@ function imageSetHtml(set) {
   return `
   <div class="image-set">
     <h3>${esc(set.label)}</h3>
-    <div class="meta">${[set.model && esc(set.model), set.total > 1 && `${set.images.length} of ${set.total}`, esc(set.size), esc(set.when)].filter(Boolean).join(' · ')}</div>
+    <div class="meta">${[set.model && esc(set.model), set.total > 1 && `${set.images.length} of ${set.total}`, esc(set.size), esc(set.when)].filter(Boolean).join(' · ')}</div>${lorasLine(set.loras)}
     <div class="image-set-row">
       <div class="image-grid">${pictures}</div>
       <div class="image-set-actions"><button type="button" data-download-set="${esc(set.id)}" title="${all}">Download</button><button type="button" data-shots="${esc(set.id)}">Prompts</button><button type="button" class="del" data-delete-set="${esc(set.id)}">Delete</button></div>
@@ -1746,7 +1750,7 @@ function imageSetHtml(set) {
   </div>`;
 }
 function renderImageSets() {
-  const key = JSON.stringify(imageSets.map(set => [set.id, set.label, set.total, set.images, set.model]));
+  const key = JSON.stringify(imageSets.map(set => [set.id, set.label, set.total, set.images, set.model, set.loras]));
   // Only when it changed, so a poll doesn't reload the pictures.
   if ($('imageSets').dataset.key === key) return;
   $('imageSets').dataset.key = key;
@@ -1856,7 +1860,7 @@ function filmHtml(v) {
   <div class="vid" data-name="${name}">
     <video controls preload="none" playsinline${poster} src="/videos/${folder}/${url}"></video>
     <h3>${v.title ? esc(v.title) : esc(v.name)}</h3>
-    <div class="meta" title="${name}">${v.model ? `${esc(v.model)} · ` : ''}${name} · ${v.created} · ${v.size_mb} MB</div>
+    <div class="meta" title="${name}">${v.model ? `${esc(v.model)} · ` : ''}${name} · ${v.created} · ${v.size_mb} MB</div>${lorasLine(v.loras)}
     <div class="acts"><a href="/download/${folder}/${url}">Download</a>${shots}<button type="button" class="del" data-del="${name}">Delete</button></div>
   </div>`;
 }

@@ -288,6 +288,23 @@ class ShorthandTest(unittest.TestCase):
         self.assertEqual(title_words("", "film"), "film")
 
 
+class LorasTest(unittest.TestCase):
+    def test_only_the_loras_an_output_reads_from(self):
+        api = {
+            "1": {"class_type": "UNETLoader", "inputs": {"unet_name": "m.safetensors"}},
+            "2": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["1", 0], "lora_name": "styles\Film.safetensors", "strength_model": 0.8}},
+            "3": {"class_type": "Power Lora Loader (rgthree)", "inputs": {"model": ["2", 0],
+                  "lora_1": {"on": True, "lora": "KNPV3_1.safetensors", "strength": 1},
+                  "lora_2": {"on": False, "lora": "Off.safetensors", "strength": 1}}},
+            "4": {"class_type": "KSampler", "inputs": {"model": ["3", 0]}},
+            "5": {"class_type": "PreviewImage", "inputs": {"images": ["4", 0]}},
+            # Switched out of the way: still in the workflow, but nothing reads it.
+            "9": {"class_type": "LoraLoaderModelOnly", "inputs": {"model": ["1", 0], "lora_name": "Unused.safetensors", "strength_model": 1}},
+        }
+        self.assertEqual(workflow_options.loras_in(api), ["Film (0.8)", "KNPV3_1"])
+        self.assertEqual(workflow_options.loras_used(None), [])
+
+
 class InstalledAsTest(unittest.TestCase):
     def test_another_precision_of_the_same_model(self):
         installed = ["krea2_turbo_fp8_scaled.safetensors", "krea2_turbo_int8_convrot.safetensors"]

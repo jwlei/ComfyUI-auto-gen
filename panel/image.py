@@ -112,7 +112,7 @@ def describe_run(state):
     parts = [f"{done} of {total} images" if done else f"Prompts ready, {total} {'image' if total == 1 else 'images'}", f"{state.width}x{state.height}"]
     env = {"COMFYUI_WORKFLOW": state.workflow} if state.workflow else {}
     return {"id": state.id, "pipeline": "image", "label": state.title or state.brief, "detail": " · ".join(parts),
-            "model": shorthand(state.workflow, "image"),
+            "model": shorthand(state.workflow, "image"), "loras": workflow_options.loras_used(state.workflow, state.options, "image"),
             "when": saved_at(state.path), "clips": done, "finished": state.finished, "total": total, "images": image_files(state),
             "size": f"{state.width}x{state.height}", "estimate": RunEta(resume_argv(state), env, IMAGE_TIMINGS).plan()["total"]}
 

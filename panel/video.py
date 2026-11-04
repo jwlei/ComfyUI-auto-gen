@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 from flask import abort, request, send_file
 
-from core import seeds
+from core import seeds, workflow_options
 from panel.server import (form_options, PIPELINES, VIDEO_TIMINGS, _runs_cache, app, busy_runs, item_images, job,
                           password_required, saved_at, run_queue, saved_runs, saved_workflows)
 from panel.shorts import VOICES
@@ -450,7 +450,8 @@ def captions():
         run = run_of_film(name, films)
         made_by = films.get(name)
         return {"run": run if run in titles else None, "title": titles.get(run),
-                "model": shorthand(made_by.workflow, BUILT_IN) if made_by else None}
+                "model": shorthand(made_by.workflow, BUILT_IN) if made_by else None,
+                "loras": workflow_options.loras_used(made_by.workflow, made_by.options, "video") if made_by else []}
     return caption
 
 

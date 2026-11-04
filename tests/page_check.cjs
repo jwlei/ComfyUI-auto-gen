@@ -540,6 +540,11 @@ run('secondTap(tapped)');
 run('disarm(tapped)');
 assert(!context.tapped.classList.contains('armed') && context.tapped.textContent === 'Delete', 'and left alone it goes back');
 assert(/dialog\.viewer \.viewer-actions > \* \{ flex: 1 1 0; min-width: 96px; height: 40px; margin: 0;/.test(html), 'Download, Delete and Close are one size');
+context.withLoras = { ...context.oneImage0 = { id: 'image_2', label: 'L', total: 1, size: '1x1', when: 'now', images: [] }, loras: ['KNPV3_1 (0.8)', '<b>x'] };
+const loraHtml = run('imageSetHtml(withLoras)');
+assert(/<\/div><div class="meta loras">LoRA: KNPV3_1 \(0\.8\), &lt;b&gt;x<\/div>/.test(loraHtml), 'LoRAs on a line of their own, escaped');
+assert(!run('imageSetHtml(oneImage0)').includes('LoRA'), 'none, no line');
+assert(run("filmHtml({ name: 'f.mp4', created: 'now', size_mb: 1, loras: ['a'] })").includes('<div class="meta loras">LoRA: a</div>'), 'films too');
 context.oneImage = { id: 'image_1', label: 'One', total: 1, size: '1024x1024', when: 'now', images: [{ position: 1, title: 'x', version: 1 }] };
 assert(!run('imageSetHtml(oneImage)').includes('1 of 1'), 'one image on its own says no "1 of 1"');
 

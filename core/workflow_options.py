@@ -387,3 +387,75 @@ def check(options, chosen):
             if (option["kind"] == "number" or value != OFF) and not option["min"] <= number <= option["max"]:
                 return f"{option['label']} goes from {option['min']:g} to {option['max']:g}."
     return None
+
+
+# --- Which LoRAs a run used, for the gallery ---
+
+OUTPUTS = {sw.PREVIEW, *sw.IMAGE_SAVES, *sw.VIDEO_SAVES}
+LORA_STRENGTHS = ("strength_model", "lora_strength", "strength")
+_loras = {}
+
+
+def _feeding_outputs(api):
+    """The nodes an output reads from, however far back: a LoRA loader switched out of the way isn't one."""
+    todo = [key for key, node in api.items() if isinstance(node, dict) and node.get("class_type") in OUTPUTS]
+    seen = set()
+    while todo:
+        key = todo.pop()
+        if key in seen or key not in api:
+            continue
+        seen.add(key)
+        for value in (api[key].get("inputs") or {}).values():
+            if isinstance(value, list) and len(value) == 2 and isinstance(value[0], (str, int)):
+                todo.append(str(value[0]))
+    return seen
+
+
+def _lora_label(name, strength):
+    short = os.path.splitext(os.path.basename(str(name).replace("\\", "/")))[0]
+    try:
+        strength = float(strength)
+    except (TypeError, ValueError):
+        return short
+    return short if strength == 1 else f"{short} ({strength:g})"
+
+
+def loras_in(api):
+    """The LoRAs a workflow in API format runs with, as "name" or "name (strength)", in node order."""
+    used = []
+    for key in sorted(_feeding_outputs(api), key=lambda k: (len(k), k)):
+        inputs = api[key].get("inputs") or {}
+        name = inputs.get("lora_name")
+        if isinstance(name, str) and name.lower() not in ("", "none"):
+            strength = next((inputs[s] for s in LORA_STRENGTHS if s in inputs and not isinstance(inputs[s], list)), 1)
+            if strength != 0:
+                used.append(_lora_label(name, strength))
+        # rgthree's Power Lora Loader: one {"on", "lora", "strength"} per row.
+        for value in inputs.values():
+            if isinstance(value, dict) and value.get("lora") and value.get("on") and value.get("strength", 1) != 0:
+                used.append(_lora_label(value["lora"], value.get("strength", 1)))
+    return list(dict.fromkeys(used))
+
+
+def loras_used(workflow_path, chosen=None, pipeline=None):
+    """The LoRAs a run used: its workflow with the options it was made with. [] if that can't be told."""
+    if not workflow_path:
+        return []
+    stem = os.path.splitext(workflow_path)[0]
+    try:
+        stamp = max(os.path.getmtime(path) for path in (workflow_path, stem + ".ui.json") if os.path.exists(path))
+    except ValueError:
+        return []
+    key = (workflow_path, stamp, json.dumps(chosen or {}, sort_keys=True), pipeline)
+    if key not in _loras:
+        try:
+            api = remake(workflow_path, chosen or {}, pipeline)[0]
+        except RuntimeError:
+            # Listed before options were kept: the workflow as saved.
+            try:
+                with open(workflow_path, "r", encoding="utf-8") as f:
+                    api = json.load(f)
+            except (OSError, ValueError):
+                api = {}
+        _loras[key] = loras_in(api) if isinstance(api, dict) else []
+    return _loras[key]
