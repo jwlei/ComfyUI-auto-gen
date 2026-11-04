@@ -312,7 +312,9 @@
   /* The image viewer: the picture as large as fits, its buttons under it. */
   dialog.viewer { width: auto; max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); background: transparent; border: 0;
     display: none; flex-direction: column; align-items: center; gap: 10px; overflow: visible; }
-  dialog.viewer[open] { display: flex; animation: viewer-in .2s ease; }
+  /* One column as wide as the picture: the panel under it lines up with its edges. */
+  dialog.viewer[open] { display: grid; grid-template-columns: min-content; justify-content: center; gap: 0; animation: viewer-in .2s ease; }
+  dialog.viewer[open] #viewerImage, dialog.viewer[open] #viewerVideo { border-radius: 10px 10px 0 0; }
   /* The page behind the preview: dimmed and out of focus, as behind Finished, Log and Quota. */
   dialog.viewer::backdrop { background: rgba(0, 0, 0, .55); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
   /* Its own display would otherwise beat [hidden]: after a film, the video showed under the next image. */
@@ -326,13 +328,15 @@
   @keyframes viewer-from-right { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
   @keyframes viewer-from-left { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }
   @media (prefers-reduced-motion: reduce) { #viewerImage.from-right, #viewerImage.from-left { animation: none; } }
-  .viewer-bar { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .viewer-bar { width: 100%; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px;
+    background: var(--panel); border: 1px solid var(--line); border-top: 0; border-radius: 0 0 10px 10px; box-sizing: border-box; }
   /* At most two lines, so a long title can't push the buttons off the screen. */
   .viewer-title { color: #ddd; font-size: .85rem; text-align: center; overflow-wrap: anywhere;
     display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
   .viewer-title:empty { display: none; }
   .viewer-actions { display: flex; gap: 8px; }
-  dialog.viewer .viewer-actions > * { flex: 1 1 0; min-width: 96px; height: 32px; margin: 0; padding: 0 14px; box-sizing: border-box;
+  .viewer-actions, .viewer-tools { width: 100%; justify-content: center; }
+  dialog.viewer .viewer-actions > * { flex: 1 1 0; min-width: 0; max-width: 120px; height: 32px; margin: 0; padding: 0 14px; box-sizing: border-box;
     display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 10px;
     font-size: .82rem; font-weight: 600; white-space: nowrap; border-radius: 999px; }
   dialog.viewer .viewer-actions > a.button { background: var(--accent); border-color: var(--accent); color: #fff; text-decoration: none; }

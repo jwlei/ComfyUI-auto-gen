@@ -641,7 +641,7 @@ run("showWork('Video: First')");
 assert(els.currentWork.hidden === false && els.currentWork.textContent === 'Video: First');
 assert(/nextUp \? `\$\{SIDE_NAMES\[queue\.items\[0\]\.pipeline\]/.test(script), 'between two jobs, the next one already shows');
 assert(/#currentWork\.arrive \{ animation: work-arrive/.test(html) && /\.queue-item\.leaving \{[^}]*animation: queue-leave/.test(html));
-assert(/dialog\.viewer \.viewer-actions > \* \{ flex: 1 1 0; min-width: 96px; height: 32px; margin: 0;/.test(html), 'Download, Delete and Close are one size');
+assert(/dialog\.viewer \.viewer-actions > \* \{ flex: 1 1 0; min-width: 0; max-width: 120px; height: 32px; margin: 0;/.test(html), 'Download, Delete and Close are one size');
 assert(/\.image-set-actions button\.armed, \.acts button\.armed[^{]*\{\s*background: var\(--err\) !important;/.test(html), 'Confirm is red in Output too');
 context.withLoras = { ...context.oneImage0 = { id: 'image_2', label: 'L', total: 1, size: '1x1', when: 'now', images: [] }, loras: ['KNPV3_1 (0.8)', '<b>x'] };
 const loraHtml = run('imageSetHtml(withLoras)');
@@ -797,6 +797,8 @@ assert(/item\.later \? `<button type="button" class="start-item" data-start="\$\
 assert(/\.output-filter-line \{ display: flex; justify-content: center;/.test(html) && /\.output-filter-line select \{ width: 220px;/.test(html), 'the filter: centred, one size');
 
 assert(/dialog\.viewer::backdrop \{ background: rgba\(0, 0, 0, \.55\);[^}]*backdrop-filter: blur\(6px\)/.test(html), 'the page behind the preview, as behind Quota');
+
+assert(/dialog\.viewer\[open\] \{ display: grid; grid-template-columns: min-content;/.test(html) && /\.viewer-bar \{[^}]*background: var\(--panel\);[^}]*border-radius: 0 0 10px 10px;/.test(html), 'a panel under the picture, as wide as it');
 
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/maximum-scale=1, user-scalable=no/.test(base) && /html \{ overflow-x: clip; touch-action: manipulation; \}/.test(base), 'no zooming the page out from under the footer');
