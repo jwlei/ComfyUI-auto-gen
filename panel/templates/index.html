@@ -119,11 +119,14 @@
   .status-toggle[aria-expanded="true"]::after { transform: rotate(90deg); }
   #finishedToggle { margin-left: auto; }
   .status-toggle .failed { color: var(--err); }
-  .finished .results .result { display: flex; align-items: baseline; gap: 6px; width: 100%; margin: 0; padding: 3px 0; background: none; border: 0;
-    color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  /* One line each: when, how it ended and what it is, centred beside a title of at most two lines; a rule between them. */
+  .finished .results .result { display: flex; align-items: center; gap: 8px; width: 100%; margin: 0; padding: 7px 0; background: none; border: 0;
+    border-radius: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .finished .results .result + .result { border-top: 1px solid var(--line); }
+  .result .when, .result-mark { flex: none; white-space: nowrap; }
   .finished .results .result:hover .result-label { text-decoration: underline; }
   .result-type { flex: none; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; font-size: .7rem; color: var(--text); }
-  .result-label { min-width: 0; overflow-wrap: anywhere; }
+  .result-label { min-width: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
   .misc[hidden] { display: none; }
   #statusHead { cursor: pointer; user-select: none; }
   .status-chevron { display: inline-block; transition: transform .15s; }
@@ -362,9 +365,12 @@
   .status-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .status-head .section-title { margin: 0; }
   .comfy-status { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: .72rem; color: var(--muted); }
-  .run-actions { display: flex; gap: 8px; margin: 12px 0 8px; }
+  /* Small and quiet, centred: there when wanted, not the first thing you see. */
+  .run-actions { display: flex; justify-content: center; gap: 8px; margin: 12px 0 8px; }
   .run-actions[hidden] { display: none; }
-  .run-actions button { flex: 1; width: auto; margin: 0; }
+  .run-actions button { flex: none; width: auto; min-width: 84px; margin: 0; padding: 6px 16px; font-size: .82rem; font-weight: 600;
+    background: transparent; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
+  .run-actions #stop { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent); }
   .card > .section-title:first-child { margin-top: 0; }
   /* Each heading folds what's under it away. */
   summary.section-title { min-width: 0; overflow-wrap: anywhere; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; user-select: none; }
@@ -433,7 +439,6 @@
       background: var(--panel); border-top: 1px solid var(--line); border-radius: 0 0 14px 14px;
     }
     .form-actions #formNote, .form-actions .err { margin-top: 8px; }
-    .run-actions button { flex: none; padding: 8px 18px; }
     #formVideo, #formImage { display: block; }
     .wrap { max-width: 1880px; padding: 14px 20px 20px; }
     .dashboard {
@@ -563,8 +568,8 @@
     <div class="queue only-shorts" id="uploadQueue" data-lane="upload" data-title="Uploads" hidden></div>
   </div>
   <div class="run-actions" id="runActions" hidden>
-    <button type="button" id="skip">Skip, resume later</button>
-    <button type="button" class="danger" id="stop">Stop all</button>
+    <button type="button" id="skip" title="Skip this run and resume it later">Skip</button>
+    <button type="button" id="stop" title="Stop everything: the queue waits until you press Resume">Stop</button>
   </div>
   </div>
   <div class="status-toggles" id="statusToggles">
@@ -2402,7 +2407,7 @@ function renderFinished(runs, uploads, madeNow = []) {
   const failed = all.filter(r => r.outcome === 'failed').length;
   const title = `Finished (${all.length})${failed ? ` · <span class="failed">${failed} failed</span>` : ''}`;
   const list = all.map(r => `<button type="button" class="result${r.outcome === 'failed' ? ' failed' : ''}" data-goto="${esc(r.side)}"${r.tab ? ` data-tab="${r.tab}"` : ''}>`
-    + `<span class="when">${r.at}</span> ${RESULT_MARKS[r.outcome]} <span class="result-type">${r.type}</span>`
+    + `<span class="when">${r.at}</span><span class="result-mark">${RESULT_MARKS[r.outcome]}</span><span class="result-type">${r.type}</span>`
     + `<span class="result-label">${esc(r.label)}${r.note ? ` (${esc(r.note)})` : ''}</span></button>`).join('');
   if ($('finishedToggle').innerHTML !== title) $('finishedToggle').innerHTML = title;
   if ($('finishedList').dataset.html !== list) { $('finishedList').innerHTML = list; $('finishedList').dataset.html = list; }
