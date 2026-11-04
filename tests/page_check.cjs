@@ -619,7 +619,7 @@ assert.strictEqual(context.iconTapped.innerHTML, '<svg>bin</svg>');
 assert.strictEqual(context.tapped.style.width, '', 'and its own size again');
 
 // Moving on in the queue: the one starting leaves it at once, sliding up, and Status shows it arriving; never a blank.
-const queueEl = { dataset: { title: 'Runs', lane: 'run' }, hidden: false, innerHTML: '', nodes: [],
+const queueEl = { dataset: { title: 'Queue', lane: 'run' }, hidden: false, innerHTML: '', nodes: [],
   querySelectorAll() { return this.nodes; } };
 const queueTimers = [];
 context.queueEl = queueEl;
@@ -634,7 +634,7 @@ assert(first.classList.contains('leaving') && first.style.height === '40px', 'th
 assert(queueEl.innerHTML.includes('data-id="1"'), 'drawn again only once it has gone');
 queueEl.nodes = [];
 queueTimers[queueTimers.length - 1][0]();
-assert(!queueEl.innerHTML.includes('data-id="1"') && queueEl.innerHTML.includes('data-id="2"') && queueEl.innerHTML.includes('Runs (1)'));
+assert(!queueEl.innerHTML.includes('data-id="1"') && queueEl.innerHTML.includes('data-id="2"') && queueEl.innerHTML.includes('Queue (1)'));
 context.setTimeout = () => 0;
 run("showWork('Video: First')");
 assert(els.currentWork.hidden === false && els.currentWork.textContent === 'Video: First');
@@ -804,6 +804,11 @@ assert(/\.pipeline-form \.row > div \{ display: flex; flex-direction: column; ju
 
 assert(/\.stick \{[^}]*transform: translateZ\(0\); will-change: transform;/.test(html), 'the footer on a layer of its own, never half drawn');
 
+// One part of the update failing doesn't stop the rest: the queue updates whatever else throws.
+assert(/safely\(\(\) => renderQueue\(\$\('runQueue'\)/.test(script) && /safely\(\(\) => renderPlan\(\)\)/.test(script));
+assert(run("(() => { let after = false; safely(() => { throw new Error('x'); }); safely(() => { after = true; }); return after; })()"), 'the next part still runs');
+assert(/data-title="Queue"/.test(html) && !script.includes('Now: ${esc(q.current.label)}'), 'called Queue, with no Now line');
+
 const base = fs.readFileSync(require('path').join(__dirname, '..', 'panel', 'templates', 'base.html'), 'utf8');
 assert(/maximum-scale=1, user-scalable=no/.test(base) && /html \{ overflow-x: clip; touch-action: manipulation; \}/.test(base), 'no zooming the page out from under the footer');
 assert(/html \{ overflow-x: clip;/.test(base) && /input, select, textarea \{ max-width: 100%; \}/.test(base) && /\.row > \* \{ flex: 1; min-width: 0; \}/.test(base),
@@ -909,10 +914,10 @@ assert(/id="formVideo"/.test(html) && !/name="upload"[^>]*>[\s\S]*id="formVideo"
 
 // Queue: held jobs offer Resume, and every item can be removed.
 const queue = element('q');
-queue.dataset.title = 'Runs';
+queue.dataset.title = 'Queue';
 context.queue = queue;
 run(`renderQueue(queue, { items: [{ id: 3, label: 'a <film>', detail: 'd', estimate: 600 }], results: [], held: true, current: null }, 0)`);
-assert(queue.innerHTML.includes('<b>Runs (1)</b>'));
+assert(queue.innerHTML.includes('<b>Queue (1)</b>'));
 run(`renderQueue(queue, { items: [], results: [{ label: 'x', outcome: 'done', at: '17:00' }, { label: 'y', outcome: 'done', at: '17:01' }], held: false, current: null }, 0)`);
 assert.strictEqual(queue.hidden, true, 'what finished is under Finished, not in the queue');
 assert(queue.innerHTML.includes('data-resume') && queue.innerHTML.includes('data-remove="3"') && queue.innerHTML.includes('a &lt;film&gt;'));

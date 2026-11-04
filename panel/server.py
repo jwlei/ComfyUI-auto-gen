@@ -1309,6 +1309,15 @@ def load_presets():
         return {side: [] for side in PRESET_SIDES}
 
 
+@app.route("/api/page-error", methods=["POST"])
+@password_required
+def page_error():
+    """A part of the page that threw while updating, from a phone's browser: into the panel's own log, to be found."""
+    error = str((request.get_json(silent=True) or {}).get("error") or "")[:1500]
+    logging.getLogger("werkzeug").warning("Page error from %s: %s", request.remote_addr, error)
+    return {"ok": True}
+
+
 @app.route("/api/presets", methods=["GET", "POST"])
 @password_required
 def presets():

@@ -714,7 +714,7 @@
       <div class="queue-pending-head"><b id="queuePendingText"></b><span id="queuePendingPct"></span></div>
       <div class="bar"><div id="queuePendingBar"></div></div>
     </div>
-    <div class="queue" id="runQueue" data-lane="run" data-title="Runs" hidden></div>
+    <div class="queue" id="runQueue" data-lane="run" data-title="Queue" hidden></div>
     <div class="queue" id="stoppedRuns" hidden></div>
     <div class="queue only-shorts" id="uploadQueue" data-lane="upload" data-title="Uploads" hidden></div>
   </div>
@@ -3056,7 +3056,6 @@ function renderQueue(el, q, doneIn, moving = false) {
   const head = `<b>${el.dataset.title} (${waiting.length})</b>` + (q.held
     ? `<span class="when">On hold until you press Resume</span><button type="button" data-resume="1">Resume</button>`
     : doneIn ? `<span class="when">All done around ${clockIn(doneIn)}</span>` : '');
-  const now = q.current && q.items.length ? `<div class="queue-item"><div class="what">Now: ${esc(q.current.label)}</div></div>` : '';
   const items = waiting.map((item, i) => `
     <div class="queue-item" data-id="${esc(String(item.id))}">
       <div class="what">${i + 1}. ${esc(item.label)}<div class="hint">${el.dataset.lane === 'run' ? `${SIDE_NAMES[item.pipeline] || 'Shorts'} · ` : ''}${esc(item.detail)}</div></div>
@@ -3064,7 +3063,7 @@ function renderQueue(el, q, doneIn, moving = false) {
         : item.estimate ? `<span class="when">${fmtEta(item.estimate)}</span>` : ''}
       <button type="button" data-remove="${item.id}" aria-label="Remove from the queue" title="Remove from the queue">✕</button>
     </div>`).join('');
-  const html = `<div class="queue-head">${head}</div>${now}${items}`;
+  const html = `<div class="queue-head">${head}</div>${items}`;
   // Only when it changed, so a poll can't swallow a click on a button it just replaced.
   if (el.dataset.html !== html) {
     el.innerHTML = html;
@@ -3293,6 +3292,19 @@ let pollNumber = 0, serverStarted = null;
 function formInProgress() {
   return $('shotsDialog').open || ['topic', 'output', 'prompt', 'narration', 'imagePrompt'].some(id => $(id).value);
 }
+// One part of the page's update: if it throws, the rest still updates, and the console says what went wrong.
+// Before, one error anywhere left the queue and everything after it as it was until the page was reloaded.
+const errorsSent = new Set();
+function safely(part) {
+  try { part(); } catch (e) {
+    console.error('Part of the page could not update:', e);
+    // Into the panel's log too, once each, so it can be found from the PC.
+    const text = [e && e.message, ...String(e && e.stack || '').split('\n').slice(0, 4)].join(' | ');
+    if (errorsSent.has(text)) return;
+    errorsSent.add(text);
+    try { fetch('/api/page-error', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ error: text }) }).catch(() => {}); } catch (_) {}
+  }
+}
 async function poll() {
   const mine = ++pollNumber;
   const abort = new AbortController();
@@ -3335,19 +3347,19 @@ async function poll() {
   const runningLeft = running && data.progress.eta ? data.progress.eta.total_left : 0;
   queueAhead = queue.held ? null : runningLeft + waitingWork;
   $('estimate').hidden = false;
-  renderPlan();  // The clock has moved on
+  safely(() => renderPlan());  // The clock has moved on
   uploadingNow = new Set(upq.current ? upq.current.videos : []);
   uploadQueued = new Set(upq.items.flatMap(item => item.videos));
   uploadRunning = data.upload.running;
   busy = uploadRunning || uploadsQueued > 0 || (running && (data.progress.stage || [])[2] === 'Upload');
-  renderUpload(data.upload);
-  renderQueue($('runQueue'), queue, queue.held ? 0 : queueAhead, nextUp);
-  renderStopped(data.stopped_runs);
-  renderFinished(queue.results, upq.results, data.made_now || []);
-  announceResults([...queue.results, ...upq.results]);
+  safely(() => renderUpload(data.upload));
+  safely(() => renderQueue($('runQueue'), queue, queue.held ? 0 : queueAhead, nextUp));
+  safely(() => renderStopped(data.stopped_runs));
+  safely(() => renderFinished(queue.results, upq.results, data.made_now || []));
+  safely(() => announceResults([...queue.results, ...upq.results]));
   $('dot').className = 'dot' + (running || nextUp ? ' on' : '');
   $('jumpDot').className = $('dot').className;
-  renderStrips(data);
+  safely(() => renderStrips(data));
   $('go').disabled = $('goStick').disabled = submitting;
   if (!submitting) $('go').textContent = $('goStick').textContent = running || runsQueued ? 'Add to queue' : 'Generate';
   showWork(running ? `${SIDE_NAMES[data.pipeline] || 'Shorts'}: ${(queue.current || {}).label || 'Starting'}`
@@ -3359,8 +3371,8 @@ async function poll() {
   if (data.stopped_runs.length !== stoppedCount) { stoppedCount = data.stopped_runs.length; refreshPlan(); }
   $('runActions').hidden = !running;
 
-  renderNow(data);
-  renderEtaDetail(running ? (data.progress || {}).eta : null);
+  safely(() => renderNow(data));
+  safely(() => renderEtaDetail(running ? (data.progress || {}).eta : null));
 
   if (running) {
     const p = data.progress || {};
@@ -3372,7 +3384,7 @@ async function poll() {
     $('statusText').textContent = 'Idle';
   }
 
-  if (data.lines.length) renderLog(data.lines);
+  if (data.lines.length) safely(() => renderLog(data.lines));
 
   const c = data.comfyui;
   if (c.online !== workflowsFor) { workflowsFor = c.online; loadWorkflows(); loadVideoWorkflows(); loadImageWorkflows(); }
@@ -3382,12 +3394,12 @@ async function poll() {
     : c.starting ? 'starting… (loading models)'
     : c.can_start ? 'not running (Generate starts it)' : 'not running');
 
-  renderQuota(data.quota);
+  safely(() => renderQuota(data.quota));
 
   lastVideos = data.videos;
-  renderVideos();
+  safely(() => renderVideos());
   imageSets = data.image_sets || [];
-  renderImageSets();
+  safely(() => renderImageSets());
 }
 
 // On a desktop the log is always open beside the run; on a phone it stays folded until asked for.
