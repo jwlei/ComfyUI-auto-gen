@@ -216,6 +216,22 @@
   /* A film's prompts: read and change them before anything renders. */
   dialog { width: min(860px, calc(100vw - 24px)); max-height: calc(100vh - 24px); padding: 0; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 14px; }
   dialog::backdrop { background: rgba(0, 0, 0, .7); }
+  /* The image viewer: the picture as large as fits, its buttons under it. */
+  dialog.viewer { width: auto; max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); background: transparent; border: 0;
+    display: none; flex-direction: column; align-items: center; gap: 10px; overflow: visible; }
+  dialog.viewer[open] { display: flex; animation: viewer-in .2s ease; }
+  dialog.viewer::backdrop { background: rgba(0, 0, 0, .85); }
+  #viewerImage { display: block; max-width: calc(100vw - 24px); max-height: calc(100dvh - 120px); object-fit: contain; border-radius: 8px; background: #000; }
+  .viewer-bar { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .viewer-title { color: #ddd; font-size: .85rem; text-align: center; overflow-wrap: anywhere; }
+  .viewer-title:empty { display: none; }
+  .viewer-actions { display: flex; gap: 8px; }
+  .viewer-actions > * { width: auto; margin: 0; padding: 8px 16px; font-size: .9rem; }
+  .viewer-actions a.button { display: inline-flex; align-items: center; border-radius: 10px; background: var(--accent); color: #fff; text-decoration: none; font-weight: 600; }
+  .viewer-actions button { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+  .viewer-actions button.del { color: #ff6b6b; }
+  @keyframes viewer-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { dialog.viewer[open] { animation: none; } }
   .shots-head { padding: 16px 16px 10px; border-bottom: 1px solid var(--line); }
   .shots-head h2 { margin: 0; font-size: 1.05rem; }
   .shots-list { padding: 4px 16px; }
@@ -266,7 +282,7 @@
   .strip-total:empty { display: none; }
   .stick .strip[hidden] { display: block; max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
   .wrap { padding-bottom: calc(var(--head, 130px) + 16px); }
-  .jump { display: grid; grid-template-columns: 1.7fr 1fr .8fr 1fr; gap: 5px; padding: 6px 16px; }
+  .jump { display: grid; grid-template-columns: 1.7fr 1fr 1fr .8fr; gap: 5px; padding: 6px 16px; }
   .jump a {
     display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px;
     background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; overflow: hidden;
@@ -423,8 +439,8 @@
   <nav class="jump" id="jump" aria-label="Sections">
     <a href="#runCard" data-page="status" class="run"><span class="dot" id="jumpDot"></span>Status<small id="jumpRun">Idle</small></a>
     <a href="#optionsCard" data-page="generate">Generate</a>
-    <a href="#quotaCard" data-page="quota">Quota</a>
     <a href="#videosCard" data-page="output" id="jumpResults">Videos</a>
+    <a href="#quotaCard" data-page="quota">Quota</a>
   </nav>
   <div class="strip" id="runStrip" role="button" tabindex="0" aria-expanded="false" hidden>
     <div class="strip-line"><div class="bar"><div id="runStripBar"></div></div><span id="runStripRight"></span></div>
@@ -537,19 +553,8 @@
       <input id="topic" name="topic" placeholder="e.g. Why the Sahara was once green" autocomplete="off">
       <div class="hint">Leave empty for an AI pick. Topics already made aren't repeated.</div>
 
-      <div class="row">
-        <div>
-          <label for="runs">How many videos</label>
-          <input id="runs" name="runs" type="number" min="1" max="10" value="1" inputmode="numeric">
-        </div>
-        <div>
-          <label for="lang">Language</label>
-          <select id="lang" name="lang">
-            <option value="en-GB">English (UK)</option>
-            <option value="en-US">English (US)</option>
-          </select>
-        </div>
-      </div>
+      <label for="runs">How many videos</label>
+      <input id="runs" name="runs" type="number" min="1" max="10" value="1" inputmode="numeric">
     </details>
 
     <details class="section" id="formVoice">
@@ -558,6 +563,7 @@
       <select id="voice" name="voice">
         {% for value, label in voices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
       </select>
+      <div class="hint">A UK voice writes the script in UK spelling, a US voice in US spelling.</div>
     </details>
     <details class="section" id="shortsOptions" hidden>
       <summary class="section-title">Workflow options</summary>
@@ -596,22 +602,11 @@
         <div class="hint">A longer line cuts to stock footage while her voice carries on.</div>
         <div class="hint" id="avatarMix"></div>
 
-        <div class="row">
-          <div>
-            <label for="avatar_source">Source</label>
-            <select id="avatar_source" name="avatar_source">
-              <option value="comfyui">Generate with ComfyUI</option>
-              <option value="static" {% if not static_avatar %}disabled{% endif %}>Static clip (avatars.mp4){% if not static_avatar %} — not found{% endif %}</option>
-            </select>
-          </div>
-          <div>
-            <label for="avatar_style">Style</label>
-            <select id="avatar_style" name="avatar_style">
-              <option value="lipsync">Speaks the line (lip-sync)</option>
-              <option value="reaction">Silent reactions</option>
-            </select>
-          </div>
-        </div>
+        <label for="avatar_style">Style</label>
+        <select id="avatar_style" name="avatar_style">
+          <option value="lipsync">Speaks the line (lip-sync)</option>
+          <option value="reaction">Silent reactions</option>
+        </select>
 
         <label for="shortsSeed">Seed</label>
         <div class="seed-line">
@@ -896,6 +891,17 @@
 </div>
 
 <dialog id="shotsDialog"><div id="shotsBody"></div></dialog>
+<dialog id="imageViewer" class="viewer" aria-label="Image">
+  <img id="viewerImage" alt="">
+  <div class="viewer-bar">
+    <div class="viewer-title" id="viewerTitle"></div>
+    <div class="viewer-actions">
+      <a class="button" id="viewerDownload" href="#" download>Download</a>
+      <button type="button" class="del" id="viewerDelete">Delete</button>
+      <button type="button" class="ghost" id="viewerClose">Close</button>
+    </div>
+  </div>
+</dialog>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -907,7 +913,6 @@ let pipeline = 'shorts';
 const PIPELINE_KEY = 'comfyui-auto-gen.pipeline';
 
 const DEFAULTS = {
-  avatar_source: {{ (defaults.avatar_source if defaults.avatar_source in ['comfyui', 'static'] else 'comfyui') | tojson }},
   avatar_clips: {{ defaults.avatar_clips | tojson }},
   avatar_clips_min: {{ defaults.avatar_clips_min | tojson }},
   avatar_clips_max: {{ defaults.avatar_clips_max | tojson }},
@@ -973,9 +978,8 @@ function syncForm() {
   $('avatarOpts').classList.toggle('hidden', $('avatar_clips').value === '0');
   $('workflowBox').classList.toggle('hidden', $('avatar_clips').value === '0');
   $('clipsSlider').classList.toggle('hidden', $('avatar_clips').value !== 'auto');
-  $('workflow').disabled = $('avatar_source').value !== 'comfyui';
-  $('avatar_style').disabled = $('avatar_source').value !== 'comfyui' || !!$('workflow').value;
-  const avatars = $('avatar_clips').value !== '0' && $('avatar_source').value === 'comfyui';
+  $('avatar_style').disabled = !!$('workflow').value;
+  const avatars = $('avatar_clips').value !== '0';
   syncOptions('shortsOptions', 'shortsOptionsBox', avatars ? (shortsTakes[$('workflow').value] || {}).options || [] : []);
   syncSliders();
 }
@@ -1698,27 +1702,81 @@ function imageOptionsOnly() {
 let imageSets = [];
 function imageSetHtml(set) {
   const id = encodeURIComponent(set.id);
-  const pictures = set.images.map(picture => `<a href="/image-runs/${id}/files/${picture.position}?v=${picture.version}" target="_blank" rel="noopener" title="${esc(picture.title)}"><img loading="lazy" alt="${esc(picture.title)}" src="/image-runs/${id}/thumbnails/${picture.position}?v=${picture.version}"></a>`).join('');
+  const pictures = set.images.map(picture => `<a href="/image-runs/${id}/files/${picture.position}?v=${picture.version}" data-view-set="${esc(set.id)}" data-view-position="${picture.position}" title="${esc(picture.title)}"><img loading="lazy" alt="${esc(picture.title)}" src="/image-runs/${id}/thumbnails/${picture.position}?v=${picture.version}"></a>`).join('');
+  const all = set.images.length > 1 ? `Download all ${set.images.length}` : 'Download';
   return `
   <div class="image-set">
     <h3>${esc(set.label)}</h3>
-    <div class="meta">${set.images.length} of ${set.total} · ${esc(set.size)} · ${esc(set.when)}</div>
+    <div class="meta">${set.model ? `${esc(set.model)} · ` : ''}${set.images.length} of ${set.total} · ${esc(set.size)} · ${esc(set.when)}</div>
     <div class="image-set-row">
       <div class="image-grid">${pictures}</div>
-      <div class="image-set-actions"><button type="button" data-shots="${esc(set.id)}">Prompts</button><button type="button" class="del" data-delete-set="${esc(set.id)}">Delete</button></div>
+      <div class="image-set-actions"><button type="button" data-download-set="${esc(set.id)}" title="${all}">Download</button><button type="button" data-shots="${esc(set.id)}">Prompts</button><button type="button" class="del" data-delete-set="${esc(set.id)}">Delete</button></div>
     </div>
   </div>`;
 }
 function renderImageSets() {
-  const key = JSON.stringify(imageSets.map(set => [set.id, set.label, set.total, set.images]));
+  const key = JSON.stringify(imageSets.map(set => [set.id, set.label, set.total, set.images, set.model]));
   // Only when it changed, so a poll doesn't reload the pictures.
   if ($('imageSets').dataset.key === key) return;
   $('imageSets').dataset.key = key;
   $('imageSets').innerHTML = imageSets.length ? imageSets.map(imageSetHtml).join('') : '<div class="empty">No images yet. Press Generate to make some.</div>';
 }
+// Each image as a file of its own: no zip to open afterwards.
+function downloadImages(id, positions) {
+  positions.forEach((position, i) => setTimeout(() => {
+    const link = document.createElement('a');
+    link.href = `/image-runs/${encodeURIComponent(id)}/files/${position}?download=1`;
+    link.download = '';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }, i * 400));  // One at a time, or a browser drops all but the first
+}
+// --- The image viewer: one picture over a dimmed page, with Download, Delete and Close ---
+let viewing = null;
+function openViewer(id, position) {
+  const set = imageSets.find(s => s.id === id), picture = set && set.images.find(p => p.position === position);
+  if (!picture) return;
+  viewing = { id, position };
+  const url = `/image-runs/${encodeURIComponent(id)}/files/${position}?v=${picture.version}`;
+  $('viewerImage').src = url;
+  $('viewerImage').alt = picture.title;
+  $('viewerTitle').textContent = picture.title;
+  $('viewerDownload').href = `${url}&download=1`;
+  if (!$('imageViewer').open) $('imageViewer').showModal();
+}
+function closeViewer() {
+  if ($('imageViewer').open) $('imageViewer').close();
+}
+$('imageViewer').addEventListener('close', () => { viewing = null; $('viewerImage').removeAttribute('src'); });
+// A tap on the dimmed page around it closes it too.
+$('imageViewer').addEventListener('click', e => { if (e.target === $('imageViewer')) closeViewer(); });
+$('viewerClose').addEventListener('click', closeViewer);
+$('viewerDelete').addEventListener('click', async () => {
+  if (!viewing || !confirm('Delete this image? Its prompt goes with it.')) return;
+  const { id, position } = viewing;
+  let body;
+  try {
+    body = await (await fetch(`/image-runs/${encodeURIComponent(id)}/delete/${position}`, { method: 'POST' })).json();
+  } catch (e) {
+    body = { error: 'Could not reach the panel. Try again.' };
+  }
+  if (!body.ok) { alert(body.error || 'Could not delete it.'); return; }
+  closeViewer();
+  poll();
+});
 $('imageSets').addEventListener('click', async e => {
+  const view = e.target.closest && e.target.closest('[data-view-set]');
+  if (view) {
+    e.preventDefault();
+    openViewer(view.dataset.viewSet, +view.dataset.viewPosition);
+    return;
+  }
   const d = e.target.dataset || {};
-  if (d.shots) openShots(d.shots);
+  if (d.downloadSet) {
+    const set = imageSets.find(s => s.id === d.downloadSet);
+    if (set) downloadImages(set.id, set.images.map(p => p.position));
+  } else if (d.shots) openShots(d.shots);
   else if (d.deleteSet) {
     if (!confirm('Delete this set? Its images and prompts all go, and it can\'t be continued.')) return;
     await stopJob(`/runs/${d.deleteSet}/discard`);
@@ -1736,7 +1794,7 @@ function filmHtml(v) {
   <div class="vid" data-name="${name}">
     <video controls preload="none" playsinline${poster} src="/videos/${folder}/${url}"></video>
     <h3>${v.title ? esc(v.title) : esc(v.name)}</h3>
-    <div class="meta" title="${name}">${name} · ${v.created} · ${v.size_mb} MB</div>
+    <div class="meta" title="${name}">${v.model ? `${esc(v.model)} · ` : ''}${name} · ${v.created} · ${v.size_mb} MB</div>
     <div class="acts"><a href="/download/${folder}/${url}">Download</a>${shots}<button type="button" class="del" data-del="${name}">Delete</button></div>
   </div>`;
 }
@@ -2575,7 +2633,9 @@ $('jump').addEventListener('click', e => {
 });
 function markJump() {
   const line = 16;
-  const here = WIDE.matches ? JUMPS.filter(a => $(a.hash.slice(1)).getBoundingClientRect().top <= line).pop() || JUMPS[0]
+  // A desktop lights the last section scrolled past, in the page's order rather than the footer's.
+  const top = a => $(a.hash.slice(1)).getBoundingClientRect().top;
+  const here = WIDE.matches ? JUMPS.filter(a => top(a) <= line).sort((a, b) => top(a) - top(b)).pop() || JUMPS[0]
     : JUMPS.find(a => a.dataset.page === document.body.dataset.page) || JUMPS[0];
   JUMPS.forEach(a => a.classList.toggle('active', a === here));
   // The form's own button is in sight at its end, so this one would only repeat it.

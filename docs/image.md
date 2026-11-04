@@ -9,7 +9,7 @@ short brief, or your own prompt goes in word for word.
 image of a woman + "recreate her with different outfits and hairstyles" + 15 images
   → Gemini or Claude writes 15 prompts that differ from each other (one request for the whole set)
   → ComfyUI makes each image
-  → output/image/<title>_<run>/image_001.png ...
+  → output/image/<title>_<workflow>/<title>_<workflow>_001.png ...
 ```
 
 ## The panel
@@ -147,7 +147,7 @@ What the pipeline does to a saved workflow, in the copy it runs. Your saved one 
 | FluxKontext Image Scale, in Qwen-Image-Edit | Skipped, or it would snap the size you chose to one of its own. Its encoder wraps the image around if it comes out an odd number of latent pixels across, which leaves a band of the far side along one edge, so these render at the nearest size where it doesn't and are cropped to yours. |
 
 Other settings stay as saved. So Qwen-Image-Edit's `enable_turbo_mode` decides between its 40-step and 4-step LoRA
-routes: change it in ComfyUI, and the next list picks that up. The ETA learns each workflow's time separately.
+routes: change it in ComfyUI, and the next list picks that up. The ETA learns each model, workflow, set of options and size separately (`core/eta_keys.py`).
 
 A workflow's Load Image nodes are its image boxes. Qwen-Image-Edit as saved has one, so it takes one image. Wire more
 Load Image nodes to its `image2` and `image3` in ComfyUI and each becomes a required box.

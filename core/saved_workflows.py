@@ -687,6 +687,33 @@ def is_for_image(name):
     return not is_for_shorts(name) and _label(name).replace("\\", "/").rsplit("/", 1)[-1].startswith(IMAGE_PREFIX)
 
 
+def shorthand(workflow, default):
+    """
+    A workflow's short name, for file names and the gallery: its name without the image_, video_ or shorts_ in front
+    or the _ytautoshort marker behind. default for the built-in one.
+    """
+    if not workflow:
+        return default
+    stem = os.path.splitext(os.path.basename(str(workflow)))[0]
+    stem = re.sub(r"^(image|video|shorts?)_", "", stem, flags=re.I)
+    stem = re.sub(re.escape(SHORTS_SUFFIX) + "$", "", stem, flags=re.I)
+    return re.sub(r"[^\w-]+", "_", stem).strip("_") or default
+
+
+def title_words(title, default):
+    """A title as words for a file name."""
+    return re.sub(r"[^\w-]+", "_", title or "").strip("_")[:60] or default
+
+
+def unique_name(folder, name, extension=""):
+    """name, or name_2, name_3... if folder already has one: a second film with the same title keeps the first."""
+    candidate, number = name, 1
+    while os.path.exists(os.path.join(folder, candidate + extension)):
+        number += 1
+        candidate = f"{name}_{number}"
+    return candidate
+
+
 def pipeline_of(name, ui=None):
     """Which side a workflow is for: by its name, or for one saved without image_ in it, by what it saves."""
     if is_for_shorts(name):

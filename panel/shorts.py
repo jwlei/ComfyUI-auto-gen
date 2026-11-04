@@ -21,7 +21,7 @@ COMMAND = [sys.executable, "-m", "pipelines.shorts.main"]
 
 # Gemini voices only: edge-tts is never used.
 VOICES = [
-    ("", "Default for the language (UK: Presenter, female)"),
+    ("", "Default (UK: Presenter, female)"),
     ("en-gb-tutor-13", "Presenter — UK female, Winchester"),
     ("en-gb-storyteller-3", "Storyteller — UK female, Newcastle"),
     ("en-gb-storyteller-2", "Storyteller — UK female, mature"),
@@ -68,6 +68,11 @@ def describe_stopped(state):
             "estimate": RunEta(resume_argv(state), state.env, SHORTS_TIMINGS).plan()["total"]}
 
 
+def language_of(voice):
+    """en-US for a US voice, else en-GB: the default voice is the UK presenter."""
+    return "en-US" if voice.startswith("en-us") else "en-GB"
+
+
 def run_to_continue(topic, argv):
     """
     The stopped run Generate should finish rather than pay for the same work again:
@@ -102,14 +107,11 @@ def build_run(form):
         return None, None, "A topic makes one video. Leave Topic empty to make several."
     argv += ["--runs", str(runs)]
 
-    lang = form.get("lang") or "en-GB"
-    if lang not in ("en-GB", "en-US"):
-        return None, None, "Unknown language."
-    argv += ["--lang", lang]
-
     voice = form.get("voice") or ""
     if voice not in dict(VOICES):
         return None, None, "Unknown voice."
+    # The voice says the language: its accent, and the spelling the script is written in.
+    argv += ["--lang", language_of(voice)]
     if voice:
         argv += ["--voice", voice]
 
@@ -124,10 +126,8 @@ def build_run(form):
     if seed is not None:
         argv += ["--seed", str(seed)]
 
-    source = form.get("avatar_source") or "comfyui"
-    if source not in ("comfyui", "static"):
-        return None, None, "Unknown avatar source."
-    env["AVATAR_SOURCE"] = source
+    # The panel always renders her with ComfyUI; the looped avatars.mp4 is left to the command line.
+    env["AVATAR_SOURCE"] = "comfyui"
 
     style = form.get("avatar_style") or "lipsync"
     if style not in AVATAR_STYLES:
@@ -135,7 +135,7 @@ def build_run(form):
     env["COMFYUI_WORKFLOW"] = AVATAR_STYLES[style]
 
     workflow = form.get("workflow")
-    if workflow and source == "comfyui":
+    if workflow:
         env["COMFYUI_WORKFLOW"], error = saved_workflow_path(workflow)
         if error:
             return None, None, error
@@ -200,12 +200,11 @@ def describe_run(form, argv):
     topic = (form.get("topic") or "").strip()
     runs = argv[argv.index("--runs") + 1]
     label = topic or ("AI picks the topic" if runs == "1" else f"{runs} videos, AI picks the topics")
-    source = form.get("avatar_source") or "comfyui"
-    avatar = "no avatar" if form.get("avatar_clips") == "0" else "static avatar" if source == "static" else "ComfyUI avatar"
+    avatar = "no avatar" if form.get("avatar_clips") == "0" else "ComfyUI avatar"
     if form.get("workflow") and avatar == "ComfyUI avatar":
         avatar = f"ComfyUI avatar ({form['workflow'].removesuffix('.json')})"
     upload = f"upload {form.get('privacy') or 'private'}" if form.get("upload") else "no upload"
-    return label, " · ".join((form.get("lang") or "en-GB", avatar, upload))
+    return label, " · ".join((argv[argv.index("--lang") + 1], avatar, upload))
 
 
 @app.route("/generate/shorts", methods=["POST"], endpoint="shorts_generate")
@@ -356,14 +355,12 @@ def context():
     return {
         "voices": VOICES,
         "defaults": {
-            "avatar_source": (os.getenv("AVATAR_SOURCE") or "static").lower(),
             "avatar_clips": (os.getenv("AVATAR_CLIPS") or "auto").lower(),
             "avatar_clips_min": avatar_clip_range()[0],
             "avatar_clips_max": avatar_clip_range()[1],
             "avatar_seconds_min": on_screen_range()[0],
             "avatar_seconds_max": on_screen_range()[1],
         },
-        "static_avatar": os.path.exists(os.path.join(PROJECT_ROOT, "assets", "avatar", "avatars.mp4")),
         "can_upload": youtube_configured(),
     }
 

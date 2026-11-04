@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from flask import abort, request, send_file
 
 from core import seeds, workflow_options
+from core.saved_workflows import shorthand
 from panel.server import (IMAGE_TIMINGS, PIPELINES, _runs_cache, app, busy_runs, form_options, password_required, run_queue, saved_at,
                           saved_workflows)
 from panel.video import clean_inputs, queue_label, shot_seeds
@@ -111,6 +112,7 @@ def describe_run(state):
     parts = [f"{done} of {total} images" if done else f"Prompts ready, {total} {'image' if total == 1 else 'images'}", f"{state.width}x{state.height}"]
     env = {"COMFYUI_WORKFLOW": state.workflow} if state.workflow else {}
     return {"id": state.id, "pipeline": "image", "label": state.title or state.brief, "detail": " · ".join(parts),
+            "model": shorthand(state.workflow, "image"),
             "when": saved_at(state.path), "clips": done, "finished": state.finished, "total": total, "images": image_files(state),
             "size": f"{state.width}x{state.height}", "estimate": RunEta(resume_argv(state), env, IMAGE_TIMINGS).plan()["total"]}
 

@@ -33,6 +33,7 @@ class RunState:
     workflow: str = None
     image_count: int = 0
     inputs: str = None  # Fingerprint of the images it was planned from, for Generate to recognise them
+    output_name: str = None  # <title words>_<workflow>, the folder and the start of each file name; None for older sets
     options: dict = None  # The workflow's options as chosen, such as {"group_2nd_pass": "0"} (core/workflow_options.py)
 
     @classmethod
@@ -77,8 +78,14 @@ class RunState:
 
     @property
     def output_dir(self):
+        if self.output_name:
+            return os.path.join(paths.OUTPUT_DIR, self.output_name)
         name = re.sub(r"[^\w-]+", "_", self.title or "").strip("_")[:60] or "images"
         return os.path.join(paths.OUTPUT_DIR, f"{name}_{self.id}")
+
+    def file_stem(self, shot):
+        """An image's file name without its extension: the set's name and its number, so a download says what it is."""
+        return f"{self.output_name or 'image'}_{shot['number']:03d}"
 
     def image_path(self, shot):
         return os.path.join(self.output_dir, shot["file"])

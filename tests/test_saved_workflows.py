@@ -1,5 +1,6 @@
 """Turning what ComfyUI saves into what its API takes, and finding the inputs to fill."""
 import os
+import tempfile
 import sys
 import unittest
 
@@ -263,6 +264,28 @@ class OptionsTest(unittest.TestCase):
         self.assertNotIn("problem", self.options(ui)["face_enable_lora"])
         api = workflow_options.convert(ui, OBJECT_INFO, {"face_enable_lora": "1"})[0]
         self.assertIn("LoraLoaderModelOnly", [node["class_type"] for node in api.values()], "its switch went the way chosen")
+
+
+class ShorthandTest(unittest.TestCase):
+    def test_a_workflow_by_its_name_without_its_side(self):
+        from core.saved_workflows import shorthand
+        self.assertEqual(shorthand("logs/workflows/image_krea2_SFW_NSFW.json", "image"), "krea2_SFW_NSFW")
+        self.assertEqual(shorthand("video_wan22.json", "ltx"), "wan22")
+        self.assertEqual(shorthand("minimax_h3_ytautoshort.json", "comfyui"), "minimax_h3")
+        self.assertEqual(shorthand("shorts_ltx_ytautoshort", "comfyui"), "ltx")
+        self.assertEqual(shorthand("Fibo2 turbo edit.json", "image"), "Fibo2_turbo_edit")
+        self.assertEqual(shorthand(None, "ltx"), "ltx", "the built-in one")
+
+    def test_a_second_with_the_same_name_keeps_the_first(self):
+        from core.saved_workflows import title_words, unique_name
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertEqual(unique_name(folder, "A_Harbour_ltx", ".mp4"), "A_Harbour_ltx")
+            open(os.path.join(folder, "A_Harbour_ltx.mp4"), "w").close()
+            self.assertEqual(unique_name(folder, "A_Harbour_ltx", ".mp4"), "A_Harbour_ltx_2")
+            os.makedirs(os.path.join(folder, "Looks_krea2"))
+            self.assertEqual(unique_name(folder, "Looks_krea2"), "Looks_krea2_2")
+        self.assertEqual(title_words("A harbour: at dawn!", "film"), "A_harbour_at_dawn")
+        self.assertEqual(title_words("", "film"), "film")
 
 
 class InstalledAsTest(unittest.TestCase):

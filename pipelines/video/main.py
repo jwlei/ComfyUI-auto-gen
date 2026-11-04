@@ -15,9 +15,13 @@ from core import seeds
 from core import workflow_options
 from core.audio import AudioEngine
 from core.paths import LOGS_DIR
+from core.saved_workflows import shorthand, title_words, unique_name
 from pipelines.video import media, paths, planner, roles
 from pipelines.video.comfy import ComfyClient
 from pipelines.video.run_state import STAGES, RunState, list_runs
+
+# The built-in workflow's short name in a film's file name.
+BUILT_IN = "ltx"
 
 CLIP_ATTEMPTS = 2
 # Clip render time per second of video, from the yt-auto-shorts runs on this GPU.
@@ -335,8 +339,10 @@ def render_clips(state, comfy):
 def stitch_film(state):
     print("🧵 Stitching the film...")
     clips = [state.clip_path(i) for i in range(len(state.shots))]
-    name = re.sub(r"[^\w-]+", "_", state.title).strip("_")[:60] or "film"
-    output = os.path.join(paths.OUTPUT_DIR, f"{name}_{state.id}.mp4")
+    # Made again (a shot redone), it keeps its name; a new film never takes another's.
+    if not state.film_name:
+        state.update(film_name=unique_name(paths.OUTPUT_DIR, f"{title_words(state.title, 'film')}_{shorthand(state.workflow, BUILT_IN)}", ".mp4"))
+    output = os.path.join(paths.OUTPUT_DIR, f"{state.film_name}.mp4")
     media.stitch(clips, state.parts_dir, output, state.width, state.height, state.start == "chain")
     if state.has_audio:
         media.with_audio(output, state.audio_path)

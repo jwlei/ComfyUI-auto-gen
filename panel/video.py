@@ -14,8 +14,10 @@ from panel.server import (form_options, PIPELINES, VIDEO_TIMINGS, _runs_cache, a
 from panel.shorts import VOICES
 from pipelines.video import media, paths, planner, roles
 from pipelines.video.comfy import workflow_model
+from pipelines.video.main import BUILT_IN
 from pipelines.video.run_eta import RunEta
-from pipelines.video.run_state import STAGES, RunState, folder_size, list_runs, run_id_in
+from core.saved_workflows import shorthand
+from pipelines.video.run_state import STAGES, RunState, films_of_runs, folder_size, list_runs, run_of_film
 
 COMMAND = [sys.executable, "-m", "pipelines.video.main"]
 DEFAULT_FILM_SECONDS = 120
@@ -429,7 +431,7 @@ def discard_run(run_id):
 
 def delete_video(folder, path):
     """Deletes a film and the run that made it, whose clips would otherwise sit on the disk unseen."""
-    run_id = run_id_in(os.path.basename(path))
+    run_id = run_of_film(os.path.basename(path))
     if run_id and run_id in busy_runs():
         return {"ok": False, "error": "That film's run is going or queued. Stop it or take it out of the queue first."}, 409
     os.remove(path)
@@ -442,10 +444,13 @@ def delete_video(folder, path):
 
 def captions():
     titles = {run["id"]: run["label"] for run in saved_runs() if run["pipeline"] == "video"}
+    films = films_of_runs()
 
     def caption(name):
-        run = run_id_in(name)
-        return {"run": run if run in titles else None, "title": titles.get(run)}
+        run = run_of_film(name, films)
+        made_by = films.get(name)
+        return {"run": run if run in titles else None, "title": titles.get(run),
+                "model": shorthand(made_by.workflow, BUILT_IN) if made_by else None}
     return caption
 
 

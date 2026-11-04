@@ -334,7 +334,7 @@ class PartsTest(unittest.TestCase):
                 eta.clip(1, 8, 10)
                 eta.attempt_started -= seconds_taken
                 eta.clip(2, 8, 10)
-            return eta.timings["render"]
+            return eta.timings.render(eta.render_keys, None)
         share = 640 * 352 / media.RENDER_AREA
         self.assertAlmostEqual(learned("--size", "640x352", seconds_taken=100 * share), learned(seconds_taken=100), delta=0.1)
 

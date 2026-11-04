@@ -13,9 +13,9 @@ import requests
 from dotenv import load_dotenv
 
 from core import seeds
-from core.paths import comfyui_client_id
+from core.paths import SAVED_WORKFLOWS_DIR, comfyui_client_id
 from core import workflow_options
-from core.saved_workflows import frames_for, image_slots
+from core.saved_workflows import frames_for, image_slots, shorthand
 
 # Where avatar scenes come from, chosen with AVATAR_SOURCE in .env:
 # 'static' loops assets/avatar/avatars.mp4; 'comfyui' renders a fresh clip per scene.
@@ -302,6 +302,9 @@ class AvatarGenerator:
         return workflow, fields
 
     def model_label(self):
+        """A workflow saved in ComfyUI by its short name, the built-in ones by their model."""
+        if os.path.abspath(os.path.dirname(self.workflow_path)) == os.path.abspath(SAVED_WORKFLOWS_DIR):
+            return shorthand(self.workflow_path, "comfyui")
         return video_model(self.workflow, self.workflow_path)
 
     def can_render(self, scene):

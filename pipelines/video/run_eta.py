@@ -1,35 +1,22 @@
-import json
-import os
 import re
 import time
 
+from core.eta_keys import SEPARATOR, Timings, options_in_env, render_keys
 from pipelines.video.media import RENDER_AREA
-from pipelines.video.comfy import workflow_model
+from pipelines.video.comfy import DEFAULT_WORKFLOW, workflow_model
 from pipelines.video.planner import clip_seconds, shot_count
 from pipelines.video.run_state import STAGES, RunState
 
 # Used until a finished step has been timed.
 DEFAULT_TIMINGS = {
     "Plan": 60,
-    "render": 31,  # Render time per second of film at full size, measured on this GPU in yt-auto-shorts
     "part": 6,  # One clip evened out for stitching
 }
-# How much each new measurement moves the stored value.
-LEARNING_RATE = 0.3
+# Render time per second of film at full size, measured on this GPU in yt-auto-shorts. Each model, workflow, set of
+# options and size learns its own (core/eta_keys.py).
+DEFAULT_RENDER_SECONDS = 31
 # Unexplained drift from the original estimate below this isn't worth a line in the panel.
 SMALL_DRIFT_SECONDS = 60
-
-
-def _load_timings(path):
-    timings = dict(DEFAULT_TIMINGS)
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            saved = json.load(f)
-        timings.update({key: value for key, value in saved.items()
-                        if key in timings and isinstance(value, (int, float))})
-    except (OSError, ValueError, AttributeError):
-        pass  # A broken file only costs accuracy
-    return timings
 
 
 def _option(argv, name, default):
@@ -52,9 +39,11 @@ class RunEta:
 
     def __init__(self, argv, path, env=None):
         """env: the run's environment, whose COMFYUI_WORKFLOW says how long the video model makes a clip."""
-        self.path = path
-        self.video_model = workflow_model((env or {}).get("COMFYUI_WORKFLOW"))
-        self.timings = _load_timings(path)
+        self.workflow = (env or {}).get("COMFYUI_WORKFLOW")
+        self.video_model = workflow_model(self.workflow)
+        self.timings = Timings(path, DEFAULT_TIMINGS)
+        self.options = options_in_env(env)
+        self.llm = _option(argv, "--llm", None)
         self.plan_only = "--plan-only" in argv
         try:
             self.film_seconds = int(_option(argv, "--duration", 0))
@@ -62,6 +51,7 @@ class RunEta:
             self.film_seconds = 0
         self.shots = shot_count(self.film_seconds, self.video_model)
         self.size_share = _size_share(argv)
+        self.size = _option(argv, "--size", None)
         self.kept_stages = ()
         self.kept_seconds = 0
 
@@ -73,8 +63,13 @@ class RunEta:
             self.film_seconds = sum(shot["seconds"] for shot in state.shots)
             self.shots = len(state.shots)
             self.size_share = state.width * state.height / RENDER_AREA
+            self.size = f"{state.width}x{state.height}"
             self.kept_seconds = state.kept_seconds()
             self.kept_stages = ("Plan",)
+            self.workflow = self.workflow or state.workflow
+            self.options = self.options or state.options or {}
+            self.llm = self.llm or state.llm
+        self.render_keys = render_keys(self.workflow or DEFAULT_WORKFLOW, self.options, self.size)
 
         self.number = 0
         self.total = 0
@@ -143,13 +138,14 @@ class RunEta:
 
     # --- Learning ---
 
-    def _learn(self, key, value):
-        self.timings[key] += LEARNING_RATE * (value - self.timings[key])
+    def _plan_keys(self):
+        """Planning is timed per LLM, then at all."""
+        return [SEPARATOR.join(("Plan", self.llm or "default")), "Plan"]
 
     def _finish_attempt(self, now):
         if self.attempt_started is not None and self.attempt_seconds:
             # As if at full size, or a 360p film would make the next 720p estimate far too short.
-            self._learn("render", (now - self.attempt_started) / self.attempt_seconds / self.size_share)
+            self.timings.learn_render(self.render_keys, (now - self.attempt_started) / self.attempt_seconds / self.size_share)
             self.done_seconds += self.attempt_seconds
             self.attempt_started = None
             self._save()
@@ -160,23 +156,20 @@ class RunEta:
         if self.name == "Clips":
             self._finish_attempt(now)
         elif self.name == "Stitching":
-            self._learn("part", (now - self.stage_started) / max(1, self.shots))
+            self.timings.learn_step("part", (now - self.stage_started) / max(1, self.shots))
+        elif self.name == "Plan":
+            self.timings.learn_step(self._plan_keys(), now - self.stage_started)
         else:
-            self._learn(self.name, now - self.stage_started)
+            self.timings.learn_step(self.name, now - self.stage_started)
         self._save()
 
     def _save(self):
-        try:
-            os.makedirs(os.path.dirname(self.path), exist_ok=True)
-            with open(self.path, "w", encoding="utf-8") as f:
-                json.dump(self.timings, f, indent=2)
-        except OSError:
-            pass  # Next run just starts from older numbers
+        self.timings.save()
 
     # --- Estimating ---
 
     def _render_seconds(self, film_seconds):
-        return self.timings["render"] * self.size_share * film_seconds
+        return self.timings.render(self.render_keys, DEFAULT_RENDER_SECONDS) * self.size_share * film_seconds
 
     def _stage_seconds(self, name):
         """What a step takes from the start, without the part a continued run kept."""
@@ -185,8 +178,10 @@ class RunEta:
         if name == "Clips":
             return self._render_seconds(max(self.film_seconds - self.kept_seconds, 0))
         if name == "Stitching":
-            return self.shots * self.timings["part"]
-        return self.timings[name]
+            return self.shots * self.timings.step("part")
+        if name == "Plan":
+            return self.timings.step(self._plan_keys())
+        return self.timings.step(name, 0)
 
     def _current_left(self, now):
         if self.name == "Clips" and self.attempt_started is not None:
@@ -201,7 +196,8 @@ class RunEta:
         return {"steps": steps, "total": sum(step["seconds"] for step in steps),
                 "clips": self.shots,
                 "clip_seconds": round(self.film_seconds / self.shots) if self.film_seconds else clip_seconds(self.video_model)[2],
-                "clip_render": round(self._render_seconds(self.film_seconds / self.shots)) if self.film_seconds else 0}
+                "clip_render": round(self._render_seconds(self.film_seconds / self.shots)) if self.film_seconds else 0,
+                "timed": self.timings.timed(self.render_keys)}
 
     def estimate(self):
         """Returns seconds per step and left overall, or None before the first step (or for a run without steps)."""

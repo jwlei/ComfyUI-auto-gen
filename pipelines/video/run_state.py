@@ -35,6 +35,7 @@ class RunState:
     shots: list = None  # [{title, seconds, prompt}]. Edit the prompts here before rendering, if you like.
     clips: dict = field(default_factory=dict)  # {shot index: file name in clips/}
     final: str = None
+    film_name: str = None  # <title words>_<workflow>, chosen once: a film made again keeps its name
     workflow: str = None  # The workflow file it renders with, if not the built-in one
     image_count: int = 1  # 0 for a film from text alone, several for a workflow that takes references
     inputs: str = None  # Fingerprint of the images and audio it was planned from, for Generate to recognise them
@@ -183,6 +184,24 @@ def run_id_in(name):
     """Which run a film belongs to, from its file name. None if it doesn't say."""
     match = RUN_ID.search(name)
     return match.group(0) if match else None
+
+
+def films_of_runs():
+    """{film file name: its run}, for films named after their title rather than their run."""
+    films = {}
+    for state in list_runs():
+        name = os.path.basename(state.final) if state.final else f"{state.film_name}.mp4" if state.film_name else None
+        if name:
+            films[name] = state
+    return films
+
+
+def run_of_film(name, films=None):
+    """The run a film came from: by the run in its name (older films), else by the film the run made."""
+    films = films_of_runs() if films is None else films
+    if name in films:
+        return films[name].id
+    return run_id_in(name)
 
 
 def list_runs():

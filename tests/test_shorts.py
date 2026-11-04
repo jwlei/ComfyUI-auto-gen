@@ -221,7 +221,7 @@ class GenerateContinuesTest(unittest.TestCase):
         self.stopped("run_20261101_100000_1", "Old topic")
         self.assertNotIn("continued", self.generate(topic="Something else"))
         self.assertNotIn("resume", self.added[-1])
-        self.assertNotIn("continued", self.generate(lang="en-US"))
+        self.assertNotIn("continued", self.generate(voice="en-us-storyteller-6"), "a US voice is a US script")
 
     def test_nothing_stopped_is_a_new_video(self):
         self.assertNotIn("continued", self.generate())

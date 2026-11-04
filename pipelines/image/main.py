@@ -10,6 +10,7 @@ import time
 from dotenv import load_dotenv
 
 from core import seeds
+from core.saved_workflows import shorthand, title_words, unique_name
 from pipelines.image import media, models, paths
 from pipelines.image import planner as image_planner
 from pipelines.image.comfy import ImageClient
@@ -155,7 +156,8 @@ def plan_run(args, stages):
     shots = [{"number": number, "file": None, "seed": seeds.nth(args.seed, number - 1), **version}
              for number, version in enumerate(versions, 1)]
     # At once: the prompts are what was paid for.
-    state.update(title=title, shots=shots)
+    output_name = unique_name(paths.OUTPUT_DIR, f"{title_words(title, 'images')}_{shorthand(state.workflow, 'image')}")
+    state.update(title=title, shots=shots, output_name=output_name)
 
     print(f"🖼️ {title}, {width}x{height}")
     for shot in shots:
@@ -174,7 +176,7 @@ def upload_images(state, comfy):
 
 def render_image(state, comfy, shot, images):
     """Renders until the file holds up, on a new seed each time. Returns its path, or None."""
-    save_as = os.path.join(state.output_dir, f"image_{shot['number']:03d}")
+    save_as = os.path.join(state.output_dir, state.file_stem(shot))
     rendered = comfy.render_size(state.width, state.height)
     for attempt in range(1, IMAGE_ATTEMPTS + 1):
         seed = seeds.pick(shot.get("seed"), attempt)

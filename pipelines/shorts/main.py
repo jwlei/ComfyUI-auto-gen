@@ -138,7 +138,7 @@ def stage(name, upload):
     print(f"▶ Stage {stages.index(name) + 1}/{len(stages)}: {name}")
 
 
-def build_output_name(model, prefix="short"):
+def build_output_name(model, prefix="shorts"):
     return f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{model}.mp4"
 
 

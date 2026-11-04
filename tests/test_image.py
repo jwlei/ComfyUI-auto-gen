@@ -228,11 +228,57 @@ class Fibo2PromptTest(unittest.TestCase):
 
 
 class EtaTest(unittest.TestCase):
+    def workflow(self, folder, name, model):
+        path = os.path.join(folder, name)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"1": {"class_type": "UNETLoader", "inputs": {"unet_name": f"Krea2\\{model}.safetensors"}},
+                       "2": {"class_type": "UpscaleModelLoader", "inputs": {"model_name": "4x.safetensors"}},
+                       "3": {"class_type": "VAELoader", "inputs": {"vae_name": "ae.safetensors"}}}, f)
+        return path
+
+    def test_a_render_is_timed_by_model_workflow_options_and_size(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "timings.json")
+            simple = self.workflow(folder, "simple.json", "krea2_turbo")
+            argv = lambda *more: ["--count", "1", "--direct", "--size", "1024x1024", *more]
+            first = RunEta(argv(), {"COMFYUI_WORKFLOW": simple}, path)
+            self.assertEqual(first.render_keys, ["krea2_turbo | simple | as saved | 1024x1024", "krea2_turbo | simple | as saved",
+                                                 "krea2_turbo | simple", "krea2_turbo"], "the model by its file, not the upscaler or VAE")
+            first.stage(1, 1, "Images")
+            first.image(1, 1)
+            first.image_started -= 20 * first.size_share
+            first.finish()
+
+            again = RunEta(argv(), {"COMFYUI_WORKFLOW": simple}, path)
+            self.assertAlmostEqual(again.plan()["image_render"], 20, delta=1)
+            self.assertTrue(again.plan()["timed"])
+            # A setting not timed yet starts from the same workflow's time, and learns its own.
+            steps = RunEta(argv("--option", "steps=12"), {"COMFYUI_WORKFLOW": simple}, path)
+            self.assertEqual(steps.render_keys[0], "krea2_turbo | simple | steps=12 | 1024x1024")
+            self.assertAlmostEqual(steps.plan()["image_render"], 20, delta=1)
+            self.assertFalse(steps.plan()["timed"])
+            # A new workflow on the same model starts from the model's time, with nothing set up for it.
+            renamed = self.workflow(folder, "brand_new.json", "krea2_turbo")
+            self.assertAlmostEqual(RunEta(argv(), {"COMFYUI_WORKFLOW": renamed}, path).plan()["image_render"], 20, delta=1)
+            # A new model has nothing to go by but the default, until its first image.
+            other = self.workflow(folder, "other.json", "qwen_image")
+            self.assertEqual(RunEta(argv(), {"COMFYUI_WORKFLOW": other}, path).plan()["image_render"], 120)
+
+    def test_prompts_are_timed_per_llm_and_count(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "timings.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"steps": {"Prompts | claude": 90, "Prompts | gemini | 3 images": 12, "Prompts": 30}}, f)
+            prompts = lambda *argv: RunEta(["--plan-only", *argv], {}, path).plan()["total"]
+            self.assertEqual(prompts("--llm", "gemini", "--count", "3"), 12)
+            self.assertEqual(prompts("--llm", "claude", "--count", "3"), 90)
+            self.assertEqual(prompts("--llm", "gemini", "--count", "5"), 30, "nothing timed for gemini at 5 yet")
+
     def test_each_workflow_learns_its_own_time(self):
         with tempfile.TemporaryDirectory() as folder:
             path = os.path.join(folder, "timings.json")
             with open(path, "w", encoding="utf-8") as f:
-                json.dump({"image:fast.json": 10, "image:slow.json": 200, "Prompts": 30}, f)
+                json.dump({"steps": {"Prompts": 30}, "renders": {"fast": 10, "slow": 200}}, f)
             count = ["--count", "3"]
             self.assertEqual(RunEta(count, {"COMFYUI_WORKFLOW": "x/fast.json"}, path).plan()["total"], 30 + 30)
             self.assertEqual(RunEta(count, {"COMFYUI_WORKFLOW": "x/slow.json"}, path).plan()["total"], 30 + 600)
@@ -326,7 +372,7 @@ class PanelTest(unittest.TestCase):
         for shot in run.shots:
             self.assertTrue(os.path.exists(run.image_path(shot)))
         self.assertTrue(run.output_dir.startswith(paths.OUTPUT_DIR))
-        self.assertEqual(os.path.basename(run.output_dir), f"Three_Looks_{run.id}")
+        self.assertEqual(os.path.basename(run.output_dir), "Three_Looks_text")
 
     def test_an_image_edits_it(self):
         self.make(image=True, aspect="image", megapixels="1")
@@ -689,6 +735,9 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(self.claude.requests, [], "no LLM is asked")
         self.assertTrue(run.direct)
         self.assertEqual(run.options, {"prompt_enhancer": "1"})
+        # Named after its title and the workflow that made it: the folder, and each file in it.
+        self.assertEqual(run.output_name, "a_lighthouse_text")
+        self.assertEqual(sorted(os.listdir(run.output_dir))[0][:len("a_lighthouse_text_001")], "a_lighthouse_text_001")
         self.assertIn("TextGenerate", [node["class_type"] for node in self.comfy.prompts[0]["prompt"].values()])
 
     def test_a_workflow_without_one_says_so(self):

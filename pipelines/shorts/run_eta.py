@@ -3,6 +3,7 @@ import math
 import os
 import time
 
+from core.eta_keys import Timings, options_in_env, render_keys
 from pipelines.shorts.avatar_generator import DEFAULT_CLIP_RANGE, DEFAULT_ON_SCREEN_RANGE, DEFAULT_WORKFLOW, video_model
 from pipelines.shorts.run_state import STAGES, RunState
 
@@ -11,34 +12,19 @@ from pipelines.shorts.run_state import STAGES, RunState
 # see 'scene'): those two scale with the 'clip' and 'scene' values.
 DEFAULT_TIMINGS = {
     "Topic & script": 90, "Voice": 60, "Stock footage": 60, "Avatar clips": 30, "Stitching": 45, "Upload": 30,
-    "clip": 300,  # One ComfyUI render, including the prompt written for it
-    "clip_seconds": 6,  # The length of clip that render time is for: it scales with length
     "scene": 3,  # One scene through ffmpeg
     "scenes": 9,  # Scenes per video
     "auto_clips": 5,  # Clips per video in the 'auto' avatar layout
 }
-# How much each new measurement moves the stored value.
-LEARNING_RATE = 0.3
+# One ComfyUI render per second of clip, including the prompt written for it, until one is timed. Each model,
+# workflow and set of options learns its own (core/eta_keys.py).
+DEFAULT_RENDER_SECONDS = 50
 # A scene's narration caps how long she stays on screen in it.
 TYPICAL_SCENE_SECONDS = 5.5
 # A clip renders this much longer than she is on screen: rounded up, plus the overlap into the next scene.
 CLIP_EXTRA_SECONDS = 1
 # Unexplained drift from the original estimate below this isn't worth a line in the panel.
 SMALL_DRIFT_SECONDS = 60
-
-
-def _load_timings(path):
-    timings = {**DEFAULT_TIMINGS, "models": {}}
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            saved = json.load(f)
-        timings.update({key: value for key, value in saved.items()
-                        if key in DEFAULT_TIMINGS and isinstance(value, (int, float))})
-        timings["models"] = {name: own for name, own in saved.get("models", {}).items()
-                             if all(isinstance(own.get(key), (int, float)) for key in ("clip", "clip_seconds"))}
-    except (OSError, ValueError, AttributeError):
-        pass  # A broken file only costs accuracy
-    return timings
 
 
 def _option(argv, name, default):
@@ -51,9 +37,13 @@ def _slider(env, low_name, high_name, defaults):
     return int(settings.get(low_name) or defaults[0]), int(settings.get(high_name) or defaults[1])
 
 
+def _workflow_of_run(env):
+    return {**os.environ, **(env or {})}.get("COMFYUI_WORKFLOW") or DEFAULT_WORKFLOW
+
+
 def _model_of_run(env):
     """The video model this run's workflow uses, or None if its file can't be read."""
-    path = {**os.environ, **(env or {})}.get("COMFYUI_WORKFLOW") or DEFAULT_WORKFLOW
+    path = _workflow_of_run(env)
     try:
         with open(path, "r", encoding="utf-8") as f:
             return video_model(json.load(f), path)
@@ -65,16 +55,16 @@ class RunEta:
     """
     Estimates what is left of a run from how long each step took before. Steps are
     timed as they finish and saved to `path`, so estimates improve with every run.
-    Renders are timed per video model; one not timed yet goes by the overall 'clip'
-    until its first clip is done. A step cut short by a failure or Stop is never
+    Renders are timed per second of clip, under the model, workflow and options
+    (core/eta_keys.py). A step cut short by a failure or Stop is never
     counted. With --resume, only what that run still has to do counts, and steps it
     finished earlier aren't timed.
     """
 
     def __init__(self, argv, env, path):
-        self.path = path
-        self.timings = _load_timings(path)
+        self.timings = Timings(path, DEFAULT_TIMINGS)
         self.model = _model_of_run(env)
+        self.render_keys = render_keys(_workflow_of_run(env), options_in_env(env))
         self.videos_left = int(_option(argv, "--runs", 1)) - 1
         self.upload = "--upload" in argv
         self.clip_range = _slider(env, "AVATAR_CLIPS_MIN", "AVATAR_CLIPS_MAX", DEFAULT_CLIP_RANGE)
@@ -195,23 +185,12 @@ class RunEta:
     # --- Learning ---
 
     def _learn(self, key, seconds):
-        self.timings[key] += LEARNING_RATE * (seconds - self.timings[key])
+        self.timings.learn_step(key, seconds)
 
     def _finish_attempt(self, now):
         if self.attempt_started is not None:
-            self._learn("clip", now - self.attempt_started)
-            self._learn("clip_seconds", self.attempt_seconds)
-            self._learn_model(now - self.attempt_started, self.attempt_seconds)
+            self.timings.learn_render(self.render_keys, (now - self.attempt_started) / max(self.attempt_seconds, 1))
             self.attempt_started = None
-
-    def _learn_model(self, seconds, clip_seconds):
-        own = self.timings["models"].get(self.model)
-        if own:
-            own["clip"] += LEARNING_RATE * (seconds - own["clip"])
-            own["clip_seconds"] += LEARNING_RATE * (clip_seconds - own["clip_seconds"])
-        elif self.model:
-            # Its first clip beats any blend with what other models took.
-            self.timings["models"][self.model] = {"clip": seconds, "clip_seconds": clip_seconds}
 
     def _finish_stage(self):
         now = time.time()
@@ -227,31 +206,25 @@ class RunEta:
                 self._learn("scenes", self.scenes_started)
         else:
             self._learn(self.name, now - self.stage_started)
-        try:
-            os.makedirs(os.path.dirname(self.path), exist_ok=True)
-            with open(self.path, "w", encoding="utf-8") as f:
-                json.dump(self.timings, f, indent=2)
-        except OSError:
-            pass  # Next run just starts from older numbers
+        self.timings.save()
 
     # --- Estimating ---
 
     def _render_seconds(self, clip_seconds):
-        own = self.timings["models"].get(self.model, self.timings)
-        return own["clip"] * clip_seconds / own["clip_seconds"]
+        return self.timings.render(self.render_keys, DEFAULT_RENDER_SECONDS) * clip_seconds
 
     def _stage_seconds(self, name, clips, scenes):
         if name == "Avatar clips":
-            return self.timings[name] + clips * self._render_seconds(self.planned_clip_seconds)
+            return self.timings.step(name) + clips * self._render_seconds(self.planned_clip_seconds)
         if name == "Rendering scenes":
-            return scenes * self.timings["scene"]
-        return self.timings[name]
+            return scenes * self.timings.step("scene")
+        return self.timings.step(name)
 
     def _planned_clip_count(self):
         if self.planned_clips is not None:
             return self.planned_clips
         # What 'auto' usually picks, within the range this run allows and the scenes there are.
-        return min(max(self.timings["auto_clips"], self.clip_range[0]), self.clip_range[1], self.timings["scenes"])
+        return min(max(self.timings.step("auto_clips"), self.clip_range[0]), self.clip_range[1], self.timings.step("scenes"))
 
     def _still_to_do(self, name, scenes):
         """What a step of the current video takes, without the part a continued run kept."""
@@ -259,7 +232,7 @@ class RunEta:
             return 0
         if name == "Avatar clips" and self.resumed_clips is not None:
             left = max(self.resumed_clips - self.kept_clips, 0)
-            return self.timings[name] + left * self._render_seconds(self.planned_clip_seconds)
+            return self.timings.step(name) + left * self._render_seconds(self.planned_clip_seconds)
         return self._stage_seconds(name, self._planned_clip_count(), scenes)
 
     def _current_left(self, now):
@@ -270,7 +243,7 @@ class RunEta:
                 return after
             this_clip = self._render_seconds(self.attempt_seconds) - (now - self.attempt_started)
             return max(this_clip, 0) + after
-        scenes = self.timings["scenes"] if self.scene_count is None else self.scene_count
+        scenes = self.timings.step("scenes") if self.scene_count is None else self.scene_count
         if self.clip_count is None:
             return max(self._still_to_do(self.name, scenes) - elapsed, 0)
         return max(self._stage_seconds(self.name, self.clip_count, scenes) - elapsed, 0)
@@ -279,16 +252,16 @@ class RunEta:
         """What a run with these options should take, for the panel to show before it starts."""
         clips = self._planned_clip_count()
         names = STAGES if self.upload else STAGES[:-1]
-        steps = [{"name": name, "seconds": round(self._stage_seconds(name, clips, self.timings["scenes"]))}
+        steps = [{"name": name, "seconds": round(self._stage_seconds(name, clips, self.timings.step("scenes")))}
                  for name in names]
         video = sum(step["seconds"] for step in steps)
-        scenes = self.timings["scenes"] if self.scene_count is None else self.scene_count
+        scenes = self.timings.step("scenes") if self.scene_count is None else self.scene_count
         first = round(sum(self._still_to_do(name, scenes) for name in names))
         return {"steps": steps, "video": video, "videos": self.videos_left + 1,
                 "total": first + video * self.videos_left, "clips": round(clips),
                 "clip_seconds": math.ceil(self.planned_clip_seconds),
                 "clip_render": round(self._render_seconds(self.planned_clip_seconds)),
-                "model": self.model, "model_timed": self.model in self.timings["models"]}
+                "model": self.model, "model_timed": self.timings.timed(self.render_keys)}
 
     def estimate(self):
         """Returns seconds per step and left overall, or None before the first step (or for a run without steps)."""
@@ -296,7 +269,7 @@ class RunEta:
             return None
         now = time.time()
         clips = self._planned_clip_count()
-        scenes = self.timings["scenes"] if self.scene_count is None else self.scene_count
+        scenes = self.timings.step("scenes") if self.scene_count is None else self.scene_count
         names = STAGES[:self.total]
 
         steps = []
@@ -314,7 +287,7 @@ class RunEta:
                 left += seconds
                 steps.append({"state": "next", "seconds": round(seconds)})
 
-        video = sum(self._stage_seconds(name, clips, self.timings["scenes"]) for name in names)
+        video = sum(self._stage_seconds(name, clips, self.timings.step("scenes")) for name in names)
         total_left = left + self.videos_left * video
         elapsed = now - self.started
         adjusted = elapsed + total_left

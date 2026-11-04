@@ -174,7 +174,7 @@ python -m pipelines.shorts.main
 ```
 
 1. The AI picks a trending topic, writes the script, generates the audio, downloads stock footage, and edits the video.
-2. The final video is saved to `output/shorts/ready/` with a timestamped name ending in what made its presenter clips (e.g. `short_20260812_193000_minimax-h3.mp4`): `ltx`, `minimax-h3`, `wan` or another workflow's file name, `static` for the looped clip, or `stock` if there are none. The panel shows the same label.
+2. The final video is saved to `output/shorts/ready/` with a timestamped name ending in what made its presenter clips (e.g. `shorts_20260812_193000_minimax_h3.mp4`): a workflow saved in ComfyUI by its name without `shorts_` or `_ytautoshort`, `ltx` for the built-in one, `static` for the looped clip, or `stock` if there are none. The panel always renders her with ComfyUI (`AVATAR_SOURCE=static` is for the command line), and takes the language from the voice: a US voice writes the script in US spelling. The panel shows the same label.
 
 ### Automated / Unattended Runs
 
@@ -241,10 +241,11 @@ video, clip length and uploading. During a run it shows an ETA for each step and
 the whole run, including any videos still to come. It keeps the original ETA from the
 start of the run next to an adjusted one, and lists what moved it: a clip that failed its
 check and renders again, more or fewer clips than expected, or steps running slower or
-faster than estimated. Finished steps are timed and saved to `logs/stage_timings.json`, so
-the estimates start rough and get better with each run. Renders are timed per video model,
-as they differ by far: one not timed yet goes by the average of all models, and the panel
-says so, until its first clip is done. Delete that file to start over.
+faster than estimated. Finished steps are timed and saved to `logs/stage_timings_shorts.json`, so
+the estimates start rough and get better with each run. Renders are timed per second of clip
+under the model, the workflow and the workflow options chosen (`core/eta_keys.py`, the same on
+every side): a model, workflow or setting not timed yet starts from its nearest relative that
+was, and the panel says so, until its first clip is done. Delete that file to start over.
 
 The Quota section lists today's quota per model: Gemini text and voice models, the stock
 provider and YouTube upload units. Google has no API for what is left of a quota, so

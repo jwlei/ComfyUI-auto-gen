@@ -231,19 +231,40 @@ shots.finished = true;
 assert(!run('shotsHtml(shots)').includes('data-render'), 'a finished film has nothing left to render');
 
 // The Image side: a set's titles can hold anything, and its size is worked out as the pipeline does.
-const sets = [{ id: 'image_20261102_120000', label: 'A <b>set', total: 3, size: '1024x1024', when: '02 Nov', images: [{ position: 1, title: '<i>Look', version: 5 }] }];
+const sets = [{ id: 'image_20261102_120000', label: 'A <b>set', total: 3, size: '1024x1024', when: '02 Nov', model: 'krea2_<SFW>',
+  images: [{ position: 1, title: '<i>Look', version: 5 }, { position: 3, title: 'Two', version: 6 }] }];
 context.sets = sets;
 const setHtml = run('imageSetHtml(sets[0])');
 assert(!setHtml.includes('<b>set') && !setHtml.includes('<i>Look'), 'titles are escaped');
 assert(setHtml.includes('/thumbnails/1?v=5') && setHtml.includes('/files/1?v=5') && setHtml.includes('loading="lazy"'), 'small pictures, that open full size');
-assert(setHtml.includes('data-delete-set=') && setHtml.includes('data-shots='));
+assert(setHtml.includes('data-delete-set=') && setHtml.includes('data-shots=') && setHtml.includes('data-download-set='));
+assert(setHtml.includes('krea2_&lt;SFW&gt; · 2 of 3'), 'the workflow by its short name, first');
+assert(!setHtml.includes('target="_blank"') && setHtml.includes('data-view-position="3"'), 'a picture opens in the viewer, not a new tab');
 const inRow = setHtml.slice(setHtml.indexOf('class="image-set-row"'));
-assert(inRow.includes('<img') && inRow.indexOf('<img') < inRow.indexOf('data-shots') && inRow.indexOf('data-shots') < inRow.indexOf('data-delete-set'), 'the picture and its two buttons share one line');
+assert(inRow.includes('<img') && inRow.indexOf('<img') < inRow.indexOf('data-download-set') && inRow.indexOf('data-shots') < inRow.indexOf('data-delete-set'), 'the pictures and their buttons share one line');
+
+// Download on a set takes each image as a file of its own; the viewer's takes just the one it shows.
+const clicked = [];
+context.document.createElement = () => ({ click() { clicked.push(this.href); }, remove() {} });
+context.document.body.appendChild = () => {};
+context.setTimeout = fn => { fn(); return 0; };
+run("downloadImages('image_20261102_120000', [1, 3])");
+assert.deepStrictEqual(clicked, ['/image-runs/image_20261102_120000/files/1?download=1', '/image-runs/image_20261102_120000/files/3?download=1'], 'no zip');
+context.setTimeout = () => 0;
+assert(/<dialog id="imageViewer"[\s\S]*?id="viewerImage"[\s\S]*?id="viewerDownload"[\s\S]*?id="viewerDelete"[\s\S]*?id="viewerClose"[\s\S]*?<\/dialog>/.test(html), 'the picture, then Download, Delete and Close under it');
+assert(/dialog\.viewer::backdrop \{ background: rgba\(0, 0, 0, \.85\)/.test(html), 'over a dimmed page');
+run('imageSets = sets');
+run("openViewer('image_20261102_120000', 3)");
+assert.strictEqual(els.imageViewer.open, true);
+assert.strictEqual(els.viewerDownload.href, '/image-runs/image_20261102_120000/files/3?v=6&download=1');
+assert.strictEqual(els.viewerTitle.textContent, 'Two');
+run('closeViewer()');
+assert.strictEqual(els.imageViewer.open, false);
 assert(/\.image-set-row \{ display: flex/.test(html) && /\.image-grid img \{ width: 56px/.test(html), 'and small enough to');
 assert(/input\[type=file\]::file-selector-button/.test(html), 'choosing a file has a real button');
 run('imageSets = sets; renderImageSets()');
 const once = els.imageSets.innerHTML;
-assert(once.includes('1 of 3'));
+assert(once.includes('2 of 3'));
 els.imageSets.innerHTML = 'untouched';
 run('renderImageSets()');
 assert.strictEqual(els.imageSets.innerHTML, 'untouched', 'a poll with nothing new reloads no pictures');
@@ -475,7 +496,8 @@ assert.strictEqual(context.fakeLog.scrollTop, 300, 'line 81 is still at the top 
 context.document.getElementById('runCard').getBoundingClientRect = () => ({ top: 0, bottom: 100 });
 run('syncStrips()');
 assert(els.runStrip.hidden && els.uploadStrip.hidden, 'on Status the footer bars would only repeat it');
-assert.deepStrictEqual([...html.matchAll(/<a href="#(\w+)"/g)].map(m => m[1]), ['runCard', 'optionsCard', 'quotaCard', 'videosCard']);
+assert.deepStrictEqual([...html.matchAll(/<a href="#(\w+)"/g)].map(m => m[1]), ['runCard', 'optionsCard', 'videosCard', 'quotaCard']);
+assert(!html.includes('name="avatar_source"') && !html.includes('name="lang"'), 'Shorts always uses ComfyUI, and the voice says the language');
 
 // Nothing a video does can hold up the status: no video loads until you press play.
 assert(!/preload="(metadata|auto)"/.test(script) && !/preload="(metadata|auto)"/.test(html), 'videos must not hold the browser\'s connections');
@@ -492,10 +514,10 @@ run("setTab('uploaded')");
 assert(els.videos.innerHTML.includes('uploaded_short.mp4') && !els.videos.innerHTML.includes('a_film.mp4'));
 run("setPipeline('shorts', false)");
 
-// Every link goes somewhere, in the page's own order, or the wrong section lights up.
+// Every link goes somewhere. The footer's order is its own: a desktop lights up by where the sections are.
 const links = [...html.matchAll(/<a href="#(\w+)"/g)].map(m => m[1]);
 for (const id of links) assert(ids.has(id), `#${id} is on the page`);
-assert.deepStrictEqual(links.map(id => html.indexOf(`id="${id}"`)), links.map(id => html.indexOf(`id="${id}"`)).sort((a, b) => a - b));
+assert(/JUMPS\.filter\(a => top\(a\) <= line\)\.sort\(/.test(script), 'by position, not the footer order');
 // Status comes first, Generate is called just that, and it sits with the options.
 assert(html.indexOf('id="runCard"') < html.indexOf('id="optionsCard"'));
 assert(/id="go">Generate</.test(html) && script.includes("'Add to queue'"), 'Generate, or Add to queue while something runs');

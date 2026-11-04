@@ -1,15 +1,14 @@
-import json
-import os
 import re
 import time
 
+from core.eta_keys import SEPARATOR, Timings, options_in, render_keys
 from pipelines.image.media import FROM_IMAGE, PIXELS_PER_MEGAPIXEL, parse_size
 from pipelines.image.run_state import STAGES, RunState
 
-# Used until a finished step has been timed. Each workflow learns its own image time: they differ by minutes.
+# Used until a finished step has been timed. An image's time is learned per megapixel, under its model, workflow,
+# options and size (core/eta_keys.py): they differ by minutes.
 DEFAULT_PROMPTS_SECONDS = 45
 DEFAULT_IMAGE_SECONDS = 120
-LEARNING_RATE = 0.3
 SMALL_DRIFT_SECONDS = 60
 
 
@@ -17,8 +16,13 @@ def _option(argv, name, default=None):
     return argv[argv.index(name) + 1] if name in argv[:-1] else default
 
 
-def _workflow_key(workflow):
-    return f"image:{os.path.basename(workflow)}" if workflow else "image"
+def _size_label(argv):
+    """The size as chosen, for telling apart what's timed: exact, or as megapixels, or the image's own."""
+    size = parse_size(_option(argv, "--size"))
+    if size:
+        return f"{size[0]}x{size[1]}"
+    megapixels = _option(argv, "--megapixels", "1")
+    return f"{megapixels} MP" if re.fullmatch(r"\d+(\.\d+)?", megapixels) else "as the image"
 
 
 def _size_share(argv):
@@ -34,10 +38,12 @@ class RunEta:
     """As the Video side's: estimates what is left from how long each step took before, and learns as it goes."""
 
     def __init__(self, argv, env, path):
-        self.path = path
-        self.timings = self._load()
+        self.timings = Timings(path, {"Prompts": DEFAULT_PROMPTS_SECONDS})
         self.plan_only = "--plan-only" in argv
         self.direct = "--direct" in argv
+        self.llm = _option(argv, "--llm")
+        self.options = options_in(argv)
+        self.size = _size_label(argv)
         self.workflow = (env or {}).get("COMFYUI_WORKFLOW")
         try:
             self.images = int(_option(argv, "--count", 1))
@@ -53,9 +59,12 @@ class RunEta:
             self.workflow = state.workflow
             self.images = len(state.shots)
             self.size_share = state.width * state.height / PIXELS_PER_MEGAPIXEL
+            self.size = f"{state.width}x{state.height}"
+            self.options = {**(state.options or {}), **self.options}
             self.kept = len([shot for number, shot in enumerate(state.shots, 1) if shot.get("file") and str(number) != redo])
             self.prompts_kept = True
 
+        self.render_keys = render_keys(self.workflow, self.options, self.size, fallback="image")
         self.number = self.total = 0
         self.name = None
         self.stage_started = None
@@ -66,27 +75,10 @@ class RunEta:
         self.started = time.time()
         self.original_total = self.plan()["total"]
 
-    def _load(self):
-        try:
-            with open(self.path, "r", encoding="utf-8") as f:
-                saved = json.load(f)
-            return {key: value for key, value in saved.items() if isinstance(value, (int, float))}
-        except (OSError, ValueError, AttributeError):
-            return {}  # A broken file only costs accuracy
-
-    def _save(self):
-        try:
-            os.makedirs(os.path.dirname(self.path), exist_ok=True)
-            with open(self.path, "w", encoding="utf-8") as f:
-                json.dump(self.timings, f, indent=2)
-        except OSError:
-            pass  # Next run just starts from older numbers
-
-    def _learn(self, key, default, value):
-        old = self.timings.get(key, default)
-        # The first real measurement beats a guess made on no machine in particular.
-        self.timings[key] = value if key not in self.timings else old + LEARNING_RATE * (value - old)
-        self._save()
+    def _prompt_keys(self):
+        """Writing the prompts is timed per LLM and per number of images, then per LLM, then at all."""
+        llm = self.llm or "default"
+        return [SEPARATOR.join(("Prompts", llm, f"{self.images} images")), SEPARATOR.join(("Prompts", llm)), "Prompts"]
 
     # --- What the run reports ---
 
@@ -117,7 +109,8 @@ class RunEta:
 
     def _finish_image(self, now):
         if self.image_started is not None:
-            self._learn(_workflow_key(self.workflow), DEFAULT_IMAGE_SECONDS, (now - self.image_started) / self.size_share)
+            self.timings.learn_render(self.render_keys, (now - self.image_started) / self.size_share)
+            self.timings.save()
             self.done_images += 1
             self.image_started = None
 
@@ -127,16 +120,17 @@ class RunEta:
         if self.name == "Images":
             self._finish_image(now)
         elif not self.direct:
-            self._learn("Prompts", DEFAULT_PROMPTS_SECONDS, now - self.stage_started)
+            self.timings.learn_step(self._prompt_keys(), now - self.stage_started)
+            self.timings.save()
 
     # --- Estimating ---
 
     def _image_seconds(self):
-        return self.timings.get(_workflow_key(self.workflow), self.timings.get("image", DEFAULT_IMAGE_SECONDS)) * self.size_share
+        return self.timings.render(self.render_keys, DEFAULT_IMAGE_SECONDS) * self.size_share
 
     def _stage_seconds(self, name):
         if name == "Prompts":
-            return 0 if self.direct or self.prompts_kept else self.timings.get("Prompts", DEFAULT_PROMPTS_SECONDS)
+            return 0 if self.direct or self.prompts_kept else self.timings.step(self._prompt_keys())
         return self._image_seconds() * max(self.images - self.kept, 0)
 
     def plan(self):
@@ -144,7 +138,7 @@ class RunEta:
         names = STAGES[:1] if self.plan_only else STAGES
         steps = [{"name": name, "seconds": round(self._stage_seconds(name))} for name in names]
         return {"steps": steps, "total": sum(step["seconds"] for step in steps), "images": self.images,
-                "image_render": round(self._image_seconds())}
+                "image_render": round(self._image_seconds()), "timed": self.timings.timed(self.render_keys)}
 
     def _current_left(self, now):
         if self.name == "Images":

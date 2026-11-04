@@ -194,7 +194,8 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(self.generate(prompt="a second film").get_json(), {"ok": True, "queued": True})
         queue_status = self.status()["queue"]
         self.assertEqual(queue_status["items"][0]["label"], "a second film")
-        self.assertGreater(queue_status["items"][0]["estimate"], 60)
+        # The first film's plan and clips were timed: the fakes are quick, so it is short, but it's there.
+        self.assertGreater(queue_status["items"][0]["estimate"], 0)
 
         pid = webapp.job.process.pid
         self.assertTrue(self.client.post("/stop").get_json()["ok"])
@@ -502,8 +503,13 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(run.options, {"steps": "12"})
         self.assertTrue(all(p["prompt"]["6"]["inputs"]["steps"] == 12 for p in self.comfy.prompts), "every clip")
         clips = len(self.comfy.prompts)
+        film = os.path.basename(run.final)
+        self.assertTrue(film.endswith("_wan.mp4") and run.id not in film, "<title>_<workflow>.mp4")
+        listed = next(v for v in webapp.list_videos("video") if v["name"] == film)
+        self.assertEqual((listed["run"], listed["model"]), (run.id, "wan"), "the film still finds its run, and shows its workflow")
         self.assertTrue(self.client.post(f"/runs/{run.id}/redo/1").get_json()["ok"])
         self.wait_idle()
+        self.assertEqual(os.path.basename(self.only_run().final), film, "made again, it keeps its name")
         self.assertEqual(self.comfy.prompts[clips]["prompt"]["6"]["inputs"]["steps"], 12, "a shot made again is made the same way")
         self.assertEqual(self.generate(workflow="wan.json", opt_steps="0").status_code, 400)
 

@@ -10,7 +10,7 @@ command line.
 image + "a storm rolls in over the harbour"
   → Gemini or Claude writes the shot list (one request for the whole film)
   → ComfyUI renders each shot (LTX-2.3: 5-10 seconds a clip, MiniMax H3: 5-15, Wan: 3-5)
-  → ffmpeg joins the clips into output/<title>_<run>.mp4
+  → ffmpeg joins the clips into output/<title>_<workflow>.mp4 (the workflow without video_; ltx for the built-in)
   → optionally, YouTube
 ```
 
@@ -151,7 +151,7 @@ any shot made again come out the same way.
 ## Time and cost
 
 Rendering takes about 30 minutes per minute of film on the GPU this was built on, so a 10-minute film takes around
-5 hours. The ETA learns from each run. ComfyUI's queue is shared, so other work there takes its turn between
+5 hours. The ETA learns from each run, per model, workflow, workflow options and size. ComfyUI's queue is shared, so other work there takes its turn between
 clips.
 
 A film's prompts take one LLM request, however long the film is, and an upload's title and description take one
