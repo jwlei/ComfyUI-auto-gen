@@ -404,8 +404,10 @@ class JobQueue:
             self._record(item, "done")
             note_outcome(self.job, item, NOT_RENDERED if item.get("plan_only") else FIRST_ONLY if item.get("first_only") else None)
         else:
-            self._record(item, "failed", f"exit {code}")
-            note_outcome(self.job, item, {"outcome": "failed", "why": why_it_failed(self.job, code)})
+            # In plain words, with what to do, when it's a failure we know; the run's own lines under it.
+            plain, said = explain_failure(self.job, code)
+            self._record(item, "failed", plain or f"exit {code}")
+            note_outcome(self.job, item, {"outcome": "failed", "why": f"{plain}\n\nFrom its log:\n{said}" if plain else said})
             if self.items:
                 self.job.log(f"❌ {item['label']} failed (exit {code}).")
 
@@ -951,6 +953,44 @@ NOT_RENDERED = {"outcome": "not rendered",
 # The lines that say what went wrong, as the pipelines print them.
 TROUBLE = re.compile(r"❌|⚠️|Error|Exception|Traceback|failed|refused|can't|could not", re.I)
 MOST_WHY_LINES = 4
+
+
+# The failures that come up, in plain words with what to do: the first whose pattern is in the run's log.
+FAILURES = (
+    (r"out of memory|OutOfMemoryError|CUDA error: out of memory|not enough (GPU )?memory|allocation on device",
+     "Out of GPU memory. Try a smaller size (1 MP), fewer references, or turn off SeedVR2 or the 2nd pass under Workflow options."),
+    (r"Needs the node [^,]+, which isn't installed|missing_node_type|node type .* not found|does not exist in the node",
+     "A node this workflow needs isn't installed in ComfyUI. Install it with ComfyUI Manager, or turn off the option that uses it."),
+    (r"is not installed|Value not in list: (ckpt|unet|vae|lora|clip|model)_name|No such file or directory: .*models",
+     "A model file this workflow needs isn't in ComfyUI's models folder. Download it there, then continue."),
+    (r"ComfyUI isn't running|Connection refused|Max retries exceeded|Failed to establish a new connection|ConnectionError",
+     "ComfyUI wasn't running, or stopped answering. Start it (Generate starts it when COMFYUI_LAUNCHER is set), then continue."),
+    (r"ComfyUI rejected the workflow|prompt_outputs_failed_validation|Prompt outputs failed validation",
+     "ComfyUI refused the workflow as sent: something it expects is missing or out of range. The lines below say what."),
+    (r"\b429\b|RESOURCE_EXHAUSTED|exceeded your current quota|rate limit",
+     "The LLM's quota is used up for now (Gemini's free tier allows 20 a day per model). Choose Claude, or try again later."),
+    (r"\b503\b|UNAVAILABLE|overloaded|high demand",
+     "The LLM was too busy to answer. Continue to try again: what was done is kept."),
+    (r"has no credentials|invalid api.?key|Unauthorized|\b401\b",
+     "The LLM has no working API key. Set it in .env (see .env.example)."),
+    (r"rejected on all \d+ tries|failed on all \d+ tries",
+     "Every try was rejected by the check (a broken frame, or lip-sync that didn't match). Try another seed, or a shorter line."),
+    (r"No space left on device|disk is full",
+     "The disk is full. Delete old output, or clear finished runs, then continue."),
+    (r"timed out|Timeout|took longer than",
+     "It took longer than allowed (COMFYUI_TIMEOUT in .env). A bigger size or more steps take longer: continue, or raise the limit."),
+)
+
+
+def explain_failure(job, code):
+    """
+    (In plain words, or None) and the run's own lines that say what went wrong. The plain words are for the failures
+    that come up again and again; anything else shows only its lines.
+    """
+    said = why_it_failed(job, code)
+    # The run's last lines that say what went wrong: a warning it got past earlier isn't why it stopped.
+    plain = next((say for pattern, say in FAILURES if re.search(pattern, said, re.I)), None)
+    return plain, said
 
 
 def why_it_failed(job, code):

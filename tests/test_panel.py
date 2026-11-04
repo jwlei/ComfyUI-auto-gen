@@ -5,6 +5,7 @@ a fake ComfyUI and a fake Claude and runs real ffmpeg. Stop really kills it.
 import io
 import json
 import os
+import types
 from datetime import datetime, timedelta
 import shutil
 import subprocess
@@ -371,6 +372,10 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(self.status()["videos"]["video"], [])
         self.assertEqual(failed["outcome"]["outcome"], "failed")
         self.assertIn("failed", failed["outcome"]["why"])
+        # The fake ComfyUI fails with "out of memory": said in plain words first, its lines under them, and in Finished.
+        self.assertTrue(failed["outcome"]["why"].startswith("Out of GPU memory"), failed["outcome"]["why"])
+        self.assertIn("From its log:", failed["outcome"]["why"])
+        self.assertTrue(self.status()["queue"]["results"][-1]["note"].startswith("Out of GPU memory"))
         self.comfy.script = ["ok"] * 7
         self.assertTrue(self.client.post(f"/runs/{failed['id']}/continue").get_json()["ok"])
         self.wait_until(lambda: self.status()["videos"]["video"], "the film")
@@ -472,6 +477,20 @@ class PanelTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"NTFY_TOPIC": ""}), mock.patch.object(webapp.requests, "post", side_effect=lambda *a, **k: sent.append(1)):
             webapp.notify_ended({"label": "x"}, "done")
         self.assertEqual(sent, [], "nothing without a topic")
+
+    def test_a_failure_we_know_is_said_in_plain_words(self):
+        job = types.SimpleNamespace(first_line=0, lines=[])
+        say = lambda *texts: (job.lines.clear(), job.lines.extend({"n": n, "text": t} for n, t in enumerate(texts, 1)), webapp.explain_failure(job, 1))[2]
+        self.assertTrue(say("🎬 Clip 1/3", "❌ ComfyUI reported an error: torch.OutOfMemoryError: CUDA out of memory.")[0].startswith("Out of GPU memory"))
+        self.assertTrue(say("⚠️ Gemini: 429 RESOURCE_EXHAUSTED")[0].startswith("The LLM's quota is used up"))
+        self.assertTrue(say("❌ ComfyUI isn't running at http://127.0.0.1:8188.")[0].startswith("ComfyUI wasn't running"))
+        self.assertTrue(say("Needs the node LayerColor: Brightness Contrast, which isn't installed.")[0].startswith("A node this workflow needs"))
+        self.assertIsNone(say("⚠️ Could not write the metadata (no quota). Using the film's title.")[0], "a warning about metadata isn't the LLM's quota")
+        plain, said = say("❌ Something odd happened.")
+        self.assertIsNone(plain, "one we don't know is left as it said")
+        self.assertIn("Something odd happened", said)
+        # Its own lines stay under the plain words.
+        self.assertIn("CUDA out of memory", say("❌ CUDA out of memory.")[1])
 
     def test_discard(self):
         self.assertTrue(self.generate(review="1").get_json()["ok"])
