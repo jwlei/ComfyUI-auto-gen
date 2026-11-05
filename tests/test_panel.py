@@ -905,6 +905,12 @@ class PanelTest(unittest.TestCase):
                                 capture_output=True, text=True, encoding="utf-8", timeout=60)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_upscale_dialog_picks_only_method_buttons(self):
+        # The dialog itself carries data-method, so a bare [data-method] lookup swallowed the Add to queue click.
+        html = self.client.get("/").get_data(as_text=True)
+        self.assertIn("closest('button[data-method]')", html)
+        self.assertNotIn("closest('[data-method]')", html)
+
     def test_stale_server_only_restarts_when_idle(self):
         with mock.patch.object(webapp.threading, "Timer") as timer:
             old = self.client.post("/launcher/refresh", data={"code_changed_at": "1"})

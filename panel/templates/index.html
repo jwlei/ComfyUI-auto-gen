@@ -3280,7 +3280,7 @@ $('viewerUpscaleBar').addEventListener('click', e => {
   if (e.target === e.currentTarget && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) e.currentTarget.close();
 });
 $('viewerUpscaleBar').addEventListener('click', async e => {
-  const pick = e.target.closest && e.target.closest('[data-method]');
+  const pick = e.target.closest && e.target.closest('button[data-method]');
   if (pick) { setUpscaleMethod(pick.dataset.method); return; }
   if (e.target.closest && e.target.closest('#upscaleCancel')) { $('viewerUpscaleBar').close(); return; }
   const button = e.target.closest && e.target.closest('#upscaleGo');
