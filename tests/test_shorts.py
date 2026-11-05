@@ -369,6 +369,28 @@ class StopAfterTest(unittest.TestCase):
         self.assertEqual(client.post("/stop-after").status_code, 409, "nothing running")
 
 
+class FreeComfyTest(unittest.TestCase):
+    """ComfyUI lets go of its models when a job ends, unless the next one runs the same workflow."""
+
+    def test_which_jobs_free_it(self):
+        krea = {"pipeline": "image", "env": {"COMFYUI_WORKFLOW": "image_krea2.json"}}
+        minimax = {"pipeline": "shorts", "env": {"AVATAR_SOURCE": "comfyui", "COMFYUI_WORKFLOW": "minimax.json"}}
+        stock = {"pipeline": "shorts", "env": {"AVATAR_SOURCE": "static"}}
+        self.assertTrue(webapp.frees_comfyui(minimax, krea), "another workflow comes next")
+        self.assertTrue(webapp.frees_comfyui(minimax, None), "nothing comes next")
+        self.assertFalse(webapp.frees_comfyui(krea, dict(krea)), "the same models would only load again")
+        self.assertFalse(webapp.frees_comfyui(stock, krea), "it loaded nothing in ComfyUI")
+        self.assertTrue(webapp.frees_comfyui({"pipeline": "video", "env": {}}, None), "a film continued runs its saved workflow")
+
+    def test_a_job_ending_frees_it_before_the_next_starts(self):
+        queue = webapp.JobQueue(mock.Mock(batches=True, stopped=False, returncode=0), prepare=lambda item: None)
+        queue.current = {"label": "x", "pipeline": "image", "env": {"COMFYUI_WORKFLOW": "a.json"}}
+        queue.items = [{"label": "y", "pipeline": "image", "env": {"COMFYUI_WORKFLOW": "b.json"}}]
+        with mock.patch.object(webapp, "free_comfyui") as free, mock.patch.object(webapp, "note_outcome"),                 mock.patch.object(webapp, "notify_ended"):
+            queue._finish_current()
+        free.assert_called_once()
+
+
 class SeedTest(unittest.TestCase):
     def test_a_chosen_seed_reaches_the_avatar_clips(self):
         argv, _, error = shorts_panel.build_run({**BASE, "seed": "77"})

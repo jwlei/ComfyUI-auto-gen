@@ -40,6 +40,7 @@ IMAGE_PREFIX = "image_"
 IMAGE_SAVES = ("SaveImage", "SaveImageAdvanced", "Image Saver")
 PREVIEW = "PreviewImage"
 SWITCHES = ("ComfySwitchNode",)
+CUSTOM_COMBO = "CustomCombo"
 # Show the text that passes through them, as ComfyUI's Qwen-Image 2.1 templates show the prompt on its way to the model.
 TEXT_PREVIEWS = ("PreviewAny",)
 # Snap the source image to a size of their own. The pipeline fits it to the size you chose instead.
@@ -468,6 +469,17 @@ def _check_installed(api, info):
                 raise Unusable(f"{node['_meta']['title']} has nothing set for {name}.")
 
 
+def _set_combo_index(inputs, node):
+    """
+    A Custom Combo's INDEX: ComfyUI's editor works it out from where the choice is in the list and sends it as
+    "index", and the node only passes that on. Without it the index is 0, the first choice, whatever is chosen: the
+    SeedVR2 upscaler set to 4K ran at 720p. The saved file keeps the choice, an index (-1), then the list.
+    """
+    options = [value for value in (node.get("widgets_values") or [])[2:] if isinstance(value, str) and value]
+    if inputs.get("choice") in options:
+        inputs["index"] = options.index(inputs["choice"])
+
+
 def to_api(ui, info, images=False, enhance=False):
     """
     The saved workflow as ComfyUI's API takes it. images: it makes images rather than a video. enhance: its own
@@ -484,6 +496,8 @@ def to_api(ui, info, images=False, enhance=False):
             raise Unusable(f"Needs the node {kind}, which isn't installed.")
         title = node.get("title") or info[kind].get("display_name") or kind
         api[str(node["id"])] = _node(kind, graph.inputs_of(node), title)
+        if kind == CUSTOM_COMBO:
+            _set_combo_index(api[str(node["id"])]["inputs"], node)
 
     if images:
         saves = _save_images_to_temp(api, info)

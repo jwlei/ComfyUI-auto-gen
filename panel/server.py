@@ -25,6 +25,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime
+from urllib.parse import urlparse
 from functools import wraps
 
 import requests
@@ -401,6 +402,11 @@ class JobQueue:
 
     def _finish_current(self):
         item, self.current = self.current, None
+        # Before the next job can start: what this one loaded would otherwise stay in memory under it.
+        if self.job.batches:
+            ahead = None if self.held else next((waiting for waiting in self.items if not waiting.get("later")), None)
+            if frees_comfyui(item, ahead):
+                free_comfyui()
         code = self.job.returncode
         if self.job.stopped:
             self._record(item, "stopped")
@@ -643,8 +649,34 @@ def comfyui_online():
             _comfyui_cache["online"] = requests.get(f"{url}/system_stats", timeout=2).status_code == 200
         except requests.RequestException:
             _comfyui_cache["online"] = False
+        # Not answering, yet its port is open: running, but too busy to reply, as when it pages for want of memory.
+        _comfyui_cache["listening"] = _comfyui_cache["online"] or _port_open(url)
         _comfyui_cache["at"] = time.time()
     return _comfyui_cache["online"]
+
+
+def _port_open(url):
+    parsed = urlparse(url)
+    try:
+        with socket.create_connection((parsed.hostname or "127.0.0.1", parsed.port or 80), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def comfyui_listening():
+    comfyui_online()
+    return _comfyui_cache.get("listening", False)
+
+
+def ram_stats():
+    """This PC's memory, in GB, or None without psutil: what ComfyUI runs short of first."""
+    try:
+        import psutil
+        memory = psutil.virtual_memory()
+    except Exception:
+        return None
+    return {"free": round(memory.available / 2 ** 30, 1), "total": round(memory.total / 2 ** 30, 1)}
 
 
 # What each node of the workflows is doing, in plain words.
@@ -799,6 +831,37 @@ def cancel_pipeline_clips():
         pass  # ComfyUI isn't running, so it has nothing to cancel
     except (requests.RequestException, ValueError, LookupError, AttributeError) as e:
         job.log(f"⚠️ Could not cancel the ComfyUI clip, it may keep rendering: {e}")
+
+
+def _comfyui_workflow(item):
+    """The ComfyUI workflow a queued job runs, or None if it uses none: Shorts with stock footage only."""
+    env = (item or {}).get("env") or {}
+    if env.get("COMFYUI_WORKFLOW"):
+        return env["COMFYUI_WORKFLOW"]
+    return None if (item or {}).get("pipeline", "shorts") == "shorts" and env.get("AVATAR_SOURCE") != "comfyui" else "built-in"
+
+
+def frees_comfyui(item, ahead):
+    """
+    Whether ComfyUI should let go of its models once this job ends: when it used ComfyUI, unless the job that starts
+    next runs the same workflow, which would only load them again.
+    """
+    used = _comfyui_workflow(item)
+    return bool(used) and used != _comfyui_workflow(ahead)
+
+
+def free_comfyui():
+    """
+    Has ComfyUI unload every model and clear its node cache, as its own Free model and node cache does. It keeps
+    what it loaded otherwise: after a morning of MiniMax H3 and Krea 2 runs it held over 57 GB on a 32 GB PC, and
+    paged so hard it stopped answering mid-render. Idle, it does this at once; it cancels nothing.
+    """
+    url = (os.getenv("COMFYUI_URL") or "http://127.0.0.1:8188").rstrip("/")
+    try:
+        requests.post(f"{url}/free", json={"unload_models": True, "free_memory": True}, timeout=5)
+        job.log("🧹 ComfyUI let go of its models, so the next job starts with the memory free.")
+    except requests.RequestException:
+        pass  # Not running, or too busy to answer: nothing more to do about it here
 
 
 def remove_partial_videos():
@@ -1347,7 +1410,7 @@ def status():
     payload["videos"] = {folder: list_videos(folder) for folder in FOLDERS}
     payload["image_sets"] = [run for run in saved_runs() if run["pipeline"] == "image" and run["images"]]
     online = comfyui_online()
-    payload["comfyui"] = {"online": online, "can_start": bool(comfyui_launcher()),
+    payload["comfyui"] = {"online": online, "listening": comfyui_listening(), "can_start": bool(comfyui_launcher()), "ram": ram_stats(),
                           "starting": not online and time.time() - _comfyui_start_requested_at < COMFYUI_STARTUP_WAIT,
                           **(comfy_monitor.snapshot() if comfy_monitor else {})}
     payload["gpu"] = gpu_stats()

@@ -6,6 +6,7 @@
   .dot.on { background: var(--ok); animation: pulse 1.4s infinite; }
   .dot.ok { background: var(--ok); }
   .dot.fail { background: var(--err); }
+  .dot.warn { background: var(--warn); }
   @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .3 } }
   .log {
     background: #0a0b0f;
@@ -31,12 +32,6 @@
   #uploadBox .status { margin-bottom: 8px; }
   #stopUpload { width: auto; margin: 0 0 0 auto; padding: 4px 10px; font-size: .8rem; }
   .queue { margin-top: 12px; font-size: .84rem; }
-  /* What just finished, for a moment, over the footer. */
-  .toast { position: fixed; left: 50%; bottom: calc(var(--head, 90px) + 12px); z-index: 20; transform: translateX(-50%);
-    max-width: calc(100vw - 32px); padding: 8px 14px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line);
-    color: var(--text); font-size: .82rem; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); animation: menu-in .2s ease; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .toast[hidden] { display: none; }
-  .toast.failed { border-color: var(--err); }
   /* A line between what's going now and what's waiting, there only when something is. */
   /* Wider than the rest, out into the card's own margin, with room inside as before. */
   .status-queue:has(> :not([hidden])) { margin: 14px -10px 0; padding: 2px 12px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; }
@@ -623,7 +618,11 @@
   .run-card .btns:empty { display: none; }
   .status-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .status-head .section-title { margin: 0; }
-  .comfy-status { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: .72rem; color: var(--muted); }
+  /* ComfyUI as an icon with a dot for its state; a tap shows the rest. */
+  .comfy-status { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0;
+    margin: -6px -6px -6px 0; background: none; border: 0; border-radius: 8px; color: var(--muted); cursor: pointer; }
+  .comfy-status:hover, .comfy-status:focus-visible { color: var(--text); background: var(--line); }
+  .comfy-status .dot { position: absolute; right: 5px; bottom: 5px; width: 9px; height: 9px; margin: 0; box-shadow: 0 0 0 2px var(--panel); }
   /* Small and quiet, centred: there when wanted, not the first thing you see. */
   .run-actions { display: flex; justify-content: center; gap: 8px; margin: 12px 0 8px; }
   .run-actions[hidden] { display: none; }
@@ -788,7 +787,12 @@
 <div class="card run-card" id="runCard" data-page="status">
   <div class="status-head" id="statusHead" role="button" tabindex="0" aria-expanded="false" aria-controls="misc" title="Show how to open this on your phone">
     <div class="section-title">Status <span class="status-chevron" aria-hidden="true">▸</span></div>
-    <div class="comfy-status" title="Generate starts it when the run needs avatar clips and COMFYUI_LAUNCHER is set in .env."><span class="dot" id="comfyDot"></span><span id="comfyText">ComfyUI: checking…</span></div>
+    <button type="button" class="comfy-status" id="comfyStatus" aria-haspopup="dialog" aria-label="ComfyUI: checking" title="ComfyUI: checking">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx=".5"/>
+        <path d="M9 2.5v3M15 2.5v3M9 18.5v3M15 18.5v3M2.5 9h3M2.5 15h3M18.5 9h3M18.5 15h3"/></svg>
+      <span class="dot" id="comfyDot"></span>
+    </button>
   </div>
   <div class="status-main">
   <div class="status">
@@ -1283,12 +1287,17 @@
   </div>
 </div>
 
-<div class="toast" id="toast" role="status" hidden></div>
 <dialog id="shotsDialog"><div id="shotsBody"></div></dialog>
 <dialog id="panelDialog" class="panel-dialog" aria-labelledby="panelDialogTitle">
   <div class="panel-dialog-title" id="panelDialogTitle"></div>
   <div class="panel-dialog-body" id="panelDialogBody"></div>
   <button type="button" class="panel-close" id="panelDialogClose">Close</button>
+</dialog>
+<dialog id="comfyDialog" class="panel-dialog run-facts" aria-labelledby="comfyDialogTitle">
+  <div class="panel-dialog-title" id="comfyDialogTitle">ComfyUI</div>
+  <dl class="run-facts-list" id="comfyFacts"></dl>
+  <div class="hint" id="comfyAdvice" hidden></div>
+  <button type="button" class="panel-close" id="comfyDialogClose">Close</button>
 </dialog>
 <dialog id="runFacts" class="panel-dialog run-facts" aria-labelledby="runFactsTitle">
   <div class="panel-dialog-title" id="runFactsTitle"></div>
@@ -3978,22 +3987,6 @@ function renderQueue(el, q, doneIn, moving = false) {
     el.dataset.html = html;
   }
 }
-// What ended since the last look: a note for a moment, and a buzz on a phone.
-let resultsSeen = null, toastTimer = null;
-function announceResults(results) {
-  const latest = results.reduce((a, b) => ((b.t || 0) > (a ? a.t || 0 : -1) ? b : a), null);
-  const key = latest ? `${latest.t}|${latest.label}` : '';
-  if (resultsSeen === null) { resultsSeen = key; return; }  // What had ended before the page opened isn't news
-  if (!latest || key === resultsSeen || !['done', 'failed'].includes(latest.outcome)) { resultsSeen = key; return; }
-  resultsSeen = key;
-  const toast = $('toast');
-  toast.textContent = `${latest.outcome === 'done' ? '✔ Finished' : '✖ Failed'}: ${latest.label}`;
-  toast.classList.toggle('failed', latest.outcome === 'failed');
-  toast.hidden = false;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { toast.hidden = true; }, 4000);
-  try { if (navigator.vibrate) navigator.vibrate(latest.outcome === 'done' ? 60 : [60, 80, 60]); } catch (e) {}
-}
 // Every run and upload that has ended, in one list, newest first.
 const FINISHED_SHOWN = 5;  // The last five; a restart starts it empty
 function renderFinished(runs, uploads, madeNow = []) {
@@ -4106,6 +4099,41 @@ for (const id of ['runQueue', 'uploadQueue']) {
     poll();
   });
 }
+
+// --- ComfyUI: an icon in Status, and all it knows a tap away ---
+let lastComfy = null;
+function comfyState(c) {
+  return c.online ? 'running'
+    : c.starting ? 'starting… (loading models)'
+    : c.listening ? 'not answering'
+    : c.can_start ? 'not running (Generate starts it)' : 'not running';
+}
+function renderComfy(c) {
+  const rows = [['State', comfyState(c)]];
+  if (c.online) {
+    const step = c.active ? `${c.label || 'Working'}${c.max ? ` · ${c.value || 0}/${c.max}` : ''}${c.elapsed ? ` · ${fmt(c.elapsed)}` : ''}` : 'Idle';
+    rows.push(['Now', step], ['In its queue', String(c.queue || 0)]);
+  }
+  const g = c.gpu;
+  if (g) rows.push(['GPU', `${g.util}% · VRAM ${g.mem_used} / ${g.mem_total} GB · ${g.power} W · ${g.temp}°C`]);
+  if (c.ram) rows.push(['RAM', `${c.ram.free} GB free of ${c.ram.total} GB`]);
+  $('comfyFacts').innerHTML = rows.map(([name, value]) => `<dt>${name}</dt><dd>${esc(value)}</dd>`).join('');
+  // What to do about it, when there's something to do.
+  const low = c.ram && c.ram.free < c.ram.total * 0.1;
+  const advice = c.listening && !c.online
+    ? `It's running but doesn't answer${low ? ', and memory is nearly full: it is paging, so everything crawls' : ''}. It may come back; restarting ComfyUI frees it, and a stopped run continues from what it kept.`
+    : low ? 'Memory is nearly full, so renders slow down as Windows pages. ComfyUI lets go of its models when a job ends.' : '';
+  $('comfyAdvice').textContent = advice;
+  $('comfyAdvice').hidden = !advice;
+}
+$('comfyStatus').addEventListener('click', e => {
+  e.stopPropagation();  // The Status header around it opens the phone addresses
+  if (lastComfy) renderComfy(lastComfy);
+  $('comfyDialog').showModal();
+});
+$('comfyStatus').addEventListener('keydown', e => e.stopPropagation());
+$('comfyDialogClose').addEventListener('click', () => $('comfyDialog').close());
+$('comfyDialog').addEventListener('click', e => { if (e.target === $('comfyDialog')) $('comfyDialog').close(); });
 
 // --- Header: the short status on Run, and a bar under it per job ---
 // What's being made, in Status. A new one slides in, as it leaves the queue below.
@@ -4276,7 +4304,6 @@ async function poll() {
   safely(() => renderQueue($('runQueue'), queue, queue.held ? 0 : queueAhead, nextUp));
   safely(() => renderStopped(data.stopped_runs));
   safely(() => renderFinished(queue.results, upq.results, data.made_now || []));
-  safely(() => announceResults([...queue.results, ...upq.results]));
   $('dot').className = 'dot' + (running || nextUp ? ' on' : '');
   $('jumpDot').className = $('dot').className;
   safely(() => renderStrips(data));
@@ -4315,10 +4342,11 @@ async function poll() {
   const c = data.comfyui;
   if (c.online !== workflowsFor) { workflowsFor = c.online; loadWorkflows(); loadVideoWorkflows(); loadImageWorkflows(); }
   $('comfyStart').hidden = c.online || c.starting || !c.can_start;
-  $('comfyDot').className = 'dot ' + (c.online ? 'ok' : 'fail');
-  $('comfyText').textContent = 'ComfyUI: ' + (c.online ? 'running'
-    : c.starting ? 'starting… (loading models)'
-    : c.can_start ? 'not running (Generate starts it)' : 'not running');
+  lastComfy = { ...c, gpu: data.gpu };
+  $('comfyDot').className = 'dot ' + (c.online ? 'ok' : c.starting || c.listening ? 'warn' : 'fail');
+  $('comfyStatus').title = `ComfyUI: ${comfyState(c)}`;
+  $('comfyStatus').setAttribute('aria-label', $('comfyStatus').title);
+  if ($('comfyDialog').open) safely(() => renderComfy(lastComfy));
 
   safely(() => renderQuota(data.quota));
 

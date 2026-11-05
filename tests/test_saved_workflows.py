@@ -241,6 +241,13 @@ class OptionsTest(unittest.TestCase):
         self.assertIs(api["2"]["inputs"]["enabled"], False)
         self.assertEqual(next(node for node in api.values() if node["class_type"] == "KSampler")["inputs"]["steps"], 12)
 
+    def test_a_custom_combo_says_the_index_of_its_choice(self):
+        # ComfyUI's editor sends the index; without it the node gives 0, and SeedVR2 set to 4K ran at 720p.
+        for choice, index in (("1080p", 1), ("4K", 2)):
+            api = workflow_options.convert(switchable_workflow(), OBJECT_INFO, {"group_upscaler": "1", "group_upscaler.choice": choice})[0]
+            combo = next(node for node in api.values() if node["class_type"] == "CustomCombo")["inputs"]
+            self.assertEqual((combo["choice"], combo["index"]), (choice, index))
+
     def test_as_saved_the_switched_off_parts_are_left_out(self):
         kinds = [node["class_type"] for node in workflow_options.convert(switchable_workflow(), OBJECT_INFO)[0].values()]
         self.assertNotIn("Image Lucy Sharpen", kinds)

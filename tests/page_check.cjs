@@ -801,13 +801,10 @@ assert(/id="paintPrompts" class="panel-dialog"[\s\S]*?id="paintAreaList"/.test(h
 assert(/id="paintCancel">Close<\/button>\s*<button type="button" class="panel-close paint-save" id="paintDone">Save<\/button>\s*<\/div>\s*<\/dialog>/.test(html));
 assert(/const PRESET_SKIP = \['prompt', 'narration', 'seed', 'topic', 'output', 'review'\];/.test(script), 'what each run is about stays out of a preset');
 
-// Try one first; start later; a note when something ends.
+// Try one first; start later; no note when something ends.
 assert((html.match(/<input type="checkbox" name="try_first">/g) || []).length === 1, 'one Preview run, under the button, for whichever form it is in');
 assert(/<button type="button" class="start-later" id="goLater"[^>]*>Start later<\/button>/.test(html) && !html.includes('type="time"'), 'Start later: a quiet button, no clock');
-run(`resultsSeen = null; announceResults([{ label: 'Old', outcome: 'done', t: 1 }])`);
-assert.notStrictEqual(els.toast && els.toast.hidden, false, 'what ended before the page opened is not news');
-run(`announceResults([{ label: 'Old', outcome: 'done', t: 1 }, { label: 'A <b>storm', outcome: 'done', t: 2 }])`);
-assert(els.toast.hidden === false && els.toast.textContent === '✔ Finished: A <b>storm', 'then a note, as text');
+assert(!html.includes('id="toast"') && !script.includes('announceResults'), 'nothing pops up when something ends: Finished has it');
 assert(/item\.later \? `<button type="button" class="start-item" data-start="\$\{item\.id\}"/.test(script), 'one waiting to be started has Start');
 
 assert(/\.output-filter-line \{ display: flex; justify-content: center;/.test(html) && /\.output-filter-line select \{ width: 220px;/.test(html), 'the filter: centred, one size');
@@ -997,6 +994,14 @@ assert(queue.innerHTML.includes('<b>Queue (1)</b>'));
 run(`renderQueue(queue, { items: [], results: [{ label: 'x', outcome: 'done', at: '17:00' }, { label: 'y', outcome: 'done', at: '17:01' }], held: false, current: null }, 0)`);
 assert.strictEqual(queue.hidden, true, 'what finished is under Finished, not in the queue');
 assert(queue.innerHTML.includes('data-resume') && queue.innerHTML.includes('data-remove="3"') && queue.innerHTML.includes('a &lt;film&gt;'));
+assert(queue.innerHTML.indexOf('data-resume') > queue.innerHTML.indexOf('data-remove="3"'), 'Resume sits under what it lets go');
+
+// ComfyUI's status, a tap on its icon away: one that's up but doesn't answer, on a PC out of memory, says why.
+run(`renderComfy({ online: false, listening: true, can_start: true, ram: { free: 2.1, total: 31.9 }, gpu: { util: 7, mem_used: 5.8, mem_total: 12, power: 26, temp: 40 } })`);
+assert(els.comfyFacts.innerHTML.includes('not answering') && els.comfyFacts.innerHTML.includes('2.1 GB free of 31.9 GB'));
+assert(!els.comfyAdvice.hidden && els.comfyAdvice.textContent.includes('paging'));
+run(`renderComfy({ online: true, active: true, label: 'Generating the image', value: 3, max: 8, queue: 1, ram: { free: 20, total: 32 } })`);
+assert(els.comfyFacts.innerHTML.includes('Generating the image · 3/8') && els.comfyAdvice.hidden, 'nothing to advise when all is well');
 
 // The status recovers by itself.
 (async () => {
