@@ -10,14 +10,15 @@ from flask import abort, request, send_file
 
 from core import seeds, workflow_options
 from panel.server import (read_outcome, form_options, PIPELINES, VIDEO_TIMINGS, _runs_cache, app, busy_runs, item_images, job,
-                          password_required, saved_at, run_queue, saved_runs, saved_workflows)
+                          password_required, safe_video_path, saved_at, run_queue, saved_runs, saved_workflows)
 from panel.shorts import VOICES
 from pipelines.video import media, paths, planner, roles
 from pipelines.video.comfy import workflow_model
 from pipelines.video.main import BUILT_IN
 from pipelines.video.run_eta import RunEta
 from core.saved_workflows import shorthand
-from pipelines.video.run_state import STAGES, RunState, films_of_runs, folder_size, list_runs, run_of_film
+from pipelines.video.run_state import STAGES, UPSCALED, RunState, films_of_runs, folder_size, list_runs, run_of_film
+from pipelines.video import upscale as film_upscale
 
 COMMAND = [sys.executable, "-m", "pipelines.video.main"]
 DEFAULT_FILM_SECONDS = 120
@@ -474,8 +475,38 @@ def discard_run(run_id):
     return {"ok": True}
 
 
+UPSCALE = [sys.executable, "-m", "pipelines.video.upscale"]
+
+
+@app.route("/films/<name>/upscale", methods=["POST"])
+@password_required
+def upscale_film(name):
+    """Queues a finished film to be made bigger with NVIDIA RTX VSR, as a new film beside it."""
+    path = safe_video_path("video", name)
+    try:
+        scale = float(request.args.get("scale") or 2)
+    except ValueError:
+        return {"ok": False, "error": "Scale is a number from 1 to 4."}, 400
+    quality = request.args.get("quality") or film_upscale.DEFAULT_QUALITY
+    if not 1 <= scale <= 4 or quality not in film_upscale.QUALITIES:
+        return {"ok": False, "error": "Unknown scale or quality."}, 400
+    size = film_upscale.probe(path)
+    seconds = size[2] if size else 30
+    item = {"pipeline": "video", "label": queue_label(f"Upscale: {name}"), "detail": f"RTX VSR, {scale:g}x, {quality}",
+            "argv": [*UPSCALE, "--film", name, "--scale", f"{scale:g}", "--quality", quality], "env": {},
+            "estimate": round(30 + seconds * 4)}
+    queued = run_queue.add(item)
+    _runs_cache["at"] = 0.0
+    if item.get("error"):
+        return {"ok": False, "error": item["error"]}, 500
+    return {"ok": True, "queued": queued}
+
+
 def delete_video(folder, path):
-    """Deletes a film and the run that made it, whose clips would otherwise sit on the disk unseen."""
+    """Deletes a film and the run that made it, whose clips would otherwise sit on the disk unseen. An upscaled copy is only itself."""
+    if UPSCALED.search(os.path.basename(path)):
+        os.remove(path)
+        return {"ok": True}
     run_id = run_of_film(os.path.basename(path))
     if run_id and run_id in busy_runs():
         return {"ok": False, "error": "That film's run is going or queued. Stop it or take it out of the queue first."}, 409

@@ -11,6 +11,7 @@ from pipelines.video.media import on_grid
 
 STAGES = ("Plan", "Clips", "Stitching")
 RUN_ID = re.compile(r"run_\d{8}_\d{6}")
+UPSCALED = re.compile(r"_upscaled(?:_\d+)?\.mp4$")
 SAVE_ATTEMPTS = 5
 
 
@@ -197,10 +198,13 @@ def films_of_runs():
 
 
 def run_of_film(name, films=None):
-    """The run a film came from: by the run in its name (older films), else by the film the run made."""
+    """The run a film came from: by the run in its name (older films), else by the film the run made. An upscaled one has its source's."""
     films = films_of_runs() if films is None else films
     if name in films:
         return films[name].id
+    source = UPSCALED.sub(".mp4", name)
+    if source != name:
+        return run_of_film(source, films)
     return run_id_in(name)
 
 

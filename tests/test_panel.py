@@ -895,6 +895,20 @@ class PanelTest(unittest.TestCase):
             self.assertEqual(self.client.post("/api/settings", data="no").status_code, 400)
             self.assertIn("disk", self.client.get("/api/settings").get_json())
 
+    def test_film_upscale_is_queued_and_checked(self):
+        added = []
+        film = os.path.join(webapp.VIDEO_OUTPUT, "zz_upscale_test.mp4")
+        os.makedirs(webapp.VIDEO_OUTPUT, exist_ok=True)
+        open(film, "wb").close()
+        self.addCleanup(lambda: os.path.exists(film) and os.remove(film))
+        with mock.patch.object(webapp.run_queue, "add", lambda item: added.append(item) or 1):
+            self.assertEqual(self.client.post("/films/zz_upscale_test.mp4/upscale?scale=9").status_code, 400)
+            self.assertEqual(self.client.post("/films/zz_upscale_test.mp4/upscale?quality=NOPE").status_code, 400)
+            self.assertEqual(self.client.post("/films/missing.mp4/upscale").status_code, 404)
+            body = self.client.post("/films/zz_upscale_test.mp4/upscale?scale=3&quality=ULTRA").get_json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(added[0]["argv"][-6:], ["--film", "zz_upscale_test.mp4", "--scale", "3", "--quality", "ULTRA"])
+
     def test_poweroff_is_per_session_and_cancellable(self):
         calls = []
         with mock.patch.object(webapp, "_run_shutdown", lambda cancel=False: calls.append(cancel)), \

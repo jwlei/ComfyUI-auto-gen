@@ -146,7 +146,14 @@ If a continuous take drifts away from how your image looks, try separate moments
 
 **Workflow options**, under Generation, are the chosen workflow's own switches and settings, such as a sampler's steps
 or a switched group, as the [Image side](image.md#workflow-options) has them. A run keeps them, so the rest of its clips and
-any shot made again come out the same way.
+any shot made again come out the same way. The MiniMax H3 workflows also offer **H3 Memory Optimization** and **H3 Sparse
+Attention** (with its video attention budget) under Advanced, when the [H3-Optimizations](https://github.com/Zironic/H3-Optimizations)
+custom node is installed.
+
+**Upscale a film.** Open a film in the Video tab and press **Upscale** to queue it through NVIDIA RTX Video Super Resolution
+(the [RTX VSR Long Video](https://github.com/tritant/ComfyUI_NVIDIA_RTX_VSR_Long_Video) custom node; needs an RTX GPU). Pick a
+scale (1.5 to 4×) and a mode. The result is saved beside it as `<name>_upscaled.mp4`, with the sound kept, and ComfyUI also keeps a
+copy in its own `output/NVIDIA_RTX_VSR_Long_Video` folder. **Prompts** in the same viewer opens the shots of the run that made the film.
 
 ## Time and cost
 

@@ -1541,8 +1541,17 @@
   </div>
 </dialog>
 <dialog id="viewerUpscaleBar" class="panel-dialog upscale-dialog" aria-label="Upscale to twice the size">
-  <div class="upscale-head"><span>Upscale 2×</span><span class="upscale-note" id="upscaleNote"></span></div>
-  <div class="upscale-row">
+  <div class="upscale-head"><span id="upscaleTitle">Upscale 2×</span><span class="upscale-note" id="upscaleNote"></span></div>
+  <div class="upscale-row" id="filmUpscaleRow" hidden>
+    <select id="filmUpscaleScale" aria-label="Scale" title="How many times bigger the film is made.">
+      <option value="1.5">1.5×</option><option value="2" selected>2×</option><option value="3">3×</option><option value="4">4×</option>
+    </select>
+    <select id="filmUpscaleQuality" aria-label="Quality" title="NVIDIA RTX Video Super Resolution's mode. High bitrate suits clean video; Streaming suits compressed video.">
+      <option value="HIGHBITRATE_HIGH">High bitrate · high</option><option value="HIGHBITRATE_ULTRA">High bitrate · ultra</option>
+      <option value="STREAMING_ULTRA">Streaming · ultra</option><option value="ULTRA">Ultra</option>
+    </select>
+  </div>
+  <div class="upscale-row" id="imageUpscaleRow">
     <button type="button" data-method="fast" title="Superscale-SP: seconds, and adds no new detail">Fast</button>
     <button type="button" data-method="seedvr2" title="SeedVR2: minutes, and draws finer detail">SeedVR2</button>
     <select id="viewerUpscaleStrength" aria-label="Upscaler mix" title="How much of the upscaler's result is used, the rest a plain resize. Lower tones down texture the upscaler invents.">
@@ -3502,8 +3511,12 @@ $('viewerVariations').addEventListener('click', () => {
 $('viewerUpscale').addEventListener('click', () => {
   const box = $('viewerUpscaleBar');
   if (box.open) return;
+  const film = !!(viewing && viewing.film);
+  $('filmUpscaleRow').hidden = !film;
+  $('imageUpscaleRow').hidden = film;
   const img = $('viewerImage'), w = img.naturalWidth, h = img.naturalHeight;
-  $('upscaleNote').textContent = w ? `${w} × ${h}  →  ${w * 2} × ${h * 2}` : '2× the size';
+  $('upscaleTitle').textContent = film ? 'Upscale with RTX VSR' : 'Upscale 2×';
+  $('upscaleNote').textContent = film ? ($('viewerRes').textContent || '') : w ? `${w} × ${h}  →  ${w * 2} × ${h * 2}` : '2× the size';
   const shorter = Math.min(w, h);
   for (const o of $('viewerUpscaleSize').options) o.disabled = +o.value > 0 && +o.value <= shorter;
   $('viewerUpscaleSize').value = '0';
@@ -3530,7 +3543,19 @@ $('viewerUpscaleBar').addEventListener('click', async e => {
   if (pick) { setUpscaleMethod(pick.dataset.method); return; }
   if (e.target.closest && e.target.closest('#upscaleCancel')) { $('viewerUpscaleBar').close(); return; }
   const button = e.target.closest && e.target.closest('#upscaleGo');
-  if (!button || !viewing || viewing.film) return;
+  if (!button || !viewing) return;
+  if (viewing.film) {
+    let body;
+    const query = `scale=${encodeURIComponent($('filmUpscaleScale').value)}&quality=${encodeURIComponent($('filmUpscaleQuality').value)}`;
+    try { body = await (await fetch(`/films/${encodeURIComponent(viewing.name)}/upscale?${query}`, { method: 'POST' })).json(); }
+    catch (err) { body = { error: 'Could not reach the panel. Try again.' }; }
+    if (!body.ok) { alert(body.error || 'Could not upscale it.'); return; }
+    $('viewerUpscaleBar').close();
+    $('viewerUpscale').textContent = body.queued ? 'Queued' : 'Upscaling…';
+    setTimeout(() => { $('viewerUpscale').textContent = 'Upscale'; }, 2500);
+    poll();
+    return;
+  }
   const { id, position } = viewing, method = $('viewerUpscaleBar').dataset.method;
   const query = method === 'fast' ? `?method=fast&strength=${encodeURIComponent($('viewerUpscaleStrength').value)}` : `?method=seedvr2&resolution=${encodeURIComponent($('viewerUpscaleSize').value)}`;
   let body;
@@ -3572,8 +3597,9 @@ async function editInGenerate(id, position) {
   if (box) await useOutput(box, id, position);
 }
 $('viewerPrompts').addEventListener('click', () => {
-  if (!viewing || viewing.film) return;
-  const { id, position } = viewing;
+  if (!viewing) return;
+  const id = viewing.film ? viewing.run : viewing.id, position = viewing.film ? undefined : viewing.position;
+  if (!id) return;
   closeViewer();
   openShots(id, position);
 });
@@ -3613,6 +3639,7 @@ let viewing = null;
 const UPSCALE_MOST_SIDE = 1440;
 function showViewerMedia(video) {
   $('viewerTools').hidden = video;
+  for (const id of ['viewerVariations', 'viewerEdit', 'viewerPrompts', 'viewerUpscale']) $(id).hidden = false;
   $('viewerImage').hidden = video;
   $('viewerVideo').hidden = !video;
   if (!video) { $('viewerVideo').pause(); $('viewerVideo').removeAttribute('src'); }
@@ -3622,8 +3649,15 @@ function openFilm(name) {
   const films = visibleFilms(), at = films.findIndex(v => v.name === name);
   if (at < 0) return;
   const film = films[at], url = `/videos/${folder}/${encodeURIComponent(name)}`;
-  viewing = { film: true, name };
+  viewing = { film: true, name, run: film.run || null };
   showViewerMedia(true);
+  // A film has Upscale (Video's only) and Prompts (its run's, if still saved), not the image editing.
+  const canUpscale = folder === 'video', canPrompt = !!film.run;
+  $('viewerTools').hidden = !canUpscale && !canPrompt;
+  $('viewerVariations').hidden = $('viewerEdit').hidden = true;
+  $('viewerUpscale').hidden = !canUpscale;
+  $('viewerPrompts').hidden = !canPrompt;
+  $('viewerRes').textContent = '';
   $('viewerVideo').src = url;
   $('viewerTitle').textContent = `${film.title || film.topic || film.name}${films.length > 1 ? ` · ${at + 1} of ${films.length}` : ''}`;
   $('viewerDownload').href = `/download/${folder}/${encodeURIComponent(name)}`;
