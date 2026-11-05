@@ -53,7 +53,21 @@
   .queue-item .grip { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 36px; margin-left: -6px;
     padding: 0; background: none; border: 0; color: var(--muted); cursor: grab; touch-action: none; }
   .queue-item .grip:hover, .queue-item .grip:focus-visible { color: var(--text); }
-  .queue-item.dragging { position: relative; z-index: 2; background: var(--panel-2); border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, .45); }
+  .queue-item.dragging { position: relative; z-index: 2; background: var(--panel-2); border-radius: 8px; transform: scale(1.02);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, .5), 0 0 0 1px var(--accent); transition: transform .15s ease, box-shadow .15s ease; }
+  .queue-item { transition: background .15s ease; }
+  .queue-item:hover { background: color-mix(in srgb, var(--panel-2) 60%, transparent); }
+  .queue-item .grip { transition: color .15s ease, transform .15s ease; }
+  .queue-item .grip:hover { transform: scale(1.15); }
+  .queue-item.dragging .grip { color: var(--accent); }
+  .stopped-fold > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; list-style: none; padding: 2px 0; }
+  .stopped-fold > summary::-webkit-details-marker { display: none; }
+  .stopped-fold .chev { width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+    transform: rotate(45deg); transition: transform .25s ease; margin-right: 4px; }
+  .stopped-fold[open] .chev { transform: rotate(-135deg); }
+  .stopped-fold[open] .stopped-body { animation: fold-open .25s ease; }
+  @keyframes fold-open { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .stopped-fold[open] .stopped-body { animation: none; } .queue-item.dragging { transform: none; } }
   .queue-item.dragging .grip { cursor: grabbing; }
   .queue-item .hint { margin-top: 0; }
   .queue-item .when { color: var(--muted); font-size: .78rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -192,7 +206,9 @@
     background: transparent; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
   @media (prefers-reduced-motion: reduce) { dialog.panel-dialog { animation: none; } }
   .status-toggle .failed { color: var(--err); }
-  dialog.upscale-dialog { width: auto; max-width: calc(100vw - 24px); }
+  dialog.upscale-dialog { width: auto; max-width: calc(100vw - 16px); position: fixed; padding: 10px 12px; gap: 6px; }
+  dialog.upscale-dialog::backdrop { background: rgba(0, 0, 0, .25); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .upscale-note { text-align: center; color: var(--muted); font-size: .72rem; }
   .upscale-row { display: flex; gap: 6px; align-items: center; justify-content: center; flex-wrap: wrap; }
   .upscale-row button, .upscale-row select { width: auto; margin: 0; padding: 4px 10px; font-size: .8rem; }
   /* One line each: when, how it ended and what it is, centred beside a title of at most two lines; a rule between them. */
@@ -1374,16 +1390,15 @@
     </div>
   </div>
 </dialog>
-<dialog id="viewerUpscaleBar" class="panel-dialog upscale-dialog" aria-labelledby="upscaleTitle">
-  <div class="panel-dialog-title" id="upscaleTitle">Upscale to twice the size</div>
+<dialog id="viewerUpscaleBar" class="panel-dialog upscale-dialog" aria-label="Upscale to twice the size">
   <div class="upscale-row">
-    <button type="button" data-upscale="fast" title="Superscale-SP: seconds, and adds no new detail">Fast</button>
+    <button type="button" data-upscale="fast" title="Superscale-SP: seconds, and adds no new detail. Queued as a new image in this set">Fast</button>
     <select id="viewerUpscaleStrength" aria-label="Upscaler mix" title="How much of the upscaler's result is used, the rest a plain resize. Lower tones down texture the upscaler invents. Fast only.">
       <option value="1">Upscaler 100%</option><option value="0.75">Upscaler 75%</option><option value="0.5">Upscaler 50%</option>
     </select>
-    <button type="button" data-upscale="seedvr2" title="SeedVR2: minutes, and draws finer detail">SeedVR2</button>
+    <button type="button" data-upscale="seedvr2" title="SeedVR2: minutes, and draws finer detail. Queued as a new image in this set">SeedVR2</button>
   </div>
-  <button type="button" class="panel-close" id="viewerUpscaleClose">Close</button>
+  <div class="upscale-note">2× size, added to the queue as a new image</div>
 </dialog>
 
 <script>
@@ -3146,8 +3161,21 @@ $('viewerVariations').addEventListener('click', () => {
   closeViewer();
   sameAgain(id, position);
 });
-$('viewerUpscale').addEventListener('click', () => { if (!$('viewerUpscaleBar').open) $('viewerUpscaleBar').showModal(); });
-$('viewerUpscaleClose').addEventListener('click', () => $('viewerUpscaleBar').close());
+$('viewerUpscale').addEventListener('click', () => {
+  const box = $('viewerUpscaleBar');
+  if (box.open) return;
+  box.showModal();
+  // Over the buttons: centred on the Upscale one, kept inside the window.
+  const at = $('viewerUpscale').getBoundingClientRect(), me = box.getBoundingClientRect();
+  const left = Math.max(8, Math.min(innerWidth - me.width - 8, at.left + at.width / 2 - me.width / 2));
+  const top = Math.max(8, Math.min(innerHeight - me.height - 8, at.top + at.height / 2 - me.height / 2));
+  Object.assign(box.style, { margin: '0', right: 'auto', bottom: 'auto', left: `${left}px`, top: `${top}px` });
+});
+// A tap outside it, on the dimmed viewer, closes it.
+$('viewerUpscaleBar').addEventListener('click', e => {
+  const r = e.currentTarget.getBoundingClientRect();
+  if (e.target === e.currentTarget && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) e.currentTarget.close();
+});
 $('viewerUpscaleBar').addEventListener('click', async e => {
   const button = e.target.closest && e.target.closest('[data-upscale]');
   if (!button || !viewing || viewing.film) return;
@@ -4068,7 +4096,7 @@ function whyHtml(outcome) {
 function renderStopped(runs) {
   const el = $('stoppedRuns');
   el.hidden = !runs.length;
-  const html = !runs.length ? '' : `<div class="queue-head"><b>Stopped runs (${runs.length})</b></div>` + runs.map(run => `
+  const html = !runs.length ? '' : `<details class="stopped-fold"${el._open ? ' open' : ''}><summary><b>Stopped runs (${runs.length})</b><span class="chev" aria-hidden="true"></span></summary><div class="stopped-body">` + runs.map(run => `
     <div class="stopped-run">
       <div class="run-head"><div class="what">${esc(run.label)}</div>${run.outcome ? `<span class="run-tag">${esc(run.outcome.outcome)}</span>` : ''}</div>
       <div class="hint">${SIDE_NAMES[run.pipeline] || 'Shorts'} · ${esc(run.detail)}</div>
@@ -4080,13 +4108,15 @@ function renderStopped(runs) {
         <button type="button" data-continue="${esc(run.id)}">${run.pipeline !== 'shorts' && !run.clips ? 'Render' : 'Continue'}</button>
         <button type="button" class="icon-btn" data-discard="${esc(run.id)}" data-pipeline="${esc(run.pipeline)}" data-clips="${run.clips}" aria-label="Discard this run" title="Discard what it has still to do: anything it made stays">✕</button>
       </div>
-    </div>`).join('');
+    </div>`).join('') + '</div></details>';
   // Only when it changed, so a poll can't swallow a click on a button it just replaced.
   if (el.dataset.html !== html) {
     el.innerHTML = html;
     el.dataset.html = html;
   }
 }
+// Open or shut stays as it was left, through the redraws.
+$('stoppedRuns').addEventListener('toggle', e => { if (e.target.matches('.stopped-fold')) $('stoppedRuns')._open = e.target.open; }, true);
 $('stoppedRuns').addEventListener('click', async e => {
   const d = e.target.dataset || {};
   let url;
@@ -4107,6 +4137,18 @@ $('stoppedRuns').addEventListener('click', async e => {
 // Reordering the queue: drag a job by its grip, or move it with the arrow keys there. The page moves it at once,
 // then sends the new order; the next poll draws what the server has.
 function queueOrder(el) { return [...el.querySelectorAll('.queue-item[data-id]')].map(node => Number(node.dataset.id)); }
+// Rows that change place glide there instead of jumping (FLIP: note where they were, move, play from the old spot).
+function glide(el, move) {
+  const rows = [...el.querySelectorAll('.queue-item[data-id]')];
+  const before = new Map(rows.map(row => [row, row.getBoundingClientRect().top]));
+  move();
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  for (const row of rows) {
+    const shift = before.get(row) - row.getBoundingClientRect().top;
+    if (!shift || row.classList.contains('dragging')) continue;
+    row.animate([{ transform: `translateY(${shift}px)` }, { transform: 'none' }], { duration: 200, easing: 'cubic-bezier(.2,.8,.2,1)' });
+  }
+}
 async function sendOrder(el) {
   await fetch(`/queue/${el.dataset.lane}/order`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: queueOrder(el) }) });
   el.dataset.html = '';  // So the poll draws it again, from the server's order
@@ -4129,8 +4171,8 @@ function dragQueue(el) {
     // Past the middle of the one above or below, it takes that one's place.
     const rows = [...el.querySelectorAll('.queue-item[data-id]')].filter(row => row !== drag.row);
     const after = rows.find(row => { const box = row.getBoundingClientRect(); return e.clientY < box.top + box.height / 2; });
-    if (after) { if (drag.row.nextElementSibling !== after) after.before(drag.row); }
-    else if (rows.length && rows[rows.length - 1].nextElementSibling !== drag.row) rows[rows.length - 1].after(drag.row);
+    if (after) { if (drag.row.nextElementSibling !== after) glide(el, () => after.before(drag.row)); }
+    else if (rows.length && rows[rows.length - 1].nextElementSibling !== drag.row) glide(el, () => rows[rows.length - 1].after(drag.row));
   });
   const drop = e => {
     if (!drag || e.pointerId !== drag.pointer) return;
@@ -4151,7 +4193,7 @@ function dragQueue(el) {
     const row = grip.closest('.queue-item');
     const other = e.key === 'ArrowUp' ? row.previousElementSibling : row.nextElementSibling;
     if (!other || !other.classList.contains('queue-item')) return;
-    if (e.key === 'ArrowUp') other.before(row); else other.after(row);
+    if (e.key === 'ArrowUp') glide(el, () => other.before(row)); else glide(el, () => other.after(row));
     grip.focus();
     sendOrder(el);
   });
