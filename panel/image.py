@@ -6,6 +6,7 @@ import sys
 from types import SimpleNamespace
 
 from flask import abort, request, send_file
+from PIL import Image
 
 from core import seeds, workflow_options
 from core.saved_workflows import shorthand
@@ -569,6 +570,7 @@ def discard_run(run_id):
 UPSCALE = [sys.executable, "-m", "pipelines.image.upscale"]
 UPSCALE_SECONDS = 180  # About what SeedVR2 takes for one image on this card
 FAST_UPSCALE_SECONDS = 20  # Superscale-SP: seconds, as Kokon measured it (13 s for 1472² on a 5070 Ti)
+UPSCALE_MOST_SIDE = 1440  # The shorter side of an image that can still be upscaled, as the viewer's button
 
 
 @app.route("/image-runs/<run_id>/upscale/<int:position>", methods=["POST"])
@@ -580,6 +582,13 @@ def upscale_image(run_id, position):
         return refused
     if not 1 <= position <= len(state.shots) or not state.shots[position - 1].get("file"):
         return {"ok": False, "error": "That image isn't made yet."}, 400
+    try:
+        with Image.open(state.image_path(state.shots[position - 1])) as image:
+            shorter = min(image.size)
+    except OSError:
+        shorter = 0
+    if shorter > UPSCALE_MOST_SIDE:
+        return {"ok": False, "error": f"It's already {shorter}px on its shorter side: images past {UPSCALE_MOST_SIDE}px aren't upscaled."}, 400
     method = request.args.get("method") or (request.get_json(silent=True) or {}).get("method") or "seedvr2"
     if method not in ("seedvr2", "fast"):
         return {"ok": False, "error": "Unknown way to upscale."}, 400

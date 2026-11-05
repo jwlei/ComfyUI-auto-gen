@@ -219,6 +219,18 @@
   .panel-dialog-body .results .result { font-size: .85rem; }
   .panel-close { align-self: center; width: auto; min-width: 96px; margin: 0; padding: 6px 18px; font-size: .82rem; font-weight: 600;
     background: transparent; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
+  /* The log takes the whole screen: its lines are what's being read, so no title and next to no margin. */
+  dialog.panel-dialog.log-open { width: calc(100vw - 8px); height: calc(100dvh - 8px); max-width: none; max-height: none; padding: 4px; gap: 4px; }
+  dialog.log-open .panel-dialog-title { display: none; }
+  dialog.log-open .panel-dialog-body { flex: 1 1 0; display: flex; flex-direction: column; overflow: hidden; }
+  dialog.log-open .log-panes { flex: 1 1 0; min-height: 0; position: static; }
+  dialog.log-open .log-tools { margin: 0 0 4px; }
+  dialog.log-open .q-group { margin: 4px 2px 2px; }
+  dialog.log-open .log { flex: 1 1 0; height: auto; min-height: 0; padding: 6px 8px; border-radius: 8px; font-size: 1rem; line-height: 1.55; }
+  dialog.log-open .log.only-shorts { flex: 0 1 28%; }
+  dialog.log-open .ln { grid-template-columns: 4.6em minmax(0, 1fr); gap: 8px; padding: 2px 0; }
+  dialog.log-open .ln .t { font-size: .8rem; line-height: 1.95; }
+  dialog.log-open .panel-close { padding: 4px 18px; }
   @media (prefers-reduced-motion: reduce) { dialog.panel-dialog { animation: none; } }
   .status-toggle .failed { color: var(--err); }
   dialog.upscale-dialog { position: fixed; margin: 0; padding: 8px 10px; gap: 6px; flex-direction: column; align-items: stretch; justify-content: space-between;
@@ -3342,6 +3354,7 @@ function downloadImages(id, positions) {
 }
 // --- The image viewer: one picture over a dimmed page, with Download, Delete and Close ---
 let viewing = null;
+const UPSCALE_MOST_SIDE = 1440;
 function showViewerMedia(video) {
   $('viewerTools').hidden = video;
   $('viewerImage').hidden = video;
@@ -3387,6 +3400,8 @@ function openViewer(id, position) {
 $('viewerImage').addEventListener('load', () => {
   const img = $('viewerImage');
   $('viewerRes').textContent = viewing && !viewing.film && img.naturalWidth ? `${img.naturalWidth} × ${img.naturalHeight}` : '';
+  // Twice the size of a 1440p image is past what SeedVR2 and the viewer can sensibly hold.
+  $('viewerUpscale').hidden = Math.min(img.naturalWidth, img.naturalHeight) > UPSCALE_MOST_SIDE;
 });
 // The image before or after this one in its set: a swipe, or the arrow keys.
 function stepViewer(by) {
@@ -4153,6 +4168,7 @@ function openPanel(which) {
   const [title, id] = PANELS[which], el = $(id);
   panelShown = { which, el, parent: el.parentNode, next: el.nextSibling };
   $('panelDialogTitle').textContent = title;
+  $('panelDialog').classList.toggle('log-open', which === 'log');
   $('panelDialogBody').appendChild(el);
   if (!$('panelDialog').open) $('panelDialog').showModal();
   if (which === 'log') for (const log of ['log', 'uploadLog']) $(log).scrollTop = $(log).scrollHeight;

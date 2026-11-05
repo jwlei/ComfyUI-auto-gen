@@ -119,7 +119,7 @@ enlarged after, rather than failing.
 
 **Upscale**, under an image in the viewer: **Fast** is Superscale-SP, in seconds, and adds no new detail; its strength
 mixes it with a plain resize, to tone down texture it invents. **SeedVR2** takes minutes and draws finer detail. Either is
-a new image in the set.
+a new image in the set. The button is only there while the image's shorter side is 1440px or less.
 
 Select runs on the CPU, so the GPU stays with ComfyUI. Its model (MobileSAM, 44 MB) is in `models/`:
 `python scripts/get_models.py` downloads it, checked against its SHA-256.
