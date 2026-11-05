@@ -1464,6 +1464,9 @@
     <select id="viewerUpscaleStrength" aria-label="Upscaler mix" title="How much of the upscaler's result is used, the rest a plain resize. Lower tones down texture the upscaler invents.">
       <option value="1">Upscaler 100%</option><option value="0.75">Upscaler 75%</option><option value="0.5">Upscaler 50%</option>
     </select>
+    <select id="viewerUpscaleSize" aria-label="Resolution" title="The shorter side SeedVR2 makes it, as in the Krea 2 workflow." hidden>
+      <option value="0">2×</option><option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">4K</option>
+    </select>
   </div>
   <div class="upscale-row">
     <button type="button" id="upscaleCancel">Cancel</button>
@@ -3261,6 +3264,9 @@ $('viewerUpscale').addEventListener('click', () => {
   if (box.open) return;
   const img = $('viewerImage'), w = img.naturalWidth, h = img.naturalHeight;
   $('upscaleNote').textContent = w ? `${w} × ${h}  →  ${w * 2} × ${h * 2}` : '2× the size';
+  const shorter = Math.min(w, h);
+  for (const o of $('viewerUpscaleSize').options) o.disabled = +o.value > 0 && +o.value <= shorter;
+  $('viewerUpscaleSize').value = '0';
   setUpscaleMethod('fast');
   box.showModal();
   // Over the buttons: the Download/Close/Delete row's width and bottom edge, growing upwards for its extra rows.
@@ -3272,6 +3278,7 @@ function setUpscaleMethod(method) {
   $('viewerUpscaleBar').dataset.method = method;
   for (const b of document.querySelectorAll('#viewerUpscaleBar [data-method]')) b.classList.toggle('active', b.dataset.method === method);
   $('viewerUpscaleStrength').hidden = method !== 'fast';
+  $('viewerUpscaleSize').hidden = method !== 'seedvr2';
 }
 // A tap outside it, on the dimmed viewer, closes it.
 $('viewerUpscaleBar').addEventListener('click', e => {
@@ -3285,7 +3292,7 @@ $('viewerUpscaleBar').addEventListener('click', async e => {
   const button = e.target.closest && e.target.closest('#upscaleGo');
   if (!button || !viewing || viewing.film) return;
   const { id, position } = viewing, method = $('viewerUpscaleBar').dataset.method;
-  const query = method === 'fast' ? `?method=fast&strength=${encodeURIComponent($('viewerUpscaleStrength').value)}` : '?method=seedvr2';
+  const query = method === 'fast' ? `?method=fast&strength=${encodeURIComponent($('viewerUpscaleStrength').value)}` : `?method=seedvr2&resolution=${encodeURIComponent($('viewerUpscaleSize').value)}`;
   let body;
   try { body = await (await fetch(`/image-runs/${encodeURIComponent(id)}/upscale/${position}${query}`, { method: 'POST' })).json(); }
   catch (e) { body = { error: 'Could not reach the panel. Try again.' }; }

@@ -100,7 +100,7 @@ def target_resolution(width, height):
     return min(MOST_EDGE, FACTOR * min(width, height))
 
 
-def upscale(state, position, comfy, method="seedvr2", strength=1.0):
+def upscale(state, position, comfy, method="seedvr2", strength=1.0, resolution=0):
     """Makes the image at position again, bigger, and puts it in the set after it. Returns the new file's path."""
     from PIL import Image
     shot = state.shots[position - 1]
@@ -120,7 +120,7 @@ def upscale(state, position, comfy, method="seedvr2", strength=1.0):
         finished.save(part, format="PNG")
         os.replace(part, path)
     else:
-        resolution = target_resolution(width, height)
+        resolution = resolution or target_resolution(width, height)
         print(f"🔍 Upscaling image {position}, {width}x{height}, to {resolution} on its shorter side...")
         entry = comfy._run(upscale_workflow(uploaded, resolution), 777)
         path = comfy._download(entry, os.path.join(state.output_dir, stem), IMAGE_EXTENSIONS, "an image")
@@ -142,6 +142,8 @@ def main(argv=None):
     parser.add_argument("--method", choices=METHODS, default="seedvr2",
                         help="seedvr2: redraws the detail, minutes (the default). fast: Superscale-SP, seconds, adds no new content.")
     parser.add_argument("--strength", type=float, default=1.0, help="With fast: how much of the model's result, 0-1, the rest a plain resize.")
+    parser.add_argument("--resolution", type=int, default=0, metavar="PX",
+                        help="With seedvr2: the shorter side to make it, as the Krea 2 workflow's 720p/1080p/1440p/4K. 0: twice what it is.")
     args = parser.parse_args(argv)
     state = RunState.load(args.resume)
     if not state or not 1 <= args.image <= len(state.shots or []) or not state.shots[args.image - 1].get("file"):
@@ -153,7 +155,7 @@ def main(argv=None):
         print(f"❌ ComfyUI isn't running at {comfy.url}.")
         return 1
     try:
-        upscale(state, args.image, comfy, args.method, min(1.0, max(0.0, args.strength)))
+        upscale(state, args.image, comfy, args.method, min(1.0, max(0.0, args.strength)), max(0, args.resolution))
     except (RuntimeError, OSError) as e:
         print(f"❌ Could not upscale it: {e}")
         return 1

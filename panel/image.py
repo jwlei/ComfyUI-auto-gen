@@ -570,6 +570,7 @@ def discard_run(run_id):
 UPSCALE = [sys.executable, "-m", "pipelines.image.upscale"]
 UPSCALE_SECONDS = 180  # About what SeedVR2 takes for one image on this card
 FAST_UPSCALE_SECONDS = 20  # Superscale-SP: seconds, as Kokon measured it (13 s for 1472² on a 5070 Ti)
+UPSCALE_RESOLUTIONS = (720, 1080, 1440, 2160)  # SeedVR2's shorter side, as the Krea 2 workflow's 720p, 1080p, 1440p and 4K
 UPSCALE_MOST_SIDE = 1440  # The shorter side of an image that can still be upscaled, as the viewer's button
 
 
@@ -596,9 +597,18 @@ def upscale_image(run_id, position):
         strength = float(request.args.get("strength") or (request.get_json(silent=True) or {}).get("strength") or 1)
     except ValueError:
         return {"ok": False, "error": "Strength is a number from 0 to 1."}, 400
-    how = "SeedVR2, twice the size" if method == "seedvr2" else f"Superscale-SP, twice the size, strength {round(strength * 100)}%"
+    try:
+        resolution = int(request.args.get("resolution") or 0) if method == "seedvr2" else 0
+    except ValueError:
+        return {"ok": False, "error": "Resolution is a number of pixels."}, 400
+    if resolution and resolution not in UPSCALE_RESOLUTIONS:
+        return {"ok": False, "error": "Unknown resolution."}, 400
+    if resolution and resolution <= shorter:
+        return {"ok": False, "error": f"It's already {shorter}px on its shorter side: pick a bigger resolution."}, 400
+    how = (f"SeedVR2, {resolution}p" if resolution else "SeedVR2, twice the size") if method == "seedvr2" else f"Superscale-SP, twice the size, strength {round(strength * 100)}%"
     item = {"pipeline": "image", "label": queue_label(f"Upscale: {state.shots[position - 1]['title']}"), "detail": how,
-            "argv": [*UPSCALE, "--resume", state.id, "--image", str(position), "--method", method, "--strength", f"{min(1, max(0, strength)):g}"],
+            "argv": [*UPSCALE, "--resume", state.id, "--image", str(position), "--method", method, "--strength", f"{min(1, max(0, strength)):g}",
+                     *(["--resolution", str(resolution)] if resolution else [])],
             "env": {}, "resume": state.id, "estimate": UPSCALE_SECONDS if method == "seedvr2" else FAST_UPSCALE_SECONDS}
     queued = run_queue.add(item)
     _runs_cache["at"] = 0.0

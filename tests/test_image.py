@@ -655,7 +655,13 @@ class PanelTest(unittest.TestCase):
         self.assertEqual({node["class_type"] for node in sent.values()},
                          {"LoadImage", "SeedVR2LoadDiTModel", "SeedVR2LoadVAEModel", "SeedVR2VideoUpscaler", "PreviewImage"})
         self.assertEqual(next(n for n in sent.values() if n["class_type"] == "SeedVR2LoadDiTModel")["inputs"]["attention_mode"], "sdpa")
-
+        self.assertEqual(self.client.post(f"/image-runs/{run.id}/upscale/1?method=seedvr2&resolution=999").status_code, 400)
+        self.assertEqual(self.client.post(f"/image-runs/{run.id}/upscale/1?method=seedvr2&resolution=1").status_code, 400)
+        prompts = len(self.comfy.prompts)
+        self.assertTrue(self.client.post(f"/image-runs/{run.id}/upscale/1?method=seedvr2&resolution=1440").get_json()["ok"])
+        self.wait_idle()
+        sent = self.comfy.prompts[prompts]["prompt"]
+        self.assertEqual(next(n for n in sent.values() if n["class_type"] == "SeedVR2VideoUpscaler")["inputs"]["resolution"], 1440)
     def test_upscaling_fast_takes_superscale_and_blends_at_the_strength_asked(self):
         self.make(count="1", aspect="1:1", megapixels="0.5")
         run = self.only_run()
