@@ -2279,6 +2279,7 @@ $('lowPriority').addEventListener('change', () => saveSettings({ low_priority: $
 $('reserveRam').addEventListener('change', async () => {
   await saveSettings({ reserve_ram_gb: $('reserveRam').value });
   $('reserveRam').value = SETTINGS.reserve_ram_gb || 0;
+  settingsNote('Saved. Restart ComfyUI (the button at the top) for it to take effect.');
 });
 settingsDialog.addEventListener('change', e => {
   if (e.target.dataset && e.target.dataset.side) saveSettings({ default_workflow: { [e.target.dataset.side]: e.target.value } });
