@@ -327,6 +327,8 @@ LTX_FPS = "LTXVConditioning"
 SLOT = "lora_slot"
 NO_LORA = "None"
 DISTILLED = "The workflow sets its own steps with fixed sigmas, as a distilled one does."
+H3_MEMORY, H3_SPARSE = "H3MemoryOptimization", "H3SparseAttention"
+H3_SAMPLING = ("BasicGuider", "CFGGuider", "KSampler", "KSamplerAdvanced", "SamplerCustom")
 
 
 def _negatives(api):
@@ -388,6 +390,53 @@ def _tune(api, info, chosen):
                             "step": 0.05, "advanced": True})
             if chosen.get(SLOT, NO_LORA) != NO_LORA:
                 api[loaders[0]]["inputs"]["lora_1"] = {"on": True, "lora": chosen[SLOT], "strength": float(chosen.get(f"{SLOT}_strength", 1)), "strengthTwo": None}
+    options += _h3(api, info, chosen)
+    return options
+
+
+def _node_defaults(info, class_type):
+    """The inputs a node needs besides its model, as ComfyUI offers them by default."""
+    values = {}
+    for name, config in sw._input_spec(info.get(class_type, {})).items():
+        if name == "model":
+            continue
+        extra = config[1] if len(config) > 1 and isinstance(config[1], dict) else {}
+        choices = sw._options(config)
+        value = extra.get("default", choices[0] if choices else None)
+        if value is not None:
+            values[name] = value
+    return values
+
+
+def _h3(api, info, chosen):
+    """
+    MiniMax H3's two optimizers (the H3-Optimizations custom node), which a workflow doesn't have: each is put between the
+    model and what samples with it, when chosen. Sparse attention also takes how much of the video it attends to.
+    """
+    if not any(node["class_type"].startswith("MiniMaxH3") for node in api.values()) or not all(name in info for name in (H3_MEMORY, H3_SPARSE)):
+        return []
+    sparse = _node_defaults(info, H3_SPARSE)
+    budget = float(sparse.get("video_budget", 0.15))
+    options = [
+        {"id": "h3_memory", "kind": "switch", "label": "H3 Memory Optimization", "default": OFF, "advanced": True},
+        {"id": "h3_sparse", "kind": "switch", "label": "H3 Sparse Attention", "default": OFF, "advanced": True},
+        {"id": "h3_budget", "kind": "number", "label": "Video attention", "parent": "h3_sparse", "default": f"{budget:g}", "min": 0.01, "max": 1, "step": 0.01,
+         "advanced": True},
+    ]
+    wanted = [(class_type, inputs) for flag, class_type, inputs in (
+        ("h3_memory", H3_MEMORY, _node_defaults(info, H3_MEMORY)),
+        ("h3_sparse", H3_SPARSE, {**sparse, "video_budget": float(chosen.get("h3_budget", budget))})) if chosen.get(flag) == ON]
+    if wanted:
+        sources = {tuple(node["inputs"]["model"]) for node in api.values() if node["class_type"] in H3_SAMPLING and isinstance(node["inputs"].get("model"), list)}
+        for number, source in enumerate(sorted(sources)):
+            link = list(source)
+            for class_type, inputs in wanted:
+                node_id = f"h3_{number}_{class_type}"
+                api[node_id] = {"class_type": class_type, "inputs": {**inputs, "model": link}}
+                link = [node_id, 0]
+            for node in api.values():
+                if node["class_type"] in H3_SAMPLING and node["inputs"].get("model") == list(source):
+                    node["inputs"]["model"] = link
     return options
 
 

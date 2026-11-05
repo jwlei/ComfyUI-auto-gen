@@ -331,6 +331,34 @@ class SamplingOptionsTest(unittest.TestCase):
         self.assertEqual(api["10"]["inputs"]["nag_scale"], 5.0)
         self.assertEqual(api["11"]["inputs"]["lora_1"], {"on": True, "lora": "b.safetensors", "strength": 0.7, "strengthTwo": None})
 
+    H3_INFO = {**INFO,
+               "H3MemoryOptimization": {"input": {"required": {"model": ["MODEL"], "mlp_memory": [["auto", "off"]], "chunk_rows": ["INT", {"default": 4096}]}}},
+               "H3SparseAttention": {"input": {"required": {"model": ["MODEL"], "video_budget": ["FLOAT", {"default": 0.15}],
+                                                            "denser_early_late_steps": ["BOOLEAN", {"default": True}]}}}}
+
+    def h3(self):
+        return {"1": {"class_type": "UNETLoader", "inputs": {}},
+                "2": {"class_type": "MiniMaxH3ReferenceToVideo", "inputs": {}},
+                "3": {"class_type": "BasicGuider", "inputs": {"model": ["1", 0]}},
+                "4": {"class_type": "BasicScheduler", "inputs": {"model": ["1", 0], "steps": 4}}}
+
+    def test_h3_optimizers_are_put_before_the_sampler(self):
+        api = self.h3()
+        found = {option["id"]: option for option in workflow_options._tune(api, self.H3_INFO, {})}
+        self.assertEqual((found["h3_memory"]["default"], found["h3_sparse"]["default"], found["h3_budget"]["parent"]), ("0", "0", "h3_sparse"))
+        self.assertEqual(len(api), 4, "off leaves the graph as it was")
+        api = self.h3()
+        workflow_options._tune(api, self.H3_INFO, {"h3_memory": "1", "h3_sparse": "1", "h3_budget": "0.3"})
+        memory, sparse = api["h3_0_H3MemoryOptimization"], api["h3_0_H3SparseAttention"]
+        self.assertEqual((memory["inputs"]["model"], memory["inputs"]["chunk_rows"], memory["inputs"]["mlp_memory"]), (["1", 0], 4096, "auto"))
+        self.assertEqual((sparse["inputs"]["model"], sparse["inputs"]["video_budget"]), (["h3_0_H3MemoryOptimization", 0], 0.3))
+        self.assertEqual(api["3"]["inputs"]["model"], ["h3_0_H3SparseAttention", 0])
+        self.assertEqual(api["4"]["inputs"]["model"], ["1", 0], "the scheduler only reads the model")
+
+    def test_h3_optimizers_need_h3_and_the_node(self):
+        self.assertFalse(any(option["id"].startswith("h3") for option in workflow_options._tune(self.h3(), self.INFO, {})))
+        self.assertFalse(any(option["id"].startswith("h3") for option in workflow_options._tune(self.ltx(), self.H3_INFO, {})))
+
     def test_no_lora_chosen_leaves_the_loader_empty(self):
         api = self.ltx()
         workflow_options._tune(api, self.INFO, {})
