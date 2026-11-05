@@ -1024,7 +1024,7 @@
       <div class="workflow-in" id="workflowBox">
         <label for="workflow">Workflow</label>
         <select id="workflow" name="workflow">
-          <option value="">LTX-2.3</option>
+          <option value="">LTX-2.3_-_I2V_T2V_Basic_GGUF_ytautoshort</option>
         </select>
       </div>
 
@@ -1759,7 +1759,7 @@ async function loadWorkflows() {
   const wanted = select.dataset.key ? select.value : startingWorkflow('shorts', rememberedWorkflow);
   select.dataset.key = key;
   const none = !data.online && !data.workflows.length;
-  select.innerHTML = '<option value="">LTX-2.3</option>' + data.workflows.map(w =>
+  select.innerHTML = '<option value="">LTX-2.3_-_I2V_T2V_Basic_GGUF_ytautoshort</option>' + data.workflows.map(w =>
     `<option value="${esc(w.name)}">${esc(w.label)}</option>`).join('')
     + (none ? '<option disabled>Yours appear once ComfyUI is on</option>' : '');
   if (data.workflows.some(w => w.name === wanted)) select.value = wanted;
@@ -2232,7 +2232,7 @@ $('addMedia').addEventListener('click', () => {
 });
 
 // --- Settings (the gear in the header) ---
-const SETTINGS_BUILTIN = { shorts: 'Built-in LTX-2.3', video: 'Built-in LTX', image: 'Automatic' };
+const SETTINGS_BUILTIN = { shorts: 'LTX-2.3_-_I2V_T2V_Basic_GGUF_ytautoshort', video: 'Built-in LTX', image: 'Automatic' };
 const settingsDialog = $('settingsDialog');
 function settingsNote(text, bad) {
   $('settingsNote').hidden = !text;
