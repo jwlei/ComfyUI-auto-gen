@@ -453,6 +453,11 @@ class JobQueue:
         with self.lock:
             self._ensure_watcher()
             self.held = False
+        # Starting the next job can take seconds (ComfyUI checks): not while the page's request waits on it.
+        threading.Thread(target=self._advance_locked, daemon=True).start()
+
+    def _advance_locked(self):
+        with self.lock:
             self._advance()
 
     def start(self, item_id):

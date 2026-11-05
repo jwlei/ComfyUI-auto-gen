@@ -192,6 +192,9 @@
     background: transparent; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
   @media (prefers-reduced-motion: reduce) { dialog.panel-dialog { animation: none; } }
   .status-toggle .failed { color: var(--err); }
+  dialog.upscale-dialog { width: auto; max-width: calc(100vw - 24px); }
+  .upscale-row { display: flex; gap: 6px; align-items: center; justify-content: center; flex-wrap: wrap; }
+  .upscale-row button, .upscale-row select { width: auto; margin: 0; padding: 4px 10px; font-size: .8rem; }
   /* One line each: when, how it ended and what it is, centred beside a title of at most two lines; a rule between them. */
   .finished .results .result { display: flex; align-items: center; gap: 8px; width: 100%; margin: 0; padding: 7px 0; background: none; border: 0;
     border-radius: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
@@ -1364,19 +1367,23 @@
       <button type="button" id="viewerEdit" title="Edit this one: it goes to Generate as image 1, with the Qwen-Image 2.1 edit workflow">Edit</button>
       <button type="button" id="viewerPrompts" title="This image's prompt, and its set's">Prompts</button>
     </div>
-    <div class="viewer-compare" id="viewerUpscaleBar" hidden>
-      <button type="button" data-upscale="fast" title="Superscale-SP: seconds, and adds no new detail">Fast</button>
-      <select id="viewerUpscaleStrength" aria-label="How much of the upscaler's result" title="How much of the upscaler's result, the rest a plain resize: less tones down texture it invents">
-        <option value="1">Full strength</option><option value="0.75">75%</option><option value="0.5">50%</option>
-      </select>
-      <button type="button" data-upscale="seedvr2" title="SeedVR2: minutes, and draws finer detail">SeedVR2</button>
-    </div>
     <div class="viewer-actions">
       <a class="button" id="viewerDownload" href="#" download>Download</a>
       <button type="button" class="ghost" id="viewerClose">Close</button>
       <button type="button" class="del" id="viewerDelete">Delete</button>
     </div>
   </div>
+</dialog>
+<dialog id="viewerUpscaleBar" class="panel-dialog upscale-dialog" aria-labelledby="upscaleTitle">
+  <div class="panel-dialog-title" id="upscaleTitle">Upscale to twice the size</div>
+  <div class="upscale-row">
+    <button type="button" data-upscale="fast" title="Superscale-SP: seconds, and adds no new detail">Fast</button>
+    <select id="viewerUpscaleStrength" aria-label="Upscaler mix" title="How much of the upscaler's result is used, the rest a plain resize. Lower tones down texture the upscaler invents. Fast only.">
+      <option value="1">Upscaler 100%</option><option value="0.75">Upscaler 75%</option><option value="0.5">Upscaler 50%</option>
+    </select>
+    <button type="button" data-upscale="seedvr2" title="SeedVR2: minutes, and draws finer detail">SeedVR2</button>
+  </div>
+  <button type="button" class="panel-close" id="viewerUpscaleClose">Close</button>
 </dialog>
 
 <script>
@@ -3139,7 +3146,8 @@ $('viewerVariations').addEventListener('click', () => {
   closeViewer();
   sameAgain(id, position);
 });
-$('viewerUpscale').addEventListener('click', () => { $('viewerUpscaleBar').hidden = !$('viewerUpscaleBar').hidden; });
+$('viewerUpscale').addEventListener('click', () => { if (!$('viewerUpscaleBar').open) $('viewerUpscaleBar').showModal(); });
+$('viewerUpscaleClose').addEventListener('click', () => $('viewerUpscaleBar').close());
 $('viewerUpscaleBar').addEventListener('click', async e => {
   const button = e.target.closest && e.target.closest('[data-upscale]');
   if (!button || !viewing || viewing.film) return;
@@ -3149,7 +3157,7 @@ $('viewerUpscaleBar').addEventListener('click', async e => {
   try { body = await (await fetch(`/image-runs/${encodeURIComponent(id)}/upscale/${position}${query}`, { method: 'POST' })).json(); }
   catch (e) { body = { error: 'Could not reach the panel. Try again.' }; }
   if (!body.ok) { alert(body.error || 'Could not upscale it.'); return; }
-  $('viewerUpscaleBar').hidden = true;
+  $('viewerUpscaleBar').close();
   $('viewerUpscale').textContent = body.queued ? 'Queued' : 'Upscaling…';
   setTimeout(() => { $('viewerUpscale').textContent = 'Upscale'; }, 2500);
   poll();
@@ -3396,8 +3404,7 @@ function closeViewer() {
   if ($('imageViewer').open) $('imageViewer').close();
 }
 $('imageViewer').addEventListener('close', () => {
-  $('viewerUpscaleBar').hidden = true;
-  resetZoom();
+  if ($('viewerUpscaleBar').open) $('viewerUpscaleBar').close();
   viewing = null;
   $('viewerImage').removeAttribute('src');
   $('viewerVideo').pause();
@@ -4155,7 +4162,11 @@ for (const id of ['runQueue', 'uploadQueue']) {
     const d = e.target.dataset || {}, lane = $(id).dataset.lane;
     if (d.start) await fetch(`/queue/${lane}/start/${d.start}`, { method: 'POST' });
     else if (d.remove) await fetch(`/queue/${lane}/remove/${d.remove}`, { method: 'POST' });
-    else if (d.resume) await fetch(`/queue/${lane}/resume`, { method: 'POST' });
+    else if (d.resume) {
+      // Shown at once; the next status confirms it.
+      if ($(id)._last) { $(id)._last[0] = { ...$(id)._last[0], held: false }; renderQueue($(id), ...$(id)._last); }
+      await fetch(`/queue/${lane}/resume`, { method: 'POST' });
+    }
     else return;
     poll();
   });
