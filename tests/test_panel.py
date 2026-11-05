@@ -881,6 +881,17 @@ class PanelTest(unittest.TestCase):
             self.assertEqual(saved["settings"]["default_workflow"], {"shorts": "", "video": "", "image": "image_x"})
             self.assertTrue(webapp.settings.load()["low_priority"], "kept in the file")
             self.assertEqual(webapp.priority_flags(), webapp.BELOW_NORMAL)
+            saved = self.client.post("/api/settings", json={"reserve_ram_gb": "8"}).get_json()["settings"]
+            self.assertEqual(saved["reserve_ram_gb"], 8)
+            self.assertEqual(self.client.post("/api/settings", json={"reserve_ram_gb": 999}).get_json()["settings"]["reserve_ram_gb"], webapp.settings.MAX_RESERVE_GB)
+            self.assertEqual(self.client.post("/api/settings", json={"reserve_ram_gb": "x"}).get_json()["settings"]["reserve_ram_gb"], 0)
+            bat = os.path.join(self.temp, "run.bat")
+            with open(bat, "w") as f:
+                f.write("python main.py --enable-manager\n")
+            self.client.post("/api/settings", json={"reserve_ram_gb": 8})
+            self.assertTrue(webapp.comfyui_command(bat).endswith("--disable-auto-launch --cache-ram 8"))
+            self.client.post("/api/settings", json={"reserve_ram_gb": 0})
+            self.assertNotIn("--cache-ram", webapp.comfyui_command(bat))
             self.assertEqual(self.client.post("/api/settings", data="no").status_code, 400)
             self.assertIn("disk", self.client.get("/api/settings").get_json())
 

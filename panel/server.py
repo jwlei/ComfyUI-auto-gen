@@ -1014,7 +1014,12 @@ def comfyui_command(launcher):
             for line in f:
                 line = line.strip()
                 if "main.py" in line and not line.lower().startswith(("rem", "::", "echo")):
-                    return line if "--disable-auto-launch" in line else line + " --disable-auto-launch"
+                    if "--disable-auto-launch" not in line:
+                        line += " --disable-auto-launch"
+                    reserve = settings.load()["reserve_ram_gb"]
+                    if reserve and "--cache-ram" not in line:
+                        line += f" --cache-ram {reserve:g}"
+                    return line
     except OSError:
         pass
     return None

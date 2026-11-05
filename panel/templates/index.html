@@ -1426,6 +1426,7 @@
     <button type="button" id="shutdown" title="Shut down: force-stops everything, then the panel's server. Start it again with start_webapp.pyw or the ComfyUI auto-gen shortcut."><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/></svg><span>Shut down</span></button>
   </div>
   <div class="hint settings-note" id="settingsNote" hidden></div>
+  <div class="settings-row"><label for="reserveRam">Keep system RAM free (GB)<small>ComfyUI frees cached models and results before free RAM drops below this, so Windows stays responsive. 0 is ComfyUI's own default. Takes effect when ComfyUI next starts; 8 suits 32 GB.</small></label><input type="number" id="reserveRam" min="0" max="64" step="1" inputmode="decimal" style="width:5rem"></div>
   <label class="settings-check"><input type="checkbox" id="lowPriority"><span>Run generation at lower priority<small>The pipeline and ComfyUI give way to your other programs, so the PC stays responsive while it renders.</small></span></label>
   <div class="settings-group">Default workflow</div>
   <div class="settings-row"><label for="defaultShorts">Shorts</label><select id="defaultShorts" data-side="shorts"></select></div>
@@ -2246,6 +2247,7 @@ function formatBytes(n) {
 }
 async function fillSettings() {
   $('lowPriority').checked = !!SETTINGS.low_priority;
+  $('reserveRam').value = SETTINGS.reserve_ram_gb || 0;
   for (const side of ['shorts', 'video', 'image']) {
     const select = document.getElementById('default' + side[0].toUpperCase() + side.slice(1));
     const chosen = (SETTINGS.default_workflow || {})[side] || '';
@@ -2274,6 +2276,10 @@ $('settingsBtn').addEventListener('click', e => {
 $('settingsClose').addEventListener('click', () => settingsDialog.close());
 settingsDialog.addEventListener('click', e => { if (e.target === settingsDialog) settingsDialog.close(); });
 $('lowPriority').addEventListener('change', () => saveSettings({ low_priority: $('lowPriority').checked }));
+$('reserveRam').addEventListener('change', async () => {
+  await saveSettings({ reserve_ram_gb: $('reserveRam').value });
+  $('reserveRam').value = SETTINGS.reserve_ram_gb || 0;
+});
 settingsDialog.addEventListener('change', e => {
   if (e.target.dataset && e.target.dataset.side) saveSettings({ default_workflow: { [e.target.dataset.side]: e.target.value } });
 });

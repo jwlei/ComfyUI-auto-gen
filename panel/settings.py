@@ -7,8 +7,18 @@ from core.paths import LOGS_DIR
 
 PATH = os.path.join(LOGS_DIR, "settings.json")
 SIDES = ("shorts", "video", "image")
-DEFAULTS = {"low_priority": False, "default_workflow": {side: "" for side in SIDES}}
+MAX_RESERVE_GB = 64
+DEFAULTS = {"low_priority": False, "reserve_ram_gb": 0, "default_workflow": {side: "" for side in SIDES}}
 _lock = threading.Lock()
+
+
+def _gigabytes(value):
+    """Whole or half gigabytes, 0 (ComfyUI's own default) up to MAX_RESERVE_GB; anything else is 0."""
+    try:
+        gb = float(value)
+    except (TypeError, ValueError):
+        return 0
+    return round(min(max(gb, 0), MAX_RESERVE_GB) * 2) / 2 if gb == gb else 0
 
 
 def load():
@@ -21,6 +31,7 @@ def load():
         saved = {}
     workflows = saved.get("default_workflow") if isinstance(saved.get("default_workflow"), dict) else {}
     return {"low_priority": bool(saved.get("low_priority")),
+            "reserve_ram_gb": _gigabytes(saved.get("reserve_ram_gb")),
             "default_workflow": {side: str(workflows.get(side) or "") for side in SIDES}}
 
 
@@ -30,6 +41,8 @@ def update(changes):
         current = load()
         if "low_priority" in changes:
             current["low_priority"] = bool(changes["low_priority"])
+        if "reserve_ram_gb" in changes:
+            current["reserve_ram_gb"] = _gigabytes(changes["reserve_ram_gb"])
         if isinstance(changes.get("default_workflow"), dict):
             for side in SIDES:
                 if side in changes["default_workflow"]:
