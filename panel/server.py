@@ -406,7 +406,8 @@ class JobQueue:
         if self.job.batches:
             ahead = None if self.held else next((waiting for waiting in self.items if not waiting.get("later")), None)
             if frees_comfyui(item, ahead):
-                free_comfyui()
+                # Not under the queue's lock: a busy ComfyUI can take seconds to answer, and the page's status waits on it.
+                threading.Thread(target=free_comfyui, daemon=True).start()
         code = self.job.returncode
         if self.job.stopped:
             self._record(item, "stopped")
@@ -466,6 +467,23 @@ class JobQueue:
             self._advance()
             self._save()
             return True
+
+    def reorder(self, ids):
+        """
+        Puts the waiting jobs in the order of these ids, as dragged on the page. One added since the page was drawn
+        isn't in it, and stays where it was among the rest. Returns whether the order changed.
+        """
+        with self.lock:
+            by_id = {item["id"]: item for item in self.items}
+            wanted = [by_id[i] for i in dict.fromkeys(ids) if i in by_id]
+            slots = iter(wanted)
+            placed = {id(item) for item in wanted}
+            order = [next(slots) if id(item) in placed else item for item in self.items]
+            changed = order != self.items
+            self.items = order
+            self._advance()
+            self._save()
+            return changed
 
     def remove(self, item_id):
         with self.lock:
@@ -641,17 +659,36 @@ _comfyui_process = None  # Only one this server started
 COMFYUI_STARTUP_WAIT = 180
 
 
-def comfyui_online():
-    # Cached briefly: every open browser polls status every 2s.
+def _check_comfyui():
+    url = (os.getenv("COMFYUI_URL") or "http://127.0.0.1:8188").rstrip("/")
+    try:
+        online = requests.get(f"{url}/system_stats", timeout=2).status_code == 200
+    except requests.RequestException:
+        online = False
+    # Not answering, yet its port is open: running, but too busy to reply, as when it pages for want of memory.
+    _comfyui_cache.update(online=online, listening=online or _port_open(url), at=time.time())
+
+
+_comfyui_checking = threading.Lock()
+
+
+def _check_comfyui_in_background():
+    try:
+        _check_comfyui()
+    finally:
+        _comfyui_checking.release()
+
+
+def comfyui_online(wait=True):
+    """
+    Whether ComfyUI answers, checked at most every 10 seconds. wait=False is for the page's status: it answers with
+    what was last found and checks again in the background, so a ComfyUI too busy to reply can't hold the page up.
+    """
     if time.time() - _comfyui_cache["at"] > 10:
-        url = (os.getenv("COMFYUI_URL") or "http://127.0.0.1:8188").rstrip("/")
-        try:
-            _comfyui_cache["online"] = requests.get(f"{url}/system_stats", timeout=2).status_code == 200
-        except requests.RequestException:
-            _comfyui_cache["online"] = False
-        # Not answering, yet its port is open: running, but too busy to reply, as when it pages for want of memory.
-        _comfyui_cache["listening"] = _comfyui_cache["online"] or _port_open(url)
-        _comfyui_cache["at"] = time.time()
+        if wait or not _comfyui_cache["at"]:
+            _check_comfyui()
+        elif _comfyui_checking.acquire(blocking=False):
+            threading.Thread(target=_check_comfyui_in_background, daemon=True).start()
     return _comfyui_cache["online"]
 
 
@@ -665,7 +702,7 @@ def _port_open(url):
 
 
 def comfyui_listening():
-    comfyui_online()
+    comfyui_online(wait=False)
     return _comfyui_cache.get("listening", False)
 
 
@@ -783,10 +820,29 @@ comfy_monitor = None
 _gpu_cache = {"at": 0.0, "value": None}
 
 
+_gpu_checking = threading.Lock()
+
+
 def gpu_stats():
-    """Utilisation / VRAM / power from nvidia-smi, cached for a few seconds."""
+    """
+    Utilisation / VRAM / power from nvidia-smi, cached for a few seconds. Once it has a reading, a new one is taken in
+    the background: under load nvidia-smi can take seconds, and the page's status shouldn't wait for it.
+    """
     if time.time() - _gpu_cache["at"] < 3:
         return _gpu_cache["value"]
+    if _gpu_cache["value"] is None:
+        return _read_gpu()
+    if _gpu_checking.acquire(blocking=False):
+        def read():
+            try:
+                _read_gpu()
+            finally:
+                _gpu_checking.release()
+        threading.Thread(target=read, daemon=True).start()
+    return _gpu_cache["value"]
+
+
+def _read_gpu():
     _gpu_cache["at"] = time.time()
     if not shutil.which("nvidia-smi"):
         return None
@@ -1349,6 +1405,18 @@ def queue_start(lane, item_id):
     return {"ok": QUEUES[lane].start(item_id)}
 
 
+@app.route("/queue/<lane>/order", methods=["POST"])
+@password_required
+def queue_order(lane):
+    """The waiting jobs in a new order: {"ids": [...]}, first to start first."""
+    if lane not in QUEUES:
+        abort(404)
+    ids = (request.get_json(silent=True) or {}).get("ids")
+    if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
+        return {"ok": False, "error": "The order is a list of the queued jobs' ids."}, 400
+    return {"ok": True, "changed": QUEUES[lane].reorder(ids)}
+
+
 @app.route("/queue/<lane>/resume", methods=["POST"])
 @password_required
 def queue_resume(lane):
@@ -1409,7 +1477,7 @@ def status():
     payload["upload"]["queue"] = upload_queue.snapshot()
     payload["videos"] = {folder: list_videos(folder) for folder in FOLDERS}
     payload["image_sets"] = [run for run in saved_runs() if run["pipeline"] == "image" and run["images"]]
-    online = comfyui_online()
+    online = comfyui_online(wait=False)
     payload["comfyui"] = {"online": online, "listening": comfyui_listening(), "can_start": bool(comfyui_launcher()), "ram": ram_stats(),
                           "starting": not online and time.time() - _comfyui_start_requested_at < COMFYUI_STARTUP_WAIT,
                           **(comfy_monitor.snapshot() if comfy_monitor else {})}

@@ -1069,6 +1069,10 @@ class QwenImage21Test(unittest.TestCase):
     def test_out_of_memory_frees_it_then_tries_smaller(self):
         self.comfy.script = ["error", "error"]
         run = self.make_with(workflow="image_q21_text.json", aspect="1:1")
+        for _ in range(50):  # The last is sent in the background as the job ends
+            if self.comfy.frees == 3:
+                break
+            time.sleep(0.02)
         self.assertEqual(self.comfy.frees, 3, "freed after each, and once more as the job ends")
         self.assertEqual(len(self.comfy.prompts), 3)
         latents = [self.inputs(p, "EmptyLatentImage") for p in self.comfy.prompts]

@@ -995,6 +995,11 @@ run(`renderQueue(queue, { items: [], results: [{ label: 'x', outcome: 'done', at
 assert.strictEqual(queue.hidden, true, 'what finished is under Finished, not in the queue');
 assert(queue.innerHTML.includes('data-resume') && queue.innerHTML.includes('data-remove="3"') && queue.innerHTML.includes('a &lt;film&gt;'));
 assert(queue.innerHTML.indexOf('data-resume') > queue.innerHTML.indexOf('data-remove="3"'), 'Resume sits under what it lets go');
+assert(!queue.innerHTML.includes('data-grip'), 'one job alone has nothing to be moved past');
+run(`renderQueue(queue, { items: [{ id: 3, label: 'a', detail: 'd' }, { id: 4, label: 'b', detail: 'd' }], results: [], held: false, current: null }, 0)`);
+assert(queue.innerHTML.includes('data-grip="3"') && queue.innerHTML.includes('data-grip="4"'), 'each has a grip to drag it by');
+run(`queue._dragging = true; renderQueue(queue, { items: [{ id: 4, label: 'b', detail: 'd' }], results: [], held: false, current: null }, 0); queue._dragging = false`);
+assert(queue.innerHTML.includes('data-grip="3"'), 'nothing is drawn over a job being dragged');
 
 // ComfyUI's status, a tap on its icon away: one that's up but doesn't answer, on a PC out of memory, says why.
 run(`renderComfy({ online: false, listening: true, can_start: true, ram: { free: 2.1, total: 31.9 }, gpu: { util: 7, mem_used: 5.8, mem_total: 12, power: 26, temp: 40 } })`);
@@ -1007,10 +1012,18 @@ assert(els.comfyFacts.innerHTML.includes('Generating the image · 3/8') && els.c
 (async () => {
   const quiet = { ...idle, lines: [], queue: { items: [], results: [], held: false, current: null }, stopped_runs: [], videos: { output: [], uploaded: [], video: [] },
     comfyui: { online: true }, quota: { groups: [], resets_in: 100 }, gpu: null, upload: { lines: [], running: false, elapsed: 0, queue: { items: [], results: [], held: false, current: null } } };
-  const answer = (body, extra = {}) => async () => ({ json: async () => body, redirected: false, ...extra });
+  // Status for the polls; the workflow lists ComfyUI coming online has the page fetch again, as the server has them.
+  const answer = (body, extra = {}) => async url => ({ json: async () => (String(url).startsWith('/api/workflows') ? { online: true, workflows: [] } : body),
+    redirected: false, ...extra });
 
+  // Polls started above with stub timers never time out, as a browser's would after POLL_TIMEOUT: start afresh.
+  run('polling = false; pollAgain = false; workflowsFor = true');  // And ComfyUI already seen online, so no lists to fetch
   // A poll that never answers is given up on, and the next one still gets through.
-  context.fetch = (url, options) => new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(new Error('aborted'))));
+  // As a browser's: one given up on fails, even if that was before it was sent.
+  context.fetch = (url, options) => new Promise((_, reject) => {
+    if (options.signal.aborted) reject(new Error('aborted'));
+    options.signal.addEventListener('abort', () => reject(new Error('aborted')));
+  });
   context.setTimeout = fn => { fn(); return 0; };
   await run('poll()');
   context.setTimeout = () => 0;
@@ -1027,6 +1040,20 @@ assert(els.comfyFacts.innerHTML.includes('Generating the image · 3/8') && els.c
   context.fetch = answer({}, { redirected: true });
   await run('poll()');
   assert.strictEqual(context.reloads, 1);
+
+  // Asked again while one is still out, as Resume does: one at a time, and the answer after it is the one shown.
+  let release;
+  context.fetch = url => String(url).startsWith('/api/workflows') ? answer({})(url)
+    : new Promise(resolve => { release = () => resolve({ json: async () => ({ ...quiet, server_started: 1 }), redirected: false }); });
+  const first = run('poll()');
+  run('poll()');  // Waits for the first instead of making it count for nothing
+  context.fetch = answer({ ...quiet, server_started: 1, running: true, started_at: '13:12', elapsed: 3, pipeline: 'shorts', progress: {} });
+  release();
+  await first;
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  assert(els.statusText.textContent.startsWith('Running'), 'the poll asked for while one was out runs after it, and is shown');
+  run('wasRunning = false');  // Or the next idle answer reads as that run ending, and asks the stub for an estimate
 
   // A new server means new code, unless that would lose what is being typed.
   context.reloads = 0;

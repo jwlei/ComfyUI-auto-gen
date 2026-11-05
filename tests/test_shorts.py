@@ -388,7 +388,41 @@ class FreeComfyTest(unittest.TestCase):
         queue.items = [{"label": "y", "pipeline": "image", "env": {"COMFYUI_WORKFLOW": "b.json"}}]
         with mock.patch.object(webapp, "free_comfyui") as free, mock.patch.object(webapp, "note_outcome"),                 mock.patch.object(webapp, "notify_ended"):
             queue._finish_current()
+            for _ in range(50):  # In the background, so the queue's lock isn't held while ComfyUI answers
+                if free.called:
+                    break
+                time.sleep(0.02)
         free.assert_called_once()
+
+
+class QueueOrderTest(unittest.TestCase):
+    """The queue in the order it's dragged into."""
+
+    def queue(self):
+        queue = webapp.JobQueue(mock.Mock(batches=True, idle=False), prepare=lambda item: None)
+        queue.items = [{"id": n, "label": str(n)} for n in (1, 2, 3, 4)]
+        return queue
+
+    def test_the_waiting_jobs_take_the_order_given(self):
+        queue = self.queue()
+        self.assertTrue(queue.reorder([3, 1, 2, 4]))
+        self.assertEqual([item["id"] for item in queue.items], [3, 1, 2, 4])
+        self.assertFalse(queue.reorder([3, 1, 2, 4]), "the same order changes nothing")
+
+    def test_one_added_while_dragging_keeps_its_place(self):
+        queue = self.queue()
+        queue.reorder([2, 1, 99])  # The page didn't have 3 and 4 yet; 99 has gone since
+        self.assertEqual([item["id"] for item in queue.items], [2, 1, 3, 4])
+
+    def test_the_panel_takes_a_list_of_ids(self):
+        client = webapp.app.test_client()
+        with client.session_transaction() as session:
+            session["authed"] = True
+        with mock.patch.object(webapp.run_queue, "reorder", return_value=True) as reorder:
+            self.assertEqual(client.post("/queue/run/order", json={"ids": [2, 1]}).get_json(), {"ok": True, "changed": True})
+            reorder.assert_called_once_with([2, 1])
+            self.assertEqual(client.post("/queue/run/order", json={"ids": "2,1"}).status_code, 400)
+        self.assertEqual(client.post("/queue/nope/order", json={"ids": []}).status_code, 404)
 
 
 class SeedTest(unittest.TestCase):
