@@ -101,7 +101,7 @@
   .ln.comfy .x { color: #7fb4d9; }
   .log-panes.hide-comfy .ln.comfy { display: none; }
   .log-panes.problems-only .ln:not(.err):not(.warn):not(.stage) { display: none; }
-  .log-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+  .log-tools { display: flex; flex-wrap: nowrap; gap: 6px; margin-bottom: 6px; }
   .log-chip { padding: 2px 10px; font-size: .78rem; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; }
   .log-chip[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
   dialog.workflow-view { width: min(760px, calc(100vw - 24px)); }
@@ -203,6 +203,7 @@
   #finishedToggle { grid-column: 2; justify-self: center; }
   #quotaToggle { grid-column: 3; justify-self: end; }
   .status-toggle[aria-haspopup]::after { content: none; }
+  #queueToggle { display: none; }
   .status-toggle:disabled { opacity: .45; cursor: default; }
   /* Finished, Log and Quota open over a blurred page, like the viewer, with a quiet Close under them. */
   dialog.panel-dialog { width: min(620px, calc(100vw - 24px)); max-height: calc(100dvh - 48px); padding: 14px 14px 12px;
@@ -813,6 +814,36 @@
     #imageSets { flex: 1; min-height: 0; overflow: auto; }
     .vid { flex-basis: 100%; }
     .vid video { flex: 1 1 0; min-height: 0; aspect-ratio: auto; max-height: none; }
+    /* One screen, no scrolling: Generate | the run, one of Queue, Log, Finished or Quota at a time | Output. */
+    .dashboard { grid-template-columns: minmax(440px, 1.35fr) minmax(340px, 1fr) minmax(280px, .85fr); grid-template-rows: minmax(0, 1fr); min-height: 0; align-items: stretch; }
+    .dashboard > .options-col, .dashboard > .run-card, .dashboard > .videos-card { height: 100%; max-height: none; }
+    .run-card .status-toggle::after { content: none; }
+    .side { display: none; }
+    .options-col { grid-column: 1; }
+    .run-card { grid-column: 2; grid-row: 1; display: flex; flex-direction: column; overflow: hidden !important; padding: 14px 16px; }
+    .run-card > .status-head { margin-bottom: 4px; flex: none; }
+    .run-card > .status-main { display: contents; }
+    .run-card .status-main > * { flex: none; }
+    .run-card .status-queue, .run-card > .log-box, .run-card > .status-foot, .run-card > .run-quota { display: none; }
+    body[data-runtab="queue"] .run-card .status-queue, body[data-runtab="log"] .run-card > .log-box,
+    body[data-runtab="finished"] .run-card > .status-foot, body[data-runtab="quota"] .run-card > .run-quota { display: block; }
+    .run-card .status-queue, .run-card > .log-box, .run-card > .status-foot, .run-card > .run-quota { flex: 1 1 0; min-height: 0; overflow: auto; margin-top: 8px; }
+    .run-card .status-queue:has(> :not([hidden])) { margin: 8px 0 0; padding: 2px 10px 10px; }
+    .run-card > .log-box { position: relative; }
+    .run-card .status-queue::after { content: "Nothing queued."; display: block; padding: 10px 2px; color: var(--muted); font-size: .85rem; }
+    .run-card .status-queue:has(> :not([hidden]))::after { content: none; }
+    #finished[hidden] { display: block; }
+    #runQuota .card { margin: 0; padding: 0; background: none; border: 0; box-shadow: none; }
+    #runQuota .section-title { display: none; }
+    .run-card > .status-toggles { order: 5; flex: none; display: flex; gap: 4px; margin-top: 10px; padding: 3px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+    .run-card > .status-foot, .run-card > .log-box, .run-card > .run-quota, .run-card .status-queue { order: 6; }
+    .run-card > .status-toggles .status-toggle { flex: 1 1 0; justify-self: auto; padding: 6px 4px; border-radius: 8px; visibility: visible; text-align: center; }
+    .run-card > .status-toggles .status-toggle.on { background: var(--panel-2); color: var(--text); }
+    .run-card > .status-toggles #queueToggle { display: block; }
+    #logToggle, #quotaToggle { visibility: visible; }
+    .run-card .run-actions { margin-top: 8px; }
+    .run-card .status { margin: 0; }
+    .videos-card { grid-column: 3; grid-row: 1; }
   }
 </style>
 
@@ -919,6 +950,7 @@
   </div>
   </div>
   <div class="status-toggles" id="statusToggles">
+    <button type="button" class="status-toggle" id="queueToggle">Queue</button>
     <button type="button" class="status-toggle" id="logToggle" aria-haspopup="dialog">Log</button>
     <button type="button" class="status-toggle" id="finishedToggle" aria-haspopup="dialog" disabled>Finished</button>
     <button type="button" class="status-toggle" id="quotaToggle" aria-haspopup="dialog">Quota</button>
@@ -927,8 +959,8 @@
     <summary>Log</summary>
     <div class="log-panes" id="logPanes">
       <div class="log-tools">
-        <button type="button" class="log-chip" id="logComfy" aria-pressed="true" title="What ComfyUI is doing, and how long each part took">ComfyUI activity</button>
-        <button type="button" class="log-chip" id="logProblems" aria-pressed="false" title="Only the stages, warnings and errors">Problems only</button>
+        <button type="button" class="log-chip" id="logComfy" aria-pressed="true" title="What ComfyUI is doing, and how long each part took">ComfyUI</button>
+        <button type="button" class="log-chip" id="logProblems" aria-pressed="false" title="Only the stages, warnings and errors">Errors</button>
         <button type="button" class="log-chip" id="logWorkflow" title="The workflow this run renders with, and the options it was set to">Workflow</button>
       </div>
       <div class="q-group">Generation</div>
@@ -938,7 +970,7 @@
     </div>
   </details>
   <div class="status-foot">
-  <details class="finished" id="finished" hidden>
+  <details class="finished" id="finished" hidden open>
     <summary id="finishedTitle" hidden></summary>
     <div class="hint results" id="finishedList"></div>
   </details>
@@ -948,6 +980,7 @@
     {% if tailscale_problem %}<div class="phone">🌍 Phone (anywhere): {{ tailscale_problem }}</div>{% endif %}
   </div>
   </div>
+  <div class="run-quota" id="runQuota"></div>
 </div>
 
 <div class="options-col" id="optionsCard" data-page="generate">
@@ -4196,6 +4229,7 @@ function renderFinished(runs, uploads, madeNow = []) {
 const PANELS = { finished: ['Finished', 'finishedList'], log: ['Log', 'logPanes'], quota: ['Quota today', 'quotaCard'] };
 let panelShown = null;
 function openPanel(which) {
+  if (DESK.matches) { setRunTab(which); return; }
   closePanel();
   const [title, id] = PANELS[which], el = $(id);
   panelShown = { which, el, parent: el.parentNode, next: el.nextSibling };
@@ -4213,6 +4247,26 @@ function closePanel() {
   if ($('panelDialog').open) $('panelDialog').close();
 }
 $('finishedToggle').addEventListener('click', () => openPanel('finished'));
+// From 1280px wide the run's Queue, Log, Finished and Quota are tabs in its column, not boxes over the page.
+const DESK = window.matchMedia('(min-width: 1280px)');
+function setRunTab(which) {
+  document.body.dataset.runtab = which;
+  for (const [id, tab] of [['queueToggle', 'queue'], ['logToggle', 'log'], ['finishedToggle', 'finished'], ['quotaToggle', 'quota']]) {
+    $(id).classList.toggle('on', tab === which);
+    $(id).setAttribute('aria-pressed', String(tab === which));
+  }
+  if (which === 'log') for (const log of ['log', 'uploadLog']) $(log).scrollTop = $(log).scrollHeight;
+}
+function placeQuota() {
+  if (panelShown && panelShown.which === 'quota') return;
+  const home = document.querySelector ? document.querySelector('.side') : null, to = DESK.matches ? $('runQuota') : home;
+  if (!to) return;
+  if ($('quotaCard').parentNode !== to) to.appendChild($('quotaCard'));
+  if (DESK.matches && !document.body.dataset.runtab) setRunTab('queue');
+}
+DESK.addEventListener('change', placeQuota);
+$('queueToggle').addEventListener('click', () => setRunTab('queue'));
+placeQuota();
 $('logToggle').addEventListener('click', () => openPanel('log'));
 $('quotaToggle').addEventListener('click', () => openPanel('quota'));
 $('panelDialogClose').addEventListener('click', closePanel);
