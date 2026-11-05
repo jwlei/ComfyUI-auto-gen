@@ -353,6 +353,7 @@ class SamplingOptionsTest(unittest.TestCase):
         self.assertEqual((memory["inputs"]["model"], memory["inputs"]["chunk_rows"], memory["inputs"]["mlp_memory"]), (["1", 0], 4096, "auto"))
         self.assertEqual((sparse["inputs"]["model"], sparse["inputs"]["video_budget"]), (["h3_0_H3MemoryOptimization", 0], 0.3))
         self.assertEqual(api["3"]["inputs"]["model"], ["h3_0_H3SparseAttention", 0])
+        self.assertEqual(memory["_meta"]["title"], "H3MemoryOptimization", "later passes read every node's title")
         self.assertEqual(api["4"]["inputs"]["model"], ["1", 0], "the scheduler only reads the model")
 
     def test_h3_optimizers_need_h3_and_the_node(self):

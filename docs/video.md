@@ -152,8 +152,8 @@ custom node is installed.
 
 **Upscale a film.** Open a film in the Video tab and press **Upscale** to queue it through NVIDIA RTX Video Super Resolution
 (the [RTX VSR Long Video](https://github.com/tritant/ComfyUI_NVIDIA_RTX_VSR_Long_Video) custom node; needs an RTX GPU). Pick a
-scale (1.5 to 4×) and a mode. The result is saved beside it as `<name>_upscaled.mp4`, with the sound kept, and ComfyUI also keeps a
-copy in its own `output/NVIDIA_RTX_VSR_Long_Video` folder. **Prompts** in the same viewer opens the shots of the run that made the film.
+scale (1.5 to 4×) and a mode. The result is saved beside it as `<name>_upscaled.mp4`, with the sound kept; ComfyUI's own copy of it
+is removed. **Prompts** in the same viewer opens the shots of the run that made the film.
 
 ## Time and cost
 

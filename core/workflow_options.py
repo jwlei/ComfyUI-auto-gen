@@ -432,7 +432,7 @@ def _h3(api, info, chosen):
             link = list(source)
             for class_type, inputs in wanted:
                 node_id = f"h3_{number}_{class_type}"
-                api[node_id] = {"class_type": class_type, "inputs": {**inputs, "model": link}}
+                api[node_id] = {"class_type": class_type, "inputs": {**inputs, "model": link}, "_meta": {"title": class_type}}
                 link = [node_id, 0]
             for node in api.values():
                 if node["class_type"] in H3_SAMPLING and node["inputs"].get("model") == list(source):

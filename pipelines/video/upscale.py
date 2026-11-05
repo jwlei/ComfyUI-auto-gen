@@ -13,6 +13,7 @@ import sys
 from dotenv import load_dotenv
 
 from core import paths as core_paths
+from core.lora_check import comfyui_folders
 from core.saved_workflows import unique_name
 from pipelines.image.upscale import UpscaleClient
 from pipelines.video import paths
@@ -64,8 +65,26 @@ def upscale(path, comfy, scale=2.0, quality=DEFAULT_QUALITY, strength=1.0):
     folder = os.path.dirname(path)
     stem = unique_name(folder, os.path.splitext(os.path.basename(path))[0] + SUFFIX, ".mp4")
     made = comfy._download(entry, os.path.join(folder, stem), (".mp4",), "a video")
+    remove_comfyui_copies(entry)
     print(f"✅ Upscaled: {made}")
     return made
+
+
+def remove_comfyui_copies(entry):
+    """The node saves its video under ComfyUI's own output folder; ours is the one kept, so that copy goes."""
+    for node_output in entry.get("outputs", {}).values():
+        for items in node_output.values():
+            for item in items if isinstance(items, list) else []:
+                if not (isinstance(item, dict) and item.get("type") == "output" and str(item.get("filename", "")).lower().endswith(".mp4")):
+                    continue
+                for root in comfyui_folders():
+                    output = os.path.realpath(os.path.join(root, "output"))
+                    path = os.path.realpath(os.path.join(output, item.get("subfolder", ""), item["filename"]))
+                    if path.startswith(output + os.sep) and os.path.isfile(path):
+                        try:
+                            os.remove(path)
+                        except OSError:
+                            pass
 
 
 def main(argv=None):
