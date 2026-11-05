@@ -17,9 +17,9 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fakes import (OBJECT_INFO, caption, captions_reply, close, edit_image_workflow, fake_claude, fake_comfy, fibo2_workflow,
-                   switchable_workflow, text_to_image_workflow, versions_reply)
+                   qwen21_edit_workflow, qwen21_text_workflow, switchable_workflow, text_to_image_workflow, versions_reply)
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from panel import app as _all_pipelines  # noqa: F401
 from panel import server as webapp
@@ -45,6 +45,7 @@ class SizeTest(unittest.TestCase):
         self.assertEqual(media.render_size(2560, 1440), (2560, 1440), "already on it")
         self.assertEqual(media.render_size(3840, 2160), (3840, 2160))
         self.assertEqual(media.render_size(1272, 2772), (1280, 2784), "the OnePlus 15")
+        self.assertEqual(media.render_size(1360, 768, step=32), (1376, 768), "Qwen-Image 2.1 works in whole 32s")
 
     def test_an_edit_never_gets_a_size_its_encoder_would_wrap_around(self):
         self.assertEqual(media._reference_latent(1376, 768), (171, 96), "what put a band down the right edge of a real image")
@@ -170,7 +171,20 @@ class PlannerTest(unittest.TestCase):
         self.assertIn("each has to say everything", make)
         self.assertNotIn("edit that image", make)
         self.assertNotIn("clearly different", make, "one image has nothing to differ from")
-        self.assertIn("Picture 2", planner._instructions("x", 2, 2))
+        self.assertIn("Picture 2", planner._instructions("x", 2, 2, models.QWEN_IMAGE_EDIT))
+        self.assertIn("<image2>", planner._instructions("x", 2, 2, models.QWEN_IMAGE_21_EDIT), "Qwen-Image 2.1 names them its own way")
+
+    def test_the_rules_kokon_tested(self):
+        edit = planner._instructions("different outfits", 3, 1, models.QWEN_IMAGE_21_EDIT)
+        self.assertIn("Start with the operation", edit)
+        self.assertIn("Never describe what stays", edit)
+        self.assertIn("Keep everything else in the image unchanged.", edit)
+        self.assertNotIn("navy", edit, "an example in the instructions turns up in the prompts")
+        compose = planner._instructions("her in Paris", 2, 2, models.QWEN_IMAGE_21_EDIT, compose=True)
+        self.assertIn("references", compose)
+        self.assertIn("Never ask to keep an image unchanged", compose)
+        self.assertNotIn("Keep everything else in the image unchanged.", compose, "that turns a new picture into an edit of image 1")
+        self.assertIn("transparent background", planner._instructions("a fox", 1, 0, models.QWEN_IMAGE_21, transparent=True))
 
 
 class ModelLimitTest(unittest.TestCase):
@@ -522,7 +536,7 @@ class PanelTest(unittest.TestCase):
     # --- Never making anything twice ---
 
     def test_generate_continues_a_stopped_set_without_new_prompts(self):
-        self.comfy.script = ["error", "error"]
+        self.comfy.script = ["fail", "fail"]
         self.make()
         run = self.only_run()
         self.assertEqual(self.status()["returncode"], 1)
@@ -624,6 +638,22 @@ class PanelTest(unittest.TestCase):
         self.assertEqual({node["class_type"] for node in sent.values()},
                          {"LoadImage", "SeedVR2LoadDiTModel", "SeedVR2LoadVAEModel", "SeedVR2VideoUpscaler", "PreviewImage"})
         self.assertEqual(next(n for n in sent.values() if n["class_type"] == "SeedVR2LoadDiTModel")["inputs"]["attention_mode"], "sdpa")
+
+    def test_upscaling_fast_takes_superscale_and_blends_at_the_strength_asked(self):
+        self.make(count="1", aspect="1:1", megapixels="0.5")
+        run = self.only_run()
+        prompts = len(self.comfy.prompts)
+        self.assertEqual(self.client.post(f"/image-runs/{run.id}/upscale/1?method=sideways").status_code, 400)
+        self.assertTrue(self.client.post(f"/image-runs/{run.id}/upscale/1?method=fast&strength=0.5").get_json()["ok"])
+        self.wait_idle()
+        run = self.only_run()
+        upscaled = run.shots[1]
+        self.assertEqual(upscaled["title"], run.shots[0]["title"] + " · upscaled fast")
+        original = Image.open(run.image_path(run.shots[0])).size
+        self.assertEqual(Image.open(run.image_path(upscaled)).size, (original[0] * 2, original[1] * 2))
+        sent = self.comfy.prompts[prompts]["prompt"]
+        self.assertEqual(next(n for n in sent.values() if n["class_type"] == "UpscaleModelLoader")["inputs"]["model_name"],
+                         "4x_NMKD-Superscale-SP_178000_G.pth")
 
     def test_trying_one_first_makes_one_and_stops(self):
         self.make(count="3", try_first="1")
@@ -835,6 +865,27 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(sorted(os.listdir(run.output_dir))[0][:len("a_lighthouse_text_001")], "a_lighthouse_text_001")
         self.assertIn("TextGenerate", [node["class_type"] for node in self.comfy.prompts[0]["prompt"].values()])
 
+    def test_its_prompts_can_be_read_before_any_image_is_made(self):
+        self.make(llm="prompt_enhancer", prompt="a lighthouse", count="2", workflow="image_text.json", review="1", seed="40")
+        run = self.only_run()
+        self.assertEqual(len(run.done), 0, "nothing made yet")
+        self.assertEqual([shot["prompt"] for shot in run.shots], ["Enhanced: a lighthouse (1)", "Enhanced: a lighthouse (2)"],
+                         "one written for each image")
+        self.assertEqual([shot["enhanced_from"] for shot in run.shots], ["a lighthouse"] * 2)
+        kinds = {node["class_type"] for node in self.comfy.prompts[0]["prompt"].values()}
+        self.assertIn("TextGenerate", kinds)
+        self.assertFalse(kinds & {"PreviewImage", "KSampler"}, "only what the enhancer needs is run")
+        self.assertEqual(run.options, {"prompt_enhancer": "0"}, "what it wrote goes in as it is")
+        prompts = [shot["prompt"] for shot in run.shots]
+        prompts[1] = "My own wording."
+        self.assertTrue(self.client.post(f"/image-runs/{run.id}/shots", json={"prompts": prompts}).get_json()["ok"])
+        self.assertTrue(self.client.post(f"/runs/{run.id}/continue").get_json()["ok"])
+        self.wait_idle()
+        self.assertTrue(self.only_run().finished)
+        rendered = [p for p in self.comfy.prompts if any(n["class_type"] == "PreviewImage" for n in p["prompt"].values())]
+        self.assertEqual([self.sent_prompt(p) for p in rendered], ["Enhanced: a lighthouse (1)", "My own wording."])
+        self.assertFalse(any(n["class_type"] == "TextGenerate" for p in rendered for n in p["prompt"].values()))
+
     def test_a_workflow_without_one_says_so(self):
         reply = self.generate(llm="image_to_prompt", workflow="image_text.json")
         self.assertEqual(reply.status_code, 400)
@@ -870,6 +921,151 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn(b'id="formImage"', page.data)
         self.assertIn(b'"image"', page.data)
+
+
+class QwenImage21Test(unittest.TestCase):
+    """What Qwen-Image 2.1 can do besides edit image 1: references, painted areas, expanding, transparency."""
+    clear_everything, wait_idle, only_run, inputs = PanelTest.clear_everything, PanelTest.wait_idle, PanelTest.only_run, PanelTest.inputs
+
+    def setUp(self):
+        PanelTest.setUp(self)
+        self.comfy.saved = {"image_q21_edit.json": qwen21_edit_workflow(), "image_q21_text.json": qwen21_text_workflow(),
+                            "image_edit.json": edit_image_workflow()}
+
+    def sent_prompt(self, prompt):
+        return next(node["inputs"]["prompt"] for node in prompt["prompt"].values() if node["class_type"] == "TextEncodeQwenImage21")
+
+    def png(self, size=(800, 600), color=(10, 200, 30)):
+        return io.BytesIO(png_bytes(size, color))
+
+    def form(self, **fields):
+        form = {"prompt": "x", "count": "1", "prompt_mode": "direct", "aspect": "image", "megapixels": "1", "workflow": "image_q21_edit.json", **fields}
+        return {key: value for key, value in form.items() if value is not None}
+
+    def make_with(self, **fields):
+        reply = self.client.post("/generate/image", data=self.form(**fields), content_type="multipart/form-data")
+        self.assertTrue(reply.get_json().get("ok"), reply.get_json())
+        self.wait_idle()
+        run = self.only_run()
+        self.assertTrue(run.finished, [l["text"] for l in webapp.job.lines][-15:])
+        return run
+
+    def test_one_image_to_edit_then_up_to_four(self):
+        listed = {w["name"]: w["takes"] for w in self.client.get("/api/workflows?pipeline=image").get_json()["workflows"]}
+        self.assertEqual((listed["image_q21_edit.json"]["min_images"], listed["image_q21_edit.json"]["max_images"]), (1, 4))
+        reply = self.client.post("/generate/image", data=self.form(**{f"image{'' if n == 1 else f'_{n}'}": (self.png(), f"{n}.png") for n in range(1, 6)}),
+                                 content_type="multipart/form-data")
+        self.assertEqual(reply.status_code, 400, "a fifth is more than 12 GB holds beside the one it makes")
+
+    def test_the_other_images_are_shown_at_about_a_megapixel(self):
+        self.make_with(image=(self.png((1024, 1024)), "a.png"), image_2=(self.png((3000, 2000)), "b.png"))
+        second = Image.open(io.BytesIO(self.comfy.uploads[1]))
+        self.assertLessEqual(second.width * second.height, 1.05 * 1024 * 1024, second.size)
+        self.assertAlmostEqual(second.width / second.height, 1.5, delta=0.05, msg="its shape kept")
+        self.comfy.uploads.clear()
+        self.clear_everything()
+        self.make_with(image=(self.png((1024, 1024)), "a.png"), image_2=(self.png((3000, 2000)), "b.png"), detail="full")
+        self.assertEqual(Image.open(io.BytesIO(self.comfy.uploads[1])).size, (3000, 2000), "full detail leaves it as it is")
+
+    def test_a_new_picture_from_references_at_the_size_asked(self):
+        run = self.make_with(image=(self.png((900, 900)), "a.png"), image_2=(self.png((700, 500)), "b.png"), image_mode="compose", aspect="16:9")
+        self.assertTrue(run.compose)
+        self.assertEqual(run.options.get("face_custom_size"), "1", "the template's Custom size, on")
+        latent = self.inputs(self.comfy.prompts[0], "EmptyLatentImage")
+        self.assertEqual((latent["width"], latent["height"]), (1376, 768), "on Qwen-Image 2.1's 32 grid")
+        self.assertEqual(Image.open(run.image_path(run.shots[0])).size, (1360, 768), "then cropped to the size asked for")
+        self.assertEqual(Image.open(io.BytesIO(self.comfy.uploads[0])).size, (900, 900), "image 1 is a reference, not fitted to the size")
+
+    def test_compose_on_a_model_that_cant_is_refused(self):
+        reply = self.client.post("/generate/image", data=self.form(workflow="image_edit.json", image=(self.png(), "a.png"), image_mode="compose"),
+                                 content_type="multipart/form-data")
+        self.assertEqual(reply.status_code, 400)
+        self.assertIn("new picture from references", reply.get_json()["error"])
+
+    def painted(self, size, box, color=(230, 40, 40, 255)):
+        mask = Image.new("RGBA", size)
+        ImageDraw.Draw(mask).ellipse(box, fill=color)
+        buffer = io.BytesIO()
+        mask.save(buffer, format="PNG")
+        buffer.seek(0)
+        return buffer
+
+    def test_only_the_painted_area_changes(self):
+        source = Image.new("RGB", (1200, 900), (90, 120, 160))
+        buffer = io.BytesIO()
+        source.save(buffer, format="PNG")
+        buffer.seek(0)
+        run = self.make_with(prompt="", image=(buffer, "a.png"), image_mode="areas", areas_mask=(self.painted((1200, 900), [500, 350, 700, 550]), "areas.png"),
+                             areas=json.dumps([{"colour": "#e62828", "action": "remove", "text": "the bin"}]))
+        self.assertEqual(self.claude.requests, [], "its instruction is written from what's painted")
+        self.assertEqual(len(self.comfy.uploads), 2, "the part around it, and the same with the area marked")
+        sent = self.sent_prompt(self.comfy.prompts[0])
+        self.assertIn("<image2>", sent)
+        self.assertIn("blurred out to remove the bin", sent)
+        made = Image.open(run.image_path(run.shots[0])).convert("RGB")
+        self.assertEqual(made.size, (1200, 900), "the image's own size")
+        self.assertEqual(made.getpixel((20, 20)), (90, 120, 160), "outside the area, the original")
+        self.assertNotEqual(made.getpixel((600, 450)), (90, 120, 160), "inside it, what the model made")
+
+    def test_several_colours_are_several_changes_in_one_go(self):
+        mask = Image.new("RGBA", (1000, 800))
+        draw = ImageDraw.Draw(mask)
+        draw.ellipse([100, 100, 300, 300], fill=(230, 40, 40, 255))
+        draw.rectangle([600, 400, 800, 600], fill=(40, 90, 235, 255))
+        buffer = io.BytesIO()
+        mask.save(buffer, format="PNG")
+        buffer.seek(0)
+        self.make_with(prompt="", image=(self.png((1000, 800)), "a.png"), image_mode="areas", areas_mask=(buffer, "areas.png"),
+                       areas=json.dumps([{"colour": "#e62828", "text": "a sleeping cat"}, {"colour": "#285aeb", "text": "a brass lamp"}]))
+        self.assertEqual(len(self.comfy.uploads), 1, "the marks are on image 1 itself")
+        sent = self.sent_prompt(self.comfy.prompts[0])
+        self.assertIn("marked in red: a sleeping cat", sent)
+        self.assertIn("marked in blue: a brass lamp", sent)
+
+    def test_painted_areas_need_words(self):
+        reply = self.client.post("/generate/image", data=self.form(prompt="", image=(self.png(), "a.png"), image_mode="areas",
+                                                                   areas_mask=(self.painted((800, 600), [10, 10, 50, 50]), "a.png"),
+                                                                   areas=json.dumps([{"colour": "red", "action": "replace", "text": ""}])),
+                                 content_type="multipart/form-data")
+        self.assertEqual(reply.status_code, 400)
+        self.assertIn("Say what goes", reply.get_json()["error"])
+
+    def test_expanding_keeps_the_picture_and_draws_the_rest(self):
+        run = self.make_with(prompt="more sky", image=(self.png((800, 600), (10, 200, 30)), "a.png"), image_mode="expand",
+                             expand_right="50", expand_units="percent")
+        made = Image.open(run.image_path(run.shots[0])).convert("RGB")
+        self.assertEqual(made.size, (1200, 600))
+        self.assertEqual(made.getpixel((100, 300)), (10, 200, 30), "the picture, pixel for pixel")
+        self.assertNotEqual(made.getpixel((1150, 300)), (10, 200, 30), "the new part, drawn")
+        self.assertIn("The new parts show more sky", self.sent_prompt(self.comfy.prompts[0]))
+
+    def test_transparent_says_so_and_keeps_the_alpha_only_then(self):
+        run = self.make_with(workflow="image_q21_text.json", prompt="a red fox", aspect="1:1", transparent="1")
+        self.assertTrue(run.transparent)
+        self.assertTrue(self.sent_prompt(self.comfy.prompts[0]).startswith("This is an RGBA format image with transparency. a red fox"))
+        self.assertEqual(run.shots[0]["prompt"], "a red fox", "the prompt kept as written")
+
+    def test_an_edit_never_starts_from_the_seed_that_made_its_image(self):
+        self.make_with(image=(self.png(), "a.png"), seed="5", source_seed="5")
+        self.assertNotEqual(self.inputs(self.comfy.prompts[0], "KSampler")["seed"], 5)
+
+    def test_out_of_memory_frees_it_then_tries_smaller(self):
+        self.comfy.script = ["error", "error"]
+        run = self.make_with(workflow="image_q21_text.json", aspect="1:1")
+        self.assertEqual(self.comfy.frees, 2, "freed after each")
+        self.assertEqual(len(self.comfy.prompts), 3)
+        latents = [self.inputs(p, "EmptyLatentImage") for p in self.comfy.prompts]
+        self.assertLess(latents[2]["width"], latents[0]["width"], "the third a size smaller")
+        self.assertEqual(Image.open(run.image_path(run.shots[0])).size, (1024, 1024), "enlarged to the size asked for")
+
+    def test_select_finds_what_was_clicked(self):
+        reply = self.client.post("/api/select/image", data={"image": (self.png(), "a.png")}, content_type="multipart/form-data")
+        key = reply.get_json()["key"]
+        with mock.patch("pipelines.image.segment.select", return_value=Image.new("L", (800, 600), 255)) as select:
+            mask = self.client.post("/api/select", json={"key": key, "points": [[10, 20, True]]})
+        self.assertEqual(mask.mimetype, "image/png")
+        self.assertEqual(select.call_args[0][1], [(10.0, 20.0, True)])
+        self.assertEqual(self.client.post("/api/select", json={"key": "gone", "points": [[1, 1, True]]}).status_code, 410)
 
 
 if __name__ == "__main__":

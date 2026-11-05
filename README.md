@@ -58,6 +58,7 @@ panel/        the web app: server.py is shared, shorts.py, video.py and image.py
 workflows/    the built-in workflows
 docs/         each pipeline in detail
 logs/         usage, errors, topics and timings
+models/       what the panel runs itself on the CPU, for Select: python scripts/get_models.py
 runs/         saved progress, by pipeline
 output/       shorts/ready, shorts/uploaded, shorts/bad, video and image
 ```

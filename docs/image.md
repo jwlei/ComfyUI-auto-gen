@@ -64,7 +64,9 @@ a second try, doesn't cost the rest of the set: the run ends as failed with the 
 
 **Generate** continues a stopped set with the same brief, images, count and workflow rather than paying for new prompts.
 
-**Let me read the prompts before rendering**, under How, stops once they're written so you can change them.
+**Let me read the prompts before rendering**, under How, stops once they're written so you can change them. With the
+workflow's own prompt enhancer it works too: ComfyUI runs only the enhancer, one prompt per image on that image's seed,
+and the run stops there. Continue makes them as written, with the enhancer off (Kokon's "read the prompt first").
 
 **Seed**, under Generation, is empty by default: every image gets a new random seed. The shuffle button picks one to keep, and
 ✕ goes back to random. With a seed, image 1 uses it and each image after it the next number, so the set can be made
@@ -72,6 +74,58 @@ again.
 
 **Prompts** on a set shows each image with its prompt and the seed it was made with. **Make again** makes one again
 using the prompt in the box, on that seed unless you change it or press shuffle. An empty seed is new each time. **Delete** takes one image and its prompt out of the set. **Delete** on the set removes all its images and prompts.
+
+## What else it does with images
+
+These follow [Kokon](https://github.com/GabrieleLozupone/kokon), a local image editor on Qwen-Image 2.1, and work with
+the Qwen-Image 2.1 edit workflow. The form offers each only when the workflow chosen (or one Automatic can pick) can.
+
+**Edit**, in the header beside Image, opens the Image side with the Qwen-Image 2.1 edit workflow
+(`image_qwen21_turbo_edit_12gb`) chosen; **Edit**, under an image in the viewer, does the same with that image as image 1.
+
+**Images:** one box, and **+** opens the next, up to what the workflow takes: Qwen-Image 2.1 edits image 1 and takes up
+to 3 more, called `<image2>`, `<image3>` in the prompt. Each box takes a file, or one of your own images: the grid button
+opens Output, and a tap on an image there puts it in the box. Then the seed that made it goes along, and the edit never
+uses it again (seed below).
+
+**What to do with the images**, once one is chosen:
+
+| Choice | What happens |
+|---|---|
+| Edit image 1 | As before: it comes out the size you chose, image 1 fitted to it. |
+| Make a new picture from them | The images are references (a person, a product, a place, a style) for a new picture at the size under Resolution: the template's Custom size, on. The LLM is told to borrow from them and never to keep one unchanged, which would make it an edit of image 1. Up to 2.2 MP on 12 GB. |
+| Change painted parts of image 1 | **Paint what to change** opens Inpaint, full screen, with image 1 and icons under it to paint, erase and **Select**: a click on a thing paints all of it, Shift-click takes it away (MobileSAM, on the CPU). The wheel or two fingers zoom in for fine detail, and Space or the middle button drags the picture; the brush keeps its size on screen, so zoomed in it paints finer. One colour is one change: with one, Remove (the first choice, needing no words), Change, Replace or Add; with several, say what goes in each colour, under **Colour prompts**. **Save** keeps it, and **Generate** makes it. Only what's painted changes. |
+| Expand image 1 | Left, top, right and bottom, in pixels or percent of the image. The prompt says what the new parts show, or left empty, the model continues what it sees. |
+
+How the painted parts and Expand work, as Kokon does it: the model can't be given a mask, so it's shown where to work.
+One area: it works on the part of the image around it, at about a megapixel, with what's removed or replaced blurred away
+first (so it isn't drawn back), and a second, smaller copy with the area marked in a colour the prompt names. Several:
+each painted in its colour on image 1 itself. Expand: the image on a larger canvas, the new borders its average colour.
+Whatever it makes, only the area or the new borders are kept: everything else is the original, pixel for pixel, through
+a feathered edge (`pipelines/image/regions.py`).
+
+**Transparent background**, on Qwen-Image 2.1: the prompt is wrapped as ComfyUI's template says to, and the PNG keeps
+its alpha. Otherwise Qwen-Image 2.1's alpha, which it always decodes (with faint holes, about 1% of pixels), is dropped.
+
+**How the other images are shown:** Standard shows images 2 and on at about a megapixel each, less if they'd crowd the
+card, leaving room for the result; Full shows them at their own size.
+
+**Seeds:** an edit made on the seed that made the image it starts from begins from the same noise, and comes out
+over-sharpened, ignoring the prompt (Kokon measured it on Qwen-Image 2.1). The seed is read from your image's PNG, or sent
+with one chosen from your images; one that would repeat it is swapped for another, the same each time, and the log says so.
+
+**Out of memory**, ComfyUI is told to free its memory and the image is tried again, then once more a size smaller and
+enlarged after, rather than failing.
+
+**Upscale**, under an image in the viewer: **Fast** is Superscale-SP, in seconds, and adds no new detail; its strength
+mixes it with a plain resize, to tone down texture it invents. **SeedVR2** takes minutes and draws finer detail. Either is
+a new image in the set.
+
+Select runs on the CPU, so the GPU stays with ComfyUI. Its model (MobileSAM, 44 MB) is in `models/`:
+`python scripts/get_models.py` downloads it, checked against its SHA-256.
+
+**LoRAs:** one made for an earlier Qwen-Image (1.x, 2512 or Edit) loads on 2.1 without an error and does nothing. It's
+greyed out on a Qwen-Image 2.1 workflow with why, told apart by its layers from the file's header (`core/lora_check.py`).
 
 ## Each model's limits
 
@@ -83,6 +137,7 @@ a model's limit, and Generate refuses them before anything is paid for. "Same as
 | **Fibo 2.0** (Bria), edit turbo | Up to 1.1 MP. Trained at about 1 MP, every size within 10% of it: above that the prompt leaks into the top left corner and it stops following it. No desktop or phone screen fits, so those are greyed out. | JSON captions (below). The LLM writes at most 30 a set, as each is a few hundred words. | 4, CFG 1 |
 | **Krea-2** Turbo | Up to 4.2 MP: its 1K and 2K sizes, up to 2048x2048. 1440p and the phones fit; 4K and 1440p ultrawide don't. | A descriptive paragraph | 8 |
 | **Qwen-Image-Edit** 2511 | Up to the form's own 16 MP | An edit instruction | 40, or 4 with turbo |
+| **Qwen-Image 2.1** Turbo, 12 GB | 3.2 MP from text; 1.6 MP for an edit, which is shown its image at the same size beside it; 2.2 MP from references. Native 2K needs 16 GB. These are Kokon's measurements of what fits on 12 GB. | An instruction or a paragraph. Images are `<image1>`, `<image2>`. | 8 (its own schedule), CFG 1 |
 
 **Fibo 2.0's prompts.** It was trained on structured JSON captions (Bria's VGL) and reads them far better than prose: in
 Bria's tests an edit written as "keep X unchanged" redrew the whole frame and invented things, where a caption changed only
@@ -92,7 +147,7 @@ doesn't count, and is asked for again. **Prompts** on a set shows them, and you 
 Your own prompt, word for word, can be plain text or a caption of your own.
 
 Fibo 2.0 does both kinds in one workflow: with no image it makes one from text, and with images it edits. It takes up to
-16 images, a box at a time: the next box opens once the last holds an image. With several, call them `<image_1>`,
+16 images, a box at a time: **+** opens the next once the last holds an image. With several, call them `<image_1>`,
 `<image_2>` in your prompt, as in "put the jacket from `<image_2>` on the woman in `<image_1>`". One image is cropped to the
 size you chose, as the edit lines up with it pixel for pixel; several are each scaled to the size Fibo 2.0 was trained at for their shape.
 
@@ -171,6 +226,13 @@ Set `COMFYUI_WORKFLOW` to the workflow it runs: the panel keeps its conversions 
 | `--size 1920x1080` | An exact size, in place of those two. |
 | `--seed N` | Image 1's seed, and the next number for each image after it. Default: a random seed for every image. |
 | `--plan-only` | Writes the prompts and stops. |
+| `--enhance-only` | With the workflow's prompt enhancer on (`--option prompt_enhancer=1`): it writes each prompt in ComfyUI, and the run stops there. |
+| `--compose` | The images are references for a new picture at the size asked for. |
+| `--areas FILE` | Changes painted parts of image 1: JSON with `mask` (a PNG painted a colour per area) and `areas` (`colour`, `action`, `text`). |
+| `--expand L,T,R,B` | Expands image 1 by these many pixels; the prompt says what the new parts show. |
+| `--transparent` | A transparent background, on Qwen-Image 2.1. |
+| `--reference-detail full` | Shows images 2 and on at their own size. Default `standard`, about 1 MP. |
+| `--source-seed N` | A seed that made one of the images, repeatable: an edit never uses it. |
 | `--resume RUN` | Continues a saved run. |
 | `--redo IMAGE` | With `--resume`: makes that image again. |
 | `--list` | Lists saved runs. |

@@ -87,6 +87,7 @@
   .ln.stage .x { color: var(--accent); font-weight: 700; }
   .hint { color: var(--muted); font-size: .78rem; margin-top: 5px; line-height: 1.4; }
   .hint b { color: var(--text); font-weight: 600; }
+  .centred-hint { text-align: center; }
   /* Two range inputs on one track: only their thumbs take the pointer. */
   .range-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
   .range-head label { margin-bottom: 0; }
@@ -122,6 +123,12 @@
   .preset-head label { margin-top: 0; }
   .preset-save { width: auto; margin: 0; padding: 0; background: none; border: 0; color: var(--accent); font-size: .78rem; font-weight: 600; }
   .preset-save[hidden] { display: none; }
+  /* While a preset is set: a quiet star that makes it the one the side opens with. */
+  .preset-head-actions { display: flex; align-items: center; gap: 10px; }
+  .preset-default { width: auto; margin: 0; padding: 2px; background: none; border: 0; color: var(--muted); display: inline-flex; line-height: 0; }
+  .preset-default[aria-pressed="true"] { color: var(--accent); }
+  .preset-default[aria-pressed="true"] svg { fill: currentColor; }
+  .preset-default[hidden] { display: none; }
   .preset-line { display: flex; gap: 6px; align-items: center; }
   .preset-line select { flex: 1; min-width: 0; }
   .preset-line .preset-delete { flex: none; width: 36px; height: 36px; margin: 0; padding: 0; }
@@ -315,6 +322,74 @@
   /* A film's prompts: read and change them before anything renders. */
   dialog { width: min(860px, calc(100vw - 24px)); max-height: calc(100vh - 24px); padding: 0; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 14px; }
   dialog::backdrop { background: rgba(0, 0, 0, .7); }
+  /* The Image side's images: one box, then + for the next; each from a file or from your own images. */
+  #addSource { width: auto; margin: 8px 0 0; padding: 4px 16px; font-size: 1.1rem; }
+  .image-line button.pick-output { padding: 6px 8px; }
+  .image-line button.pick-output svg { width: 16px; height: 16px; display: block; }
+  #expandUnits { margin-top: 8px; }
+  #paintAreas { width: auto; margin-top: 8px; }
+  /* Inpaint: the whole screen, the picture as large as fits and zoomable, its tools under it. */
+  dialog.paint-dialog { width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; border: 0; border-radius: 0;
+    padding: max(10px, env(safe-area-inset-top)) 12px max(10px, env(safe-area-inset-bottom)); box-sizing: border-box;
+    display: none; flex-direction: column; gap: 10px; overflow: hidden; animation: viewer-in .2s ease; }
+  dialog.paint-dialog[open] { display: flex; }
+  .paint-title { flex: none; text-align: center; color: var(--muted); font-size: .82rem; font-weight: 600; letter-spacing: .02em; }
+  .paint-error { flex: none; color: #ff6b6b; font-size: .85rem; text-align: center; }
+  .paint-error[hidden] { display: none; }
+  /* Choosing one of your images for a box: Output, with what you're choosing for over it. */
+  .choose-banner { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; padding: 8px 12px; border-radius: 8px;
+    background: var(--panel-2); border: 1px solid var(--accent); font-size: .88rem; }
+  .choose-banner[hidden] { display: none; }
+  .choose-banner span { flex: 1 1 auto; }
+  .choose-banner button { width: auto; margin: 0; padding: 4px 12px; }
+  .paint-stage { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; border-radius: 8px; background: #000;
+    touch-action: none; user-select: none; -webkit-user-select: none; }
+  .paint-board { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  .paint-board img { display: block; width: 100%; height: 100%; pointer-events: none; -webkit-user-drag: none; }
+  .paint-board canvas { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .55; cursor: crosshair; }
+  .paint-stage.panning, .paint-stage.panning canvas { cursor: grab; }
+  .paint-stage.busy canvas { cursor: progress; }
+  .paint-fit { position: absolute; top: 8px; right: 8px; width: auto; margin: 0; padding: 4px 12px; font-size: .75rem; font-weight: 600;
+    border-radius: 999px; background: rgba(0, 0, 0, .6); border: 1px solid var(--line); color: #ddd; }
+  .paint-fit[hidden] { display: none; }
+  /* Colour on the left, the colour prompts in the middle, brush size on the right; under them the tools, then undo and clear. */
+  .paint-bar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .paint-bar-mid { display: grid; grid-template-columns: 1fr auto 1fr; }
+  .paint-bar-mid > :last-child { justify-self: end; }
+  .paint-group { display: flex; gap: 6px; }
+  .paint-icon { flex: none; width: 40px; height: 36px; margin: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; color: var(--text); }
+  .paint-icon.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .paint-icon[aria-expanded="true"] { border-color: var(--accent); }
+  .paint-dot { width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 0 0 2px var(--panel-2), 0 0 0 3px var(--line); }
+  .paint-size-dot { border-radius: 50%; background: var(--text); }
+  .paint-prompts { width: auto; margin: 0; padding: 6px 14px; display: inline-flex; align-items: center; gap: 6px; font-size: .82rem; font-weight: 600;
+    border-radius: 999px; background: transparent; border: 1px solid var(--line); color: var(--text); white-space: nowrap; }
+  .paint-prompt-swatches { display: inline-flex; gap: 3px; }
+  .paint-prompt-swatches:empty { display: none; }
+  .paint-prompt-swatches i { width: 9px; height: 9px; border-radius: 50%; }
+  /* The colours and the brush size grow out of their buttons. */
+  .paint-pop-wrap { position: relative; }
+  .paint-pop { position: absolute; bottom: calc(100% + 8px); z-index: 3; padding: 10px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); animation: paint-pop-in .18s ease; }
+  .paint-pop[hidden] { display: none; }
+  .paint-pop.left { left: 0; transform-origin: bottom left; }
+  .paint-pop.right { right: 0; transform-origin: bottom right; }
+  @keyframes paint-pop-in { from { opacity: 0; transform: scale(.5); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .paint-pop, dialog.paint-dialog { animation: none; } }
+  .paint-colours { display: grid; grid-template-columns: repeat(4, 30px); gap: 8px; }
+  .paint-colours button { width: 30px; height: 30px; margin: 0; padding: 0; border-radius: 50%; border: 2px solid transparent; }
+  .paint-colours button.active { border-color: var(--text); }
+  #paintSize { display: block; width: min(200px, calc(100vw - 60px)); margin: 4px 0; }
+  /* What goes in each colour, in its own box over the blurred painting. */
+  .paint-area { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: center; margin-top: 8px; }
+  .paint-area:first-child { margin-top: 0; }
+  .paint-area .swatch { width: 18px; height: 18px; border-radius: 50%; }
+  .paint-area .fields { display: flex; gap: 6px; min-width: 0; }
+  .paint-area select { flex: 0 0 auto; width: auto; }
+  .paint-area input { flex: 1 1 auto; min-width: 0; }
+  .paint-actions { flex: none; display: flex; justify-content: center; gap: 8px; }
+  .paint-save { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
   /* The image viewer: the picture as large as fits, its buttons under it. */
   dialog.viewer { width: auto; max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); background: transparent; border: 0;
     display: none; flex-direction: column; align-items: center; gap: 10px; overflow: visible; }
@@ -769,7 +844,7 @@
 <div class="options-col" id="optionsCard" data-page="generate">
 <form class="card pipeline-form only-shorts" id="formShorts">
   <div class="workflow-top preset-top">
-    <div class="preset-head"><label for="shortsPreset">Preset</label><button type="button" class="preset-save" data-preset-save="shorts" hidden>Save as preset</button></div>
+    <div class="preset-head"><label for="shortsPreset">Preset</label><span class="preset-head-actions"><button type="button" class="preset-default" data-preset-default="shorts" aria-pressed="false" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L2.5 9.4l6.6-.9z"/></svg></button><button type="button" class="preset-save" data-preset-save="shorts" hidden>Save as preset</button></span></div>
     <div class="preset-line">
       <select id="shortsPreset" data-preset-side="shorts" aria-label="Preset"><option value="">None</option></select>
       <button type="button" class="ghost icon-btn preset-delete" data-preset-delete="shorts" title="Delete this preset" aria-label="Delete this preset" hidden>✕</button>
@@ -876,7 +951,7 @@
 
 <form class="card pipeline-form only-video" id="formVideo">
   <div class="workflow-top preset-top">
-    <div class="preset-head"><label for="videoPreset">Preset</label><button type="button" class="preset-save" data-preset-save="video" hidden>Save as preset</button></div>
+    <div class="preset-head"><label for="videoPreset">Preset</label><span class="preset-head-actions"><button type="button" class="preset-default" data-preset-default="video" aria-pressed="false" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L2.5 9.4l6.6-.9z"/></svg></button><button type="button" class="preset-save" data-preset-save="video" hidden>Save as preset</button></span></div>
     <div class="preset-line">
       <select id="videoPreset" data-preset-side="video" aria-label="Preset"><option value="">None</option></select>
       <button type="button" class="ghost icon-btn preset-delete" data-preset-delete="video" title="Delete this preset" aria-label="Delete this preset" hidden>✕</button>
@@ -890,6 +965,7 @@
         <option value="">Built-in LTX</option>
       </select>
       <div class="hint" id="videoWorkflowHint">The image boxes below change to what it takes.</div>
+      <div class="hint centred-hint" id="videoWorkflowOff" hidden>ComfyUI is off: this is the last list.</div>
     </div>
 
     <div class="image-boxes" id="imageBoxes"></div>
@@ -998,7 +1074,7 @@
 
 <form class="card pipeline-form only-image" id="formImage">
   <div class="workflow-top preset-top">
-    <div class="preset-head"><label for="imagePreset">Preset</label><button type="button" class="preset-save" data-preset-save="image" hidden>Save as preset</button></div>
+    <div class="preset-head"><label for="imagePreset">Preset</label><span class="preset-head-actions"><button type="button" class="preset-default" data-preset-default="image" aria-pressed="false" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L2.5 9.4l6.6-.9z"/></svg></button><button type="button" class="preset-save" data-preset-save="image" hidden>Save as preset</button></span></div>
     <div class="preset-line">
       <select id="imagePreset" data-preset-side="image" aria-label="Preset"><option value="">None</option></select>
       <button type="button" class="ghost icon-btn preset-delete" data-preset-delete="image" title="Delete this preset" aria-label="Delete this preset" hidden>✕</button>
@@ -1012,9 +1088,47 @@
         <option value="">Automatic: edits if you give it an image, otherwise from text</option>
       </select>
       <div class="hint" id="imageWorkflowHint" hidden></div>
+      <div class="hint centred-hint" id="imageWorkflowOff" hidden>ComfyUI is off: this is the last list.</div>
     </div>
 
     <div id="imageSourcesHome"><div id="imageSources"></div></div>
+    <button type="button" class="ghost" id="addSource" aria-label="Add another image" title="Add another image" hidden>+</button>
+    <div id="imageModeBox" hidden>
+      <label for="imageMode">What to do with the images</label>
+      <select id="imageMode" name="image_mode">
+        <option value="edit">Edit image 1</option>
+        <option value="compose">Make a new picture from them</option>
+        <option value="areas">Change painted parts of image 1</option>
+        <option value="expand">Expand image 1</option>
+      </select>
+      <div class="hint" id="imageModeHint"></div>
+    </div>
+    <div id="areasBox" hidden>
+      <button type="button" class="ghost" id="paintAreas">Paint what to change</button>
+      <div class="hint" id="areasHint">Nothing painted yet.</div>
+      <input type="hidden" name="areas" id="areasJson">
+      <input type="file" name="areas_mask" id="areasMask" accept="image/png" hidden>
+    </div>
+    <div id="expandBox" hidden>
+      <div class="row expand-row">
+        <div><label for="expandLeft">Left</label><input id="expandLeft" name="expand_left" type="number" min="0" value="0" inputmode="numeric"></div>
+        <div><label for="expandTop">Top</label><input id="expandTop" name="expand_top" type="number" min="0" value="0" inputmode="numeric"></div>
+        <div><label for="expandRight">Right</label><input id="expandRight" name="expand_right" type="number" min="0" value="0" inputmode="numeric"></div>
+        <div><label for="expandBottom">Bottom</label><input id="expandBottom" name="expand_bottom" type="number" min="0" value="0" inputmode="numeric"></div>
+      </div>
+      <select id="expandUnits" name="expand_units" aria-label="Expand by">
+        <option value="percent">Percent of the image</option>
+        <option value="pixels">Pixels</option>
+      </select>
+      <div class="hint" id="expandHint"></div>
+    </div>
+    <div id="detailBox" hidden>
+      <label for="imageDetail">How the other images are shown</label>
+      <select id="imageDetail" name="detail">
+        <option value="standard">Standard: about 1 MP each, more room for the result</option>
+        <option value="full">Full: at their own size</option>
+      </select>
+    </div>
 
     <label for="imageCount">How many images</label>
     <input id="imageCount" name="count" type="number" min="1" max="{{ image_most }}" value="1" inputmode="numeric">
@@ -1088,6 +1202,10 @@
       <button type="button" class="ghost" data-seed-pick="imageSeed" title="Pick a random seed to keep" aria-label="Pick a random seed to keep"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg></button>
       <button type="button" class="ghost" data-seed-clear="imageSeed" title="Back to random" aria-label="Back to a random seed every time">✕</button>
     </div>
+    <label class="check" id="transparentBox" hidden>
+      <input type="checkbox" name="transparent" id="imageTransparent">
+      <span>Transparent background<span class="hint">Only the subject is made, and the PNG keeps the rest see-through.</span></span>
+    </label>
   </details>
 </form>
 
@@ -1102,6 +1220,7 @@
 </div>
 
 <div class="card videos-card" id="videosCard" data-page="output">
+  <div class="choose-banner" id="chooseBanner" hidden><span id="chooseBannerText"></span><button type="button" class="ghost" id="chooseCancel">Cancel</button></div>
   <div class="output-filter-line">
     <select id="outputFilter" aria-label="Show the output of one workflow"><option value="">All workflows</option></select>
   </div>
@@ -1146,6 +1265,49 @@
   <div class="panel-dialog-body" id="panelDialogBody"></div>
   <button type="button" class="panel-close" id="panelDialogClose">Close</button>
 </dialog>
+<dialog id="paintDialog" class="paint-dialog" aria-labelledby="paintDialogTitle">
+  <div class="paint-title" id="paintDialogTitle">Inpaint</div>
+  <div class="paint-error" id="paintError" role="alert" hidden></div>
+  <div class="paint-stage" id="paintStage">
+    <div class="paint-board" id="paintBoard">
+      <img id="paintImage" alt="Image 1" draggable="false">
+      <canvas id="paintCanvas"></canvas>
+    </div>
+    <button type="button" class="paint-fit" id="paintFit" title="Back to the whole image" hidden>Fit</button>
+  </div>
+  <div class="paint-bar paint-bar-mid">
+    <div class="paint-pop-wrap">
+      <button type="button" class="paint-icon" id="paintColourToggle" aria-haspopup="true" aria-expanded="false" title="Colour" aria-label="Colour"><span class="paint-dot" id="paintColourDot"></span></button>
+      <div class="paint-pop left" id="paintColourPop" hidden><div class="paint-colours" id="paintColours" role="radiogroup" aria-label="Colour"></div></div>
+    </div>
+    <button type="button" class="paint-prompts" id="paintPromptsOpen" aria-haspopup="dialog"><span class="paint-prompt-swatches" id="paintPromptSwatches"></span>Colour prompts</button>
+    <div class="paint-pop-wrap">
+      <button type="button" class="paint-icon" id="paintSizeToggle" aria-haspopup="true" aria-expanded="false" title="Brush size" aria-label="Brush size"><span class="paint-size-dot" id="paintSizeDot"></span></button>
+      <div class="paint-pop right" id="paintSizePop" hidden><input type="range" id="paintSize" min="1" max="20" value="5" aria-label="Brush size"></div>
+    </div>
+  </div>
+  <div class="paint-bar">
+    <div class="paint-group" role="radiogroup" aria-label="Tool">
+      <button type="button" class="paint-icon active" data-paint-tool="brush" title="Paint" aria-label="Paint"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg></button>
+      <button type="button" class="paint-icon" data-paint-tool="erase" title="Erase: rub paint out" aria-label="Erase"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg></button>
+      <button type="button" class="paint-icon" data-paint-tool="select" title="Select: tap a thing to paint all of it. Shift-click takes a part away." aria-label="Select"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/><path d="M10 2v2"/><path d="M7 8H3"/><path d="M21 16h-4"/><path d="M11 3H9"/></svg></button>
+    </div>
+    <div class="paint-group">
+      <button type="button" class="paint-icon" id="paintUndo" title="Undo" aria-label="Undo"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></svg></button>
+      <button type="button" class="paint-icon" id="paintClear" title="Clear all paint" aria-label="Clear all paint"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+    </div>
+  </div>
+  <div class="paint-actions">
+    <button type="button" class="panel-close" id="paintCancel">Close</button>
+    <button type="button" class="panel-close paint-save" id="paintDone">Save</button>
+  </div>
+</dialog>
+<dialog id="paintPrompts" class="panel-dialog" aria-labelledby="paintPromptsTitle">
+  <div class="panel-dialog-title" id="paintPromptsTitle">Colour prompts</div>
+  <div class="paint-error" id="paintPromptsError" role="alert" hidden></div>
+  <div class="panel-dialog-body"><div class="paint-area-list" id="paintAreaList"></div></div>
+  <button type="button" class="panel-close" id="paintPromptsClose">Close</button>
+</dialog>
 <dialog id="imageViewer" class="viewer" aria-label="Image">
   <img id="viewerImage" alt="">
   <video id="viewerVideo" controls playsinline preload="none" hidden></video>
@@ -1153,7 +1315,15 @@
     <div class="viewer-title" id="viewerTitle"></div>
     <div class="viewer-tools" id="viewerTools" hidden>
       <button type="button" id="viewerVariations" title="More like this one: its prompt and settings in Generate, on new seeds">More like this</button>
-      <button type="button" id="viewerUpscale" title="Upscale this one with SeedVR2, as a new image in its set">Upscale</button>
+      <button type="button" id="viewerUpscale" title="Make this one bigger, as a new image in its set">Upscale</button>
+      <button type="button" id="viewerEdit" title="Edit this one: it goes to Generate as image 1, with the Qwen-Image 2.1 edit workflow">Edit</button>
+    </div>
+    <div class="viewer-compare" id="viewerUpscaleBar" hidden>
+      <button type="button" data-upscale="fast" title="Superscale-SP: seconds, and adds no new detail">Fast</button>
+      <select id="viewerUpscaleStrength" aria-label="How much of the upscaler's result" title="How much of the upscaler's result, the rest a plain resize: less tones down texture it invents">
+        <option value="1">Full strength</option><option value="0.75">75%</option><option value="0.5">50%</option>
+      </select>
+      <button type="button" data-upscale="seedvr2" title="SeedVR2: minutes, and draws finer detail">SeedVR2</button>
     </div>
     <div class="viewer-actions">
       <a class="button" id="viewerDownload" href="#" download>Download</a>
@@ -1224,6 +1394,9 @@ const SIDE_SYNC = { shorts: () => syncForm(), video: () => syncVideoForm(), imag
 const SIDE_SAVE = { shorts: () => saveForm(), video: () => saveVideoForm(), image: () => saveImageForm() };
 const OPTION_BOXES = { shorts: 'shortsOptionsBox', video: 'videoOptionsBox', image: 'imageOptionsBox' };
 let presets = { shorts: [], video: [], image: [] };
+// The preset last picked on each side, and the form as picking it left it: a field it couldn't set, such as an option
+// the workflow no longer has, no longer makes the picker fall back to None.
+const presetPicked = {};
 function presetValues(side) {
   const values = {};
   for (const el of $(SIDE_FORMS[side]).elements) {
@@ -1232,11 +1405,15 @@ function presetValues(side) {
   }
   return values;
 }
-function samePreset(a, b) {
+// Only what the preset holds counts: a field added since it was saved, such as a new checkbox, doesn't unmatch it.
+function samePreset(preset, now) {
+  return Object.keys(preset).every(key => String(preset[key] ?? '') === String(now[key] ?? ''));
+}
+function sameForm(a, b) {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
   return [...keys].every(key => String(a[key] ?? '') === String(b[key] ?? ''));
 }
-// The picker shows the preset that's set, if one is; "Save as preset" shows while none is.
+// The picker shows the preset that's set, if one is; "Save as preset" shows while none is, the star while one is.
 function syncPresets(side) {
   const select = $(`${side}Preset`), list = presets[side] || [], now = presetValues(side);
   const key = JSON.stringify(list.map(p => p.name));
@@ -1244,14 +1421,33 @@ function syncPresets(side) {
     select.dataset.key = key;
     select.innerHTML = '<option value="">None</option>' + list.map(p => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('');
   }
-  const match = list.find(p => samePreset(p.values, now));
+  const picked = presetPicked[side] && list.find(p => p.name === presetPicked[side].name);
+  const match = picked && (samePreset(picked.values, now) || sameForm(presetPicked[side].values, now))
+    ? picked : list.find(p => samePreset(p.values, now));
   select.value = match ? match.name : '';
   document.querySelector(`[data-preset-save="${side}"]`).hidden = !!match;
   document.querySelector(`[data-preset-delete="${side}"]`).hidden = !match;
+  const star = document.querySelector(`[data-preset-default="${side}"]`), isDefault = !!(match && match.default);
+  star.hidden = !match;
+  star.setAttribute('aria-pressed', String(isDefault));
+  star.title = isDefault ? 'This side opens with this preset. Tap to stop that.' : 'Open this side with this preset';
+  star.setAttribute('aria-label', star.title);
+}
+let presetsLoaded = false;
+const defaultsDue = new Set(['shorts', 'video', 'image']);
+const WORKFLOW_PICKERS = { shorts: 'workflow', video: 'videoWorkflow', image: 'imageWorkflow' };
+// A side's default preset, set once as the page opens: after its workflows are listed, so the one it names can be picked.
+function applyDefaultPreset(side) {
+  if (!presetsLoaded || !defaultsDue.has(side) || !$(WORKFLOW_PICKERS[side]).dataset.key) return;
+  defaultsDue.delete(side);
+  const preset = (presets[side] || []).find(p => p.default);
+  if (preset) applyPreset(side, preset.name);
 }
 async function loadPresets() {
   try { presets = { ...presets, ...(await (await fetch('/api/presets')).json()).presets }; } catch (e) { return; }
+  presetsLoaded = true;
   Object.keys(SIDE_FORMS).forEach(syncPresets);
+  Object.keys(SIDE_FORMS).forEach(applyDefaultPreset);
 }
 function applyPreset(side, name) {
   const preset = (presets[side] || []).find(p => p.name === name);
@@ -1272,6 +1468,7 @@ function applyPreset(side, name) {
   if (box.dataset.workflow) rememberOptions(box);
   SIDE_SYNC[side]();
   SIDE_SAVE[side]();
+  presetPicked[side] = { name, values: presetValues(side) };
   syncPresets(side);
 }
 async function presetRequest(body) {
@@ -1285,10 +1482,18 @@ async function presetRequest(body) {
 document.addEventListener('click', async e => {
   const save = e.target.closest && e.target.closest('[data-preset-save]');
   const remove = e.target.closest && e.target.closest('[data-preset-delete]');
-  if (save) {
+  const star = e.target.closest && e.target.closest('[data-preset-default]');
+  if (star) {
+    const side = star.dataset.presetDefault, name = $(`${side}Preset`).value;
+    if (name) await presetRequest({ side, name, default: star.getAttribute('aria-pressed') !== 'true' });
+  } else if (save) {
     const side = save.dataset.presetSave;
     const name = (prompt('Name this preset, such as "Phone wallpaper":') || '').trim();
-    if (name) await presetRequest({ side, name, values: presetValues(side) });
+    if (name) {
+      await presetRequest({ side, name, values: presetValues(side) });
+      presetPicked[side] = { name, values: presetValues(side) };
+      syncPresets(side);
+    }
   } else if (remove) {
     const side = remove.dataset.presetDelete, name = $(`${side}Preset`).value;
     if (name && secondTap(remove)) await presetRequest({ side, name, delete: true });
@@ -1325,6 +1530,7 @@ async function loadWorkflows() {
   if (data.workflows.some(w => w.name === wanted)) select.value = wanted;
   shortsTakes = Object.fromEntries(data.workflows.map(w => [w.name, w.takes]));
   syncForm();
+  applyDefaultPreset('shorts');
 }
 $('workflow').addEventListener('focus', loadWorkflows);
 $('comfyStart').addEventListener('click', async () => {
@@ -1572,7 +1778,7 @@ const VIDEO_STORE_KEY = 'comfyui-auto-gen.video.v1';
 const VIDEO_DEFAULTS = { llm: {{ default_llm | tojson }}, review: true, duration: {{ film_limits[2] | tojson }}, privacy: 'private', start: 'chain' };
 // What belongs to one film rather than being the way you like to work.
 // A seed is for one run: kept, it would quietly make the next film the same.
-const NOT_REMEMBERED = ['prompt', 'size', 'narration', 'seed'];
+const NOT_REMEMBERED = ['prompt', 'size', 'narration', 'seed', 'areas', 'source_seed'];
 // A file input also throws if you set its value. An image's role goes with that image.
 // A workflow's own options start as it was saved, each time it's chosen.
 function remembered(el) { return el.name && el.type !== 'file' && !NOT_REMEMBERED.includes(el.name) && !/^(image_\d+|ref_media(_\d+)?)_role$/.test(el.name) && !el.name.startsWith('opt_'); }
@@ -1597,7 +1803,6 @@ function loadVideoForm() {
   }
 }
 // --- Workflows saved in ComfyUI ---
-const VIDEO_WORKFLOW_HINT = $('videoWorkflowHint').textContent;
 const BUILT_IN_TAKES = { min_images: 1, max_images: 1, max_videos: 0, max_audios: 0, max_references: 1 };
 // How long the built-in workflow's video model makes a clip: [shortest, longest, usual] seconds.
 const BUILT_IN_CLIPS = {{ clip_seconds | tojson }};
@@ -1620,7 +1825,8 @@ async function loadVideoWorkflows() {
   workflowTakes = Object.fromEntries(data.workflows.map(w => [w.name, w.takes]));
   workflowClips = Object.fromEntries(data.workflows.map(w => [w.name, w.clip_seconds || BUILT_IN_CLIPS]));
   syncVideoForm();
-  $('videoWorkflowHint').textContent = VIDEO_WORKFLOW_HINT + (data.online ? '' : ' ComfyUI is off: this is the last list.');
+  $('videoWorkflowOff').hidden = !!data.online;
+  applyDefaultPreset('video');
 }
 $('videoWorkflow').addEventListener('focus', loadVideoWorkflows);
 function imageBoxes() { return [...$('imageBoxes').querySelectorAll('.image-box')]; }
@@ -1934,17 +2140,20 @@ async function loadImageWorkflows() {
   imageWorkflowList = usable.map(w => ({ ...w.takes, name: w.name }));
   const notes = stuck.map(w => `${w.label}: ${w.problem}`);
   if (!data.workflows.length) notes.push('Save one in ComfyUI with a name starting image_ and it appears here.');
-  if (!data.online) notes.push('ComfyUI is off: this is the last list.');
   $('imageWorkflowHint').hidden = !notes.length;
   $('imageWorkflowHint').textContent = notes.join(' ');
+  $('imageWorkflowOff').hidden = !!data.online;
   syncImageForm();
   queuePlan();
+  applyDefaultPreset('image');
 }
 $('imageWorkflow').addEventListener('focus', loadImageWorkflows);
 function sourceBoxes() { return [...$('imageSources').querySelectorAll('.image-box')]; }
 // As the server picks on Automatic (panel/image.py): one made for what you gave it, then any that fits.
 function automaticTakes(count) {
-  const fits = imageWorkflowList.filter(t => t.min_images <= count && count <= t.max_images);
+  const need = MODE_NEEDS[imageMode()];
+  const usable = need ? imageWorkflowList.filter(t => IMAGE_MODELS[t.model] && IMAGE_MODELS[t.model][need]) : imageWorkflowList;
+  const fits = usable.filter(t => t.min_images <= count && count <= t.max_images);
   const madeFor = fits.filter(t => count ? t.min_images >= 1 : t.max_images === 0);
   return madeFor[0] || fits[0] || null;
 }
@@ -1962,6 +2171,11 @@ function baseImageTakes() {
   return { ...AUTOMATIC_TAKES, ...(automaticTakes(chosenSources()) || {}), min_images: 0, max_images: Math.min(most, 20) };
 }
 function imageModel() { return IMAGE_MODELS[imageTakes().model] || null; }
+// The painting of what to change in image 1, while it's being painted. See openPaint().
+let paint = null;
+// How many boxes are open: one to start with, and + adds the next, as on the Video side.
+let sourcesShown = 1;
+const GALLERY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>';
 function sourceHtml(number) {
   const name = number === 1 ? 'image' : `image_${number}`;
   return `
@@ -1970,6 +2184,8 @@ function sourceHtml(number) {
     <div class="image-line">
       <label class="thumb" for="source_${number}" title="Choose another image"><img class="preview hidden" alt="Image ${number}"></label>
       <input id="source_${number}" name="${name}" type="file" accept="image/*">
+      <input type="hidden" name="source_seed" class="source-seed" value="">
+      <button type="button" class="pick-output" data-pick="1" aria-label="Choose image ${number} from your images" title="Choose one of your images">${GALLERY_ICON}</button>
       <button type="button" class="hidden" data-clear="1" aria-label="Remove image ${number}" title="Remove">✕</button>
     </div>
   </div>`;
@@ -1978,33 +2194,518 @@ function showSource(box, first) {
   const file = box.querySelector('input').files[0], preview = box.querySelector('img');
   if (preview.src) URL.revokeObjectURL(preview.src);
   preview.classList.toggle('hidden', !file);
-  box.querySelector('button').classList.toggle('hidden', !file);
-  if (first) sourceSize = null;
+  if (first) { sourceSize = null; forgetPaint(); }
   if (!file) return;
   if (first) preview.onload = () => { sourceSize = [preview.naturalWidth, preview.naturalHeight]; syncImageForm(); };
   preview.src = URL.createObjectURL(file);
 }
 function clearSource(box, first) {
   box.querySelector('input').value = '';
+  const seed = box.querySelector('.source-seed');
+  if (seed) seed.value = '';
   showSource(box, first);
 }
+// A new list, because two inputs sharing one would both empty when either is cleared.
+function moveSource(from, to) {
+  const file = from.querySelector('input').files[0], files = new DataTransfer();
+  if (file) files.items.add(file);
+  to.querySelector('input').files = files.files;
+  to.querySelector('.source-seed').value = from.querySelector('.source-seed').value;
+  showSource(to, sourceBoxes()[0] === to);
+}
+// The images after it move up, so the boxes stay filled in order.
+function removeSource(box) {
+  const open = sourceBoxes().filter(other => !other.hidden);
+  for (let i = open.indexOf(box); i < open.length - 1; i++) moveSource(open[i + 1], open[i]);
+  const last = open[open.length - 1];
+  clearSource(last, last === open[0]);
+  sourcesShown = Math.max(1, sourcesShown - 1);
+}
+// What the prompt calls image n, for the model the form is for now.
+function imageName(number) { return ((imageModel() || {}).image_name || 'image {}').replace('{}', number); }
 function syncImageSources() {
   const { min_images: low, max_images: high } = imageTakes();
-  // A box at a time: the next opens once the last holds an image. Fibo 2.0 takes 16.
-  const filled = sourceBoxes().filter((box, i) => i < high && box.querySelector('input').files.length).length;
-  const shown = Math.min(high, Math.max(low, 1, filled + 1));
+  const shown = sourcesShown = Math.min(high, Math.max(low, 1, sourcesShown));
   for (let number = sourceBoxes().length + 1; number <= shown; number++) $('imageSources').insertAdjacentHTML('beforeend', sourceHtml(number));
+  const compose = imageMode() === 'compose';
   sourceBoxes().forEach((box, i) => {
     const input = box.querySelector('input');
     box.hidden = i >= shown;
     // Not sent, and what a workflow can't take doesn't wait there for the next one.
     input.disabled = box.hidden;
+    const seed = box.querySelector('.source-seed');
+    if (seed) seed.disabled = box.hidden;
     if (box.hidden && input.value) clearSource(box, i === 0);
-    box.querySelector('label').textContent = low > i ? `Image ${i + 1} to edit`
-      : i ? `Image ${i + 1} (optional: call it <image_${i + 1}> in the prompt)` : `Image ${i + 1} to edit (optional: without one it makes them from text)`;
+    const optional = i >= low ? ', optional' : '';
+    box.querySelector('label').textContent = compose ? `Image ${i + 1} (reference, call it ${imageName(i + 1)}${optional})`
+      : i ? `Image ${i + 1} (optional: call it ${imageName(i + 1)} in the prompt)`
+      : low ? 'Image 1 to edit' : 'Image 1 to edit (optional: without one it makes them from text)';
+    // A box opened by + can be closed again; the first only empties.
+    const clear = box.querySelector('[data-clear]');
+    if (clear) clear.classList.toggle('hidden', !i && !input.files.length);
+  });
+  const last = sourceBoxes()[shown - 1];
+  $('addSource').hidden = shown >= high || !last || !last.querySelector('input').files.length;
+}
+function chosenSources() { return sourceBoxes().filter(box => !box.hidden && box.querySelector('input').files.length).length; }
+
+// --- One of your images in a box: Output opens to choose it, and a tap there puts it in the box ---
+// The box an image is being chosen for, while Output is open to choose it. Its seed goes with it: an edit never
+// starts from the noise that made the image.
+let choosingFor = null;
+function chooseFromOutput(box) {
+  choosingFor = box;
+  $('chooseBannerText').textContent = `Tap an image to use it as image ${sourceBoxes().indexOf(box) + 1}.`;
+  $('chooseBanner').hidden = false;
+  if (WIDE.matches) $('videosCard').scrollIntoView({ behavior: 'smooth' }); else showPage('output');
+}
+function stopChoosing() {
+  choosingFor = null;
+  $('chooseBanner').hidden = true;
+}
+function backToGenerate() {
+  $('imageGeneration').open = true;
+  if (WIDE.matches) $('optionsCard').scrollIntoView({ behavior: 'smooth' }); else showPage('generate');
+}
+async function chooseThis(id, position) {
+  const box = choosingFor;
+  stopChoosing();
+  backToGenerate();
+  if (box) await useOutput(box, id, position);
+}
+$('chooseCancel').addEventListener('click', () => {
+  stopChoosing();
+  backToGenerate();
+});
+async function useOutput(box, id, position) {
+  try {
+    putFile(box.querySelector('input[type="file"]'), await runFile(`/image-runs/${encodeURIComponent(id)}/files/${position}`, `image_${position}.png`));
+    let seed = '';
+    try {
+      const detail = await (await fetch(`/image-runs/${encodeURIComponent(id)}`)).json();
+      const shot = detail.ok && detail.shots[position - 1];
+      if (shot && shot.used_seed !== null && shot.used_seed !== undefined) seed = String(shot.used_seed);
+    } catch (e) {}
+    box.querySelector('.source-seed').value = seed;
+  } catch (e) {
+    showFormError('Could not fetch that image. Try again.');
+    return;
+  }
+  showSource(box, sourceBoxes()[0] === box);
+  syncImageForm();
+  queuePlan();
+}
+$('addSource').addEventListener('click', () => {
+  sourcesShown++;
+  syncImageForm();
+});
+
+// --- What to do with the images: edit image 1, a new picture from them, change painted parts of it, or expand it ---
+const MODE_NEEDS = { compose: 'compose', areas: 'regions', expand: 'regions' };
+function imageMode() { return $('imageModeBox').hidden ? 'edit' : $('imageMode').value || 'edit'; }
+// Whether the workflow chosen can, or on Automatic any workflow can.
+function modeSupport() {
+  const chosen = imageWorkflows[$('imageWorkflow').value];
+  const all = chosen ? [chosen] : imageWorkflowList;
+  const has = key => all.some(t => IMAGE_MODELS[t.model] && IMAGE_MODELS[t.model][key]);
+  return { edit: true, compose: has('compose'), areas: has('regions'), expand: has('regions') };
+}
+const MODE_HINTS = {
+  edit: '',
+  compose: 'The images are references for a new picture: a person, a product, a place, a style. Its size is the one under Resolution.',
+  areas: 'Only what you paint changes, and the rest of the image stays exactly as it is.',
+  expand: 'The new borders are drawn to continue the picture, and the picture itself stays exactly as it is.',
+};
+function syncImageMode() {
+  const can = modeSupport();
+  for (const option of [...($('imageMode').options || [])]) option.disabled = !can[option.value];
+  if (!can[$('imageMode').value]) $('imageMode').value = 'edit';
+  $('imageModeBox').hidden = !chosenSources() || !(can.compose || can.areas || can.expand);
+  const mode = imageMode();
+  $('imageModeHint').textContent = MODE_HINTS[mode] || '';
+  $('areasBox').hidden = mode !== 'areas';
+  $('expandBox').hidden = mode !== 'expand';
+  $('detailBox').hidden = !(chosenSources() >= 2 || mode === 'compose');
+  const model = imageModel();
+  $('transparentBox').hidden = !(model && model.transparent) || mode === 'areas' || mode === 'expand';
+  if (mode === 'expand') syncExpand();
+}
+function syncExpand() {
+  const sides = ['expandLeft', 'expandTop', 'expandRight', 'expandBottom'].map(id => Math.max(0, +$(id).value || 0));
+  if (!sourceSize) { $('expandHint').textContent = ''; return; }
+  const [width, height] = sourceSize, percent = $('expandUnits').value === 'percent';
+  const px = sides.map((value, i) => Math.round(percent ? value / 100 * (i % 2 ? height : width) : value));
+  $('expandHint').textContent = px.some(Boolean)
+    ? `From ${width}x${height} to ${width + px[0] + px[2]}x${height + px[1] + px[3]}.` : 'Say how far to expand it on at least one side.';
+}
+for (const id of ['expandLeft', 'expandTop', 'expandRight', 'expandBottom']) $(id).addEventListener('input', syncExpand);
+
+// --- Painting what to change, over image 1: a colour per change, by brush or by clicking a thing (Select) ---
+const PAINT_COLOURS = [['red', '#e62828'], ['blue', '#285aeb'], ['green', '#28be46'], ['yellow', '#f5d21e'],
+                       ['magenta', '#e132c8'], ['cyan', '#28d2dc'], ['orange', '#f58c1e'], ['purple', '#823cd2']];
+const PAINT_ACTIONS = [['remove', 'Remove'], ['change', 'Change it to'], ['replace', 'Replace it with'], ['add', 'Add']];
+const PAINT_PLACEHOLDERS = { change: 'what it becomes', remove: 'what to remove (optional)', replace: 'what goes there instead', add: 'what to add there' };
+const MOST_UNDO = 8;
+function forgetPaint() {
+  paint = null;
+  if ($('areasJson')) {
+    $('areasJson').value = '';
+    $('areasMask').value = '';
+    $('areasHint').textContent = 'Nothing painted yet.';
+  }
+}
+function paintColour() { return PAINT_COLOURS.find(([name]) => name === paint.colour)[1]; }
+async function openPaint() {
+  const box = sourceBoxes()[0], file = box && box.querySelector('input').files[0];
+  if (!file) { showFormError('Choose image 1 first: the image to paint on.'); return; }
+  if (!paint || paint.file !== file) {
+    paint = { file, tool: 'brush', colour: 'red', history: [], texts: {}, actions: {}, key: null, canvas: document.createElement('canvas') };
+    const url = URL.createObjectURL(file);
+    $('paintImage').src = url;
+    await new Promise(resolve => { $('paintImage').onload = resolve; });
+    paint.canvas.width = $('paintImage').naturalWidth;
+    paint.canvas.height = $('paintImage').naturalHeight;
+  }
+  const canvas = $('paintCanvas');
+  canvas.width = paint.canvas.width;
+  canvas.height = paint.canvas.height;
+  canvas.getContext('2d').drawImage(paint.canvas, 0, 0);
+  $('paintColours').innerHTML = PAINT_COLOURS.map(([name, hex]) =>
+    `<button type="button" data-paint-colour="${name}" class="${name === paint.colour ? 'active' : ''}" style="background:${hex}" title="${name}" aria-label="${name}"></button>`).join('');
+  for (const button of document.querySelectorAll('[data-paint-tool]')) button.classList.toggle('active', button.dataset.paintTool === paint.tool);
+  showPaintColour();
+  showPaintSize();
+  closePaintPops();
+  refreshAreas();
+  paintError('');
+  $('paintDialog').showModal();
+  fitPaint();
+}
+function showPaintColour() { $('paintColourDot').style.background = paintColour(); }
+function showPaintSize() {
+  const px = Math.round(4 + (+$('paintSize').value - 1) * 18 / 19);
+  $('paintSizeDot').style.width = $('paintSizeDot').style.height = `${px}px`;
+}
+
+// --- Zooming in to paint fine details: the wheel or two fingers; Space or the middle button drags it about ---
+const MOST_PAINT_ZOOM = 16;
+const paintView = { z: 1, x: 0, y: 0, w: 0, h: 0 };  // the picture's fitted size, and how far it is zoomed and moved
+function fitPaint() {
+  if (!paint) return;
+  const stage = $('paintStage'), scale = Math.min(stage.clientWidth / paint.canvas.width, stage.clientHeight / paint.canvas.height) || 1;
+  paintView.w = paint.canvas.width * scale;
+  paintView.h = paint.canvas.height * scale;
+  paintView.z = 1;
+  $('paintBoard').style.width = `${paintView.w}px`;
+  $('paintBoard').style.height = `${paintView.h}px`;
+  placeBoard();
+}
+// Centred while it fits, and never dragged off past its edges once it doesn't.
+function placeBoard() {
+  const stage = $('paintStage'), width = stage.clientWidth, height = stage.clientHeight, w = paintView.w * paintView.z, h = paintView.h * paintView.z;
+  paintView.x = w <= width ? (width - w) / 2 : Math.min(0, Math.max(width - w, paintView.x));
+  paintView.y = h <= height ? (height - h) / 2 : Math.min(0, Math.max(height - h, paintView.y));
+  $('paintBoard').style.transform = `translate(${paintView.x}px, ${paintView.y}px) scale(${paintView.z})`;
+  $('paintFit').hidden = paintView.z <= 1.001;
+}
+// Zoomed about a point on the stage, which stays under the pointer.
+function zoomPaintAt(x, y, z) {
+  z = Math.min(MOST_PAINT_ZOOM, Math.max(1, z));
+  const bx = (x - paintView.x) / paintView.z, by = (y - paintView.y) / paintView.z;
+  paintView.z = z;
+  paintView.x = x - bx * z;
+  paintView.y = y - by * z;
+  placeBoard();
+}
+function stagePoint(clientX, clientY) {
+  const rect = $('paintStage').getBoundingClientRect();
+  return [clientX - rect.left, clientY - rect.top];
+}
+$('paintStage').addEventListener('wheel', e => {
+  if (!paint) return;
+  e.preventDefault();
+  const delta = e.deltaY * (e.deltaMode === 1 ? 16 : 1);
+  zoomPaintAt(...stagePoint(e.clientX, e.clientY), paintView.z * Math.exp(-delta * (e.ctrlKey ? 0.01 : 0.0015)));
+}, { passive: false });
+$('paintFit').addEventListener('click', fitPaint);
+window.addEventListener('resize', () => { if (paint && $('paintDialog').open) fitPaint(); });
+let spaceHeld = false;
+document.addEventListener('keydown', e => {
+  if (e.key !== ' ' || !$('paintDialog').open || $('paintPrompts').open || e.target.matches('input, select, textarea')) return;
+  e.preventDefault();
+  spaceHeld = true;
+  $('paintStage').classList.add('panning');
+});
+document.addEventListener('keyup', e => {
+  if (e.key !== ' ') return;
+  spaceHeld = false;
+  $('paintStage').classList.remove('panning');
+});
+
+// --- The colour and the brush size: each grows out of its button, and a tap anywhere else puts it away ---
+function closePaintPops(except) {
+  for (const [toggle, pop] of [['paintColourToggle', 'paintColourPop'], ['paintSizeToggle', 'paintSizePop']]) {
+    if (pop === except) continue;
+    $(pop).hidden = true;
+    $(toggle).setAttribute('aria-expanded', 'false');
+  }
+}
+for (const [toggle, pop] of [['paintColourToggle', 'paintColourPop'], ['paintSizeToggle', 'paintSizePop']]) {
+  $(toggle).addEventListener('click', () => {
+    closePaintPops(pop);
+    $(pop).hidden = !$(pop).hidden;
+    $(toggle).setAttribute('aria-expanded', String(!$(pop).hidden));
   });
 }
-function chosenSources() { return sourceBoxes().filter(box => box.querySelector('input').files.length).length; }
+$('paintDialog').addEventListener('pointerdown', e => {
+  if (!e.target.closest('.paint-pop-wrap')) closePaintPops();
+});
+$('paintSize').addEventListener('input', showPaintSize);
+function paintPoint(e) {
+  const canvas = $('paintCanvas'), rect = canvas.getBoundingClientRect();
+  return [(e.clientX - rect.left) * canvas.width / rect.width, (e.clientY - rect.top) * canvas.height / rect.height];
+}
+function snapshot() {
+  const canvas = $('paintCanvas');
+  paint.history.push(canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height));
+  if (paint.history.length > MOST_UNDO) paint.history.shift();
+}
+function stroke(from, to) {
+  const canvas = $('paintCanvas'), ctx = canvas.getContext('2d');
+  ctx.globalCompositeOperation = paint.tool === 'erase' ? 'destination-out' : 'source-over';
+  ctx.strokeStyle = ctx.fillStyle = paintColour();
+  ctx.lineWidth = +$('paintSize').value / 200 * Math.max(canvas.width, canvas.height) / paintView.z;
+  ctx.lineCap = ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(from[0], from[1]);
+  ctx.lineTo(to[0] + 0.01, to[1]);
+  ctx.stroke();
+}
+// One finger or the mouse paints, or with Select picks the thing it lifts on; two fingers zoom and move the picture,
+// as do Space or the middle button with the mouse.
+let painting = null, paintTap = null, paintPinch = null, paintPan = null, paintResting = false;
+const paintPointers = new Map();
+function startPaintPinch() {
+  const [a, b] = [...pointers.values()];
+  const mid = stagePoint((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+  paintPinch = { distance: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, z: paintView.z,
+            bx: (mid[0] - paintView.x) / paintView.z, by: (mid[1] - paintView.y) / paintView.z };
+}
+$('paintStage').addEventListener('pointerdown', e => {
+  if (!paint || e.target === $('paintFit')) return;
+  e.preventDefault();
+  closePaintPops();
+  paintPointers.set(e.pointerId, [e.clientX, e.clientY]);
+  $('paintStage').setPointerCapture(e.pointerId);
+  if (paintPointers.size === 2) {
+    // The first finger began a stroke: the second makes it a paintPinch, so that stroke is taken back.
+    if (painting) { $('paintCanvas').getContext('2d').putImageData(paint.history.pop(), 0, 0); painting = null; }
+    paintTap = null;
+    startPaintPinch();
+    return;
+  }
+  if (paintPointers.size > 2 || paintResting) return;
+  if (e.button === 1 || spaceHeld) { paintPan = { x: e.clientX, y: e.clientY, vx: paintView.x, vy: paintView.y }; return; }
+  if (e.button !== 0) return;
+  const point = paintPoint(e);
+  if (paint.tool === 'select') { paintTap = { id: e.pointerId, x: e.clientX, y: e.clientY, point, away: e.shiftKey }; return; }
+  snapshot();
+  painting = point;
+  stroke(point, point);
+});
+// The middle button drags the picture, rather than starting the browser's own scrolling.
+$('paintStage').addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); });
+$('paintStage').addEventListener('pointermove', e => {
+  if (!paintPointers.has(e.pointerId)) return;
+  paintPointers.set(e.pointerId, [e.clientX, e.clientY]);
+  if (paintPinch && paintPointers.size >= 2) {
+    const [a, b] = [...pointers.values()];
+    const mid = stagePoint((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+    paintView.z = Math.min(MOST_PAINT_ZOOM, Math.max(1, paintPinch.z * Math.hypot(a[0] - b[0], a[1] - b[1]) / paintPinch.distance));
+    paintView.x = mid[0] - paintPinch.bx * paintView.z;
+    paintView.y = mid[1] - paintPinch.by * paintView.z;
+    placeBoard();
+  } else if (paintPan) {
+    paintView.x = paintPan.vx + e.clientX - paintPan.x;
+    paintView.y = paintPan.vy + e.clientY - paintPan.y;
+    placeBoard();
+  } else if (painting) {
+    const point = paintPoint(e);
+    stroke(painting, point);
+    painting = point;
+  } else if (paintTap && Math.hypot(e.clientX - paintTap.x, e.clientY - paintTap.y) > 8) {
+    paintTap = null;
+  }
+});
+for (const kind of ['pointerup', 'pointercancel']) $('paintStage').addEventListener(kind, e => {
+  if (!paintPointers.delete(e.pointerId)) return;
+  if (paintPinch) {
+    paintPinch = null;
+    // The finger left after a paintPinch doesn't start painting where it rests.
+    paintResting = paintPointers.size > 0;
+    return;
+  }
+  if (!paintPointers.size) paintResting = false;
+  paintPan = null;
+  if (paintTap && paintTap.id === e.pointerId && kind === 'pointerup') selectAt(paintTap.point, paintTap.away);
+  paintTap = null;
+  if (painting) {
+    painting = null;
+    refreshAreas();
+  }
+});
+// A click on a thing paints all of it in the colour chosen; with Shift it takes it away.
+async function selectAt([x, y], away) {
+  $('paintStage').classList.add('busy');
+  try {
+    if (!paint.key) {
+      const body = new FormData();
+      body.append('image', paint.file);
+      const reply = await (await fetch('/api/select/image', { method: 'POST', body })).json();
+      if (!reply.ok) throw new Error(reply.error || 'Select could not read the image.');
+      paint.key = reply.key;
+    }
+    const response = await fetch('/api/select', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: paint.key, points: [[x, y, true]] }) });
+    if (!response.ok) {
+      const reply = await response.json().catch(() => ({}));
+      if (response.status === 410) paint.key = null;
+      throw new Error(reply.error || 'Select could not find anything there.');
+    }
+    const mask = await createImageBitmap(await response.blob());
+    const canvas = $('paintCanvas'), layer = document.createElement('canvas');
+    layer.width = canvas.width;
+    layer.height = canvas.height;
+    const lctx = layer.getContext('2d');
+    lctx.drawImage(mask, 0, 0, layer.width, layer.height);
+    const pixels = lctx.getImageData(0, 0, layer.width, layer.height), data = pixels.data;
+    const hex = paintColour(), rgb = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+    for (let i = 0; i < data.length; i += 4) {
+      const on = data[i] > 127;
+      data[i] = rgb[0]; data[i + 1] = rgb[1]; data[i + 2] = rgb[2]; data[i + 3] = on ? 255 : 0;
+    }
+    lctx.putImageData(pixels, 0, 0);
+    snapshot();
+    const ctx = canvas.getContext('2d');
+    ctx.globalCompositeOperation = away ? 'destination-out' : 'source-over';
+    ctx.drawImage(layer, 0, 0);
+    refreshAreas();
+  } catch (e) {
+    paintError(e.message || 'Select could not find anything there.');
+  } finally {
+    $('paintStage').classList.remove('busy');
+  }
+}
+// The colours painted, found on a small copy, in the order of the palette.
+function paintedColours() {
+  const canvas = $('paintCanvas'), small = document.createElement('canvas'), scale = Math.min(1, 256 / Math.max(canvas.width, canvas.height, 1));
+  small.width = Math.max(1, Math.round(canvas.width * scale));
+  small.height = Math.max(1, Math.round(canvas.height * scale));
+  const ctx = small.getContext('2d');
+  ctx.drawImage(canvas, 0, 0, small.width, small.height);
+  const data = ctx.getImageData(0, 0, small.width, small.height).data, found = new Set();
+  const palette = PAINT_COLOURS.map(([name, hex]) => [name, [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16))]);
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < 128) continue;
+    let best = null, distance = Infinity;
+    for (const [name, rgb] of palette) {
+      const d = (data[i] - rgb[0]) ** 2 + (data[i + 1] - rgb[1]) ** 2 + (data[i + 2] - rgb[2]) ** 2;
+      if (d < distance) { distance = d; best = name; }
+    }
+    found.add(best);
+  }
+  return PAINT_COLOURS.map(([name]) => name).filter(name => found.has(name));
+}
+function refreshAreas() {
+  const colours = paintedColours(), single = colours.length === 1;
+  $('paintAreaList').innerHTML = colours.map(name => {
+    const hex = PAINT_COLOURS.find(([n]) => n === name)[1], action = single ? paint.actions[name] || 'remove' : 'change';
+    const actions = single ? `<select data-area-action="${name}" aria-label="What to do">${PAINT_ACTIONS.map(([value, text]) =>
+      `<option value="${value}"${value === action ? ' selected' : ''}>${text}</option>`).join('')}</select>` : '';
+    return `<div class="paint-area"><span class="swatch" style="background:${hex}"></span><div class="fields">${actions}`
+      + `<input data-area-text="${name}" value="${esc(paint.texts[name] || '')}" placeholder="${single ? PAINT_PLACEHOLDERS[action] : 'what goes in the ' + name + ' area'}" aria-label="What goes in the ${name} area"></div></div>`;
+  }).join('') || '<div class="hint">Nothing painted yet.</div>';
+  $('paintPromptSwatches').innerHTML = colours.map(name => `<i style="background:${PAINT_COLOURS.find(([n]) => n === name)[1]}"></i>`).join('');
+}
+$('paintPromptsOpen').addEventListener('click', () => {
+  closePaintPops();
+  refreshAreas();
+  $('paintPrompts').showModal();
+  const first = $('paintAreaList').querySelector('input');
+  if (first) first.focus();
+});
+$('paintPromptsClose').addEventListener('click', () => $('paintPrompts').close());
+$('paintAreaList').addEventListener('input', e => {
+  if (e.target.dataset.areaText) paint.texts[e.target.dataset.areaText] = e.target.value;
+});
+$('paintAreaList').addEventListener('change', e => {
+  if (!e.target.dataset.areaAction) return;
+  paint.actions[e.target.dataset.areaAction] = e.target.value;
+  refreshAreas();
+});
+$('paintColours').addEventListener('click', e => {
+  const button = e.target.closest && e.target.closest('[data-paint-colour]');
+  if (!button) return;
+  paint.colour = button.dataset.paintColour;
+  for (const other of $('paintColours').querySelectorAll('button')) other.classList.toggle('active', other === button);
+  showPaintColour();
+  closePaintPops();
+});
+for (const button of document.querySelectorAll('[data-paint-tool]')) button.addEventListener('click', () => {
+  paint.tool = button.dataset.paintTool;
+  for (const other of document.querySelectorAll('[data-paint-tool]')) other.classList.toggle('active', other === button);
+});
+$('paintUndo').addEventListener('click', () => {
+  if (!paint || !paint.history.length) return;
+  $('paintCanvas').getContext('2d').putImageData(paint.history.pop(), 0, 0);
+  refreshAreas();
+});
+$('paintClear').addEventListener('click', () => {
+  if (!paint) return;
+  snapshot();
+  const canvas = $('paintCanvas');
+  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+  refreshAreas();
+});
+$('paintCancel').addEventListener('click', () => $('paintDialog').close());
+// What stops the painting from being kept, said in the paint window itself, and in Colour prompts, where it's seen.
+function paintError(text) {
+  for (const id of ['paintError', 'paintPromptsError']) {
+    $(id).textContent = text;
+    $(id).hidden = !text;
+  }
+}
+$('paintDone').addEventListener('click', async () => {
+  try {
+    const colours = paintedColours(), single = colours.length === 1;
+    if (!colours.length) { paintError('Paint over what to change first.'); return; }
+    const areas = colours.map(name => ({ colour: PAINT_COLOURS.find(([n]) => n === name)[1], action: single ? paint.actions[name] || 'remove' : 'change',
+                                          text: (paint.texts[name] || '').trim() }));
+    const missing = areas.find(area => !area.text && !(single && area.action === 'remove'));
+    if (missing) {
+      paintError(single ? 'Say what it changes to, what replaces it or what to add. Remove needs no words.'
+                        : 'Say what goes in each colour.');
+      if (!$('paintPrompts').open) $('paintPromptsOpen').click();
+      return;
+    }
+    // Kept, so the window opens again as it was left.
+    paint.canvas.getContext('2d').clearRect(0, 0, paint.canvas.width, paint.canvas.height);
+    paint.canvas.getContext('2d').drawImage($('paintCanvas'), 0, 0);
+    const blob = await new Promise(resolve => $('paintCanvas').toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('The painting could not be read back.');
+    putFile($('areasMask'), new File([blob], 'areas.png', { type: 'image/png' }));
+    $('areasJson').value = JSON.stringify(areas);
+    $('areasHint').textContent = single
+      ? `${PAINT_ACTIONS.find(([value]) => value === areas[0].action)[1]}${areas[0].text ? ` ${areas[0].text}` : ' what is painted'}. Press Generate.`
+      : `${areas.length} changes: ${areas.map(area => area.text).join('; ')}. Press Generate.`;
+    paintError('');
+    if ($('paintPrompts').open) $('paintPrompts').close();
+    $('paintDialog').close();
+  } catch (e) {
+    paintError(`Could not keep the painting: ${e.message || e}`);
+  }
+});
+$('paintAreas').addEventListener('click', openPaint);
 function onGrid(value) { return Math.max(256, Math.round(value / SIZE_STEP) * SIZE_STEP); }
 // As the pipeline works it out, so you see the size before you press Generate.
 function pickedSize() {
@@ -2032,7 +2733,9 @@ function syncImageSize() {
   const takes = imageTakes();
   const limit = syncImageLimits();
   const aspect = $('imageAspect').value, typed = aspect === 'custom', screen = /^\d+x\d+$/.test(aspect), exact = typed || screen;
-  $('imageSizeBox').classList.toggle('hidden', !takes.size);
+  const region = ['areas', 'expand'].includes(imageMode());
+  $('imageSizeBox').classList.toggle('hidden', !takes.size || region);
+  if (region) { $('imageSizeHint').textContent = imageMode() === 'areas' ? 'It keeps image 1\'s size.' : ''; return; }
   $('imageSize').hidden = !typed;
   $('imageMegapixelsBox').classList.toggle('hidden', exact);
   if (!takes.size) { $('imageSizeHint').textContent = 'This workflow sets its own size.'; return; }
@@ -2137,13 +2840,15 @@ function syncImageForm() {
   const slot = imageRole() === 'image_to_prompt' ? $('imageToPromptSlot') : $('imageSourcesHome');
   if ($('imageSources').parentNode !== slot) slot.appendChild($('imageSources'));
   syncImageSources();
+  syncImageMode();
+  syncImageSources();
   syncImageOptions();
   syncImageSize();
   const direct = $('imagePromptMode').value === 'direct';
   const editing = !!chosenSources();
   $('imageLlmBox').classList.toggle('hidden', direct);
-  // The workflow's own writing has nothing to read before rendering.
-  $('imageReviewBox').classList.toggle('hidden', !!imageRole());
+  // The workflow's prompt enhancer writes them in ComfyUI first, to read before rendering; image to prompt can't.
+  $('imageReviewBox').classList.toggle('hidden', !!imageRole() && imageRole() !== 'prompt_enhancer');
   $('imageHowDirect').hidden = !direct;
   $('imagePromptLabel').textContent = direct ? 'The prompt' : 'What you want';
   $('imagePrompt').placeholder = direct
@@ -2155,18 +2860,37 @@ function syncImageForm() {
   $('imagePromptHint').textContent = direct
     ? (count > 1 ? `The same prompt ${count} times, each on a new seed.` : 'Goes to the model as you wrote it.')
     : (count > 1 ? `A sentence or two is enough. The LLM writes ${count} prompts that differ from each other.` : 'A sentence or two is enough.') + tooMany;
+  // Painted areas carry their own words; an expansion only says what the new parts show, if anything.
+  const mode = imageMode();
+  $('imagePromptSection').hidden = mode === 'areas';
+  if (mode === 'expand') {
+    $('imageLlmBox').classList.add('hidden');
+    $('imageHowDirect').hidden = true;
+    $('imagePromptMode').disabled = true;
+    $('imagePromptLabel').textContent = 'What the new parts show (optional)';
+    $('imagePrompt').placeholder = 'e.g. more of the beach, and a pier on the right';
+    $('imagePromptHint').textContent = 'Left empty, the model continues what it sees.';
+  } else {
+    $('imagePromptMode').disabled = false;
+  }
 }
 $('formImage').addEventListener('change', () => { syncImageForm(); saveImageForm(); });
 $('imageCount').addEventListener('input', syncImageForm);
 $('imageSize').addEventListener('input', syncImageSize);
 $('imageSources').addEventListener('change', e => {
+  const seed = e.target.closest('.image-box').querySelector('.source-seed');
+  // A file of your own: what made it isn't known here, and the panel reads it from the file itself.
+  if (seed) seed.value = '';
   showSource(e.target.closest('.image-box'), sourceBoxes()[0] === e.target.closest('.image-box'));
   syncImageForm();
 });
 $('imageSources').addEventListener('click', e => {
-  if (!e.target.dataset.clear) return;
-  const box = e.target.closest('.image-box');
-  clearSource(box, sourceBoxes()[0] === box);
+  const button = e.target.closest && e.target.closest('button');
+  if (!button) return;
+  const box = button.closest('.image-box');
+  if (button.dataset.pick) { chooseFromOutput(box); return; }
+  if (!button.dataset.clear) return;
+  removeSource(box);
   syncImageForm();
   queuePlan();
 });
@@ -2354,16 +3078,52 @@ $('viewerVariations').addEventListener('click', () => {
   closeViewer();
   sameAgain(id, position);
 });
-$('viewerUpscale').addEventListener('click', async () => {
-  if (!viewing || viewing.film) return;
-  const { id, position } = viewing;
+$('viewerUpscale').addEventListener('click', () => { $('viewerUpscaleBar').hidden = !$('viewerUpscaleBar').hidden; });
+$('viewerUpscaleBar').addEventListener('click', async e => {
+  const button = e.target.closest && e.target.closest('[data-upscale]');
+  if (!button || !viewing || viewing.film) return;
+  const { id, position } = viewing, method = button.dataset.upscale;
+  const query = method === 'fast' ? `?method=fast&strength=${encodeURIComponent($('viewerUpscaleStrength').value)}` : '?method=seedvr2';
   let body;
-  try { body = await (await fetch(`/image-runs/${encodeURIComponent(id)}/upscale/${position}`, { method: 'POST' })).json(); }
+  try { body = await (await fetch(`/image-runs/${encodeURIComponent(id)}/upscale/${position}${query}`, { method: 'POST' })).json(); }
   catch (e) { body = { error: 'Could not reach the panel. Try again.' }; }
   if (!body.ok) { alert(body.error || 'Could not upscale it.'); return; }
+  $('viewerUpscaleBar').hidden = true;
   $('viewerUpscale').textContent = body.queued ? 'Queued' : 'Upscaling…';
   setTimeout(() => { $('viewerUpscale').textContent = 'Upscale'; }, 2500);
   poll();
+});
+// --- Edit: the Image side with Qwen-Image 2.1's edit workflow, for changing painted parts, expanding, or editing an image ---
+const EDIT_WORKFLOW = 'image_qwen21_turbo_edit_12gb.json';
+// That one, or else another saved with the same model.
+function editWorkflowName() {
+  const names = Object.keys(imageWorkflows);
+  return names.includes(EDIT_WORKFLOW) ? EDIT_WORKFLOW : names.find(name => imageWorkflows[name].model === 'qwen_image_21_edit') || '';
+}
+async function openEditor() {
+  if (pipeline !== 'image') setPipeline('image');
+  await loadImageWorkflows();
+  const name = editWorkflowName();
+  if (!name) { showFormError(`Save Qwen-Image 2.1's edit workflow in ComfyUI as ${EDIT_WORKFLOW.replace('.json', '')} to edit images here.`); }
+  else $('imageWorkflow').value = name;
+  syncImageForm();
+  saveImageForm();
+  backToGenerate();
+}
+// This image in Generate as image 1, with the edit workflow chosen.
+async function editInGenerate(id, position) {
+  await openEditor();
+  sourceBoxes().forEach((box, i) => clearSource(box, i === 0));
+  sourcesShown = 1;
+  syncImageForm();
+  const box = sourceBoxes()[0];
+  if (box) await useOutput(box, id, position);
+}
+$('viewerEdit').addEventListener('click', () => {
+  if (!viewing || viewing.film) return;
+  const { id, position } = viewing;
+  closeViewer();
+  editInGenerate(id, position);
 });
 // Every option as a set had it: what it chose, else the workflow's own default.
 function applyOptions(box, options, chosen) {
@@ -2569,6 +3329,7 @@ function closeViewer() {
   if ($('imageViewer').open) $('imageViewer').close();
 }
 $('imageViewer').addEventListener('close', () => {
+  $('viewerUpscaleBar').hidden = true;
   resetZoom();
   viewing = null;
   $('viewerImage').removeAttribute('src');
@@ -2597,6 +3358,8 @@ $('imageSets').addEventListener('click', async e => {
   const view = e.target.closest && e.target.closest('[data-view-set]');
   if (view) {
     e.preventDefault();
+    // Choosing one of your images for a box: this one goes in it, and Generate shows again.
+    if (choosingFor) { chooseThis(view.dataset.viewSet, +view.dataset.viewPosition); return; }
     openViewer(view.dataset.viewSet, +view.dataset.viewPosition);
     return;
   }
@@ -3546,6 +4309,8 @@ async function startJob(url, later = false) {
     autoScroll = true;
     $('imagePrompt').value = '';
     sourceBoxes().forEach((box, i) => clearSource(box, i === 0));
+    sourcesShown = 1;
+    forgetPaint();
     syncImageForm();
     queuePlan();
     if (body.shots) openShots(body.shots);

@@ -46,3 +46,29 @@ def apply(workflow, seed):
                 node["inputs"][key] = seed
                 found = True
     return found
+
+
+def avoid(seed, taken):
+    """
+    Another seed when this one made one of the images an edit starts from: at the same size it starts from the noise
+    that made it, and comes out over-sharpened, ignoring the prompt (Kokon measured it on Qwen-Image 2.1). The same
+    seed always gives the same other one, so a set can still be made again.
+    """
+    while seed in taken:
+        seed = (seed * 2654435761 + 40503) % (MOST + 1)
+    return seed
+
+
+def found_in(metadata):
+    """The seeds a ComfyUI image was made with, from the workflow its PNG keeps ("prompt"), as a set of ints."""
+    import json
+    try:
+        workflow = json.loads(metadata) if isinstance(metadata, str) else metadata
+    except ValueError:
+        return set()
+    found = set()
+    for node in (workflow or {}).values() if isinstance(workflow, dict) else ():
+        for key, value in (node.get("inputs") or {}).items() if isinstance(node, dict) else ():
+            if (key in SEED_INPUTS or key.endswith(".seed")) and isinstance(value, int) and not isinstance(value, bool):
+                found.add(value)
+    return found

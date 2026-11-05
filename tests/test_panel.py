@@ -448,6 +448,24 @@ class PanelTest(unittest.TestCase):
         self.assertEqual([p["name"] for p in self.client.get("/api/presets").get_json()["presets"]["image"]], ["Phone wallpaper"])
         self.assertEqual(post({"side": "nowhere", "name": "x", "values": {}}).status_code, 400)
 
+    def test_a_side_has_one_default_preset_at_most(self):
+        if os.path.exists(webapp.PRESETS_PATH):
+            os.remove(webapp.PRESETS_PATH)
+        self.addCleanup(lambda: os.path.exists(webapp.PRESETS_PATH) and os.remove(webapp.PRESETS_PATH))
+        post = lambda body: self.client.post("/api/presets", json=body)
+        defaults = lambda: [p["name"] for p in self.client.get("/api/presets").get_json()["presets"]["image"] if p.get("default")]
+        post({"side": "image", "name": "Edits", "values": {"workflow": "image_edit.json"}})
+        post({"side": "image", "name": "Wallpaper", "values": {"aspect": "16:9"}})
+        post({"side": "image", "name": "Edits", "default": True})
+        self.assertEqual(defaults(), ["Edits"])
+        post({"side": "image", "name": "Wallpaper", "default": True})
+        self.assertEqual(defaults(), ["Wallpaper"], "making one the default unmakes the last")
+        post({"side": "image", "name": "Wallpaper", "values": {"aspect": "21:9"}})
+        self.assertEqual(defaults(), ["Wallpaper"], "saved over, it stays the default")
+        post({"side": "image", "name": "Wallpaper", "default": False})
+        self.assertEqual(defaults(), [])
+        self.assertEqual(post({"side": "image", "name": "Nothing", "default": True}).status_code, 404)
+
     def test_a_job_started_later_waits_at_the_end_until_it_is_started(self):
         self.assertTrue(self.generate(start_later="1").get_json()["queued"], "it waits, though nothing is running")
         waiting = self.status()["queue"]["items"]

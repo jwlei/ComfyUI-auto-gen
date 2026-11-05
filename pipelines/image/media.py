@@ -38,9 +38,9 @@ def parse_size(text):
     return (width, height) if MIN_EDGE <= width <= MAX_EDGE and MIN_EDGE <= height <= MAX_EDGE else None
 
 
-def render_size(width, height):
+def render_size(width, height, step=SIZE_STEP):
     """What to have the model make for this size: the nearest on its grid that's no smaller, so it can be cropped to fit."""
-    return tuple(math.ceil(side / SIZE_STEP) * SIZE_STEP for side in (width, height))
+    return tuple(math.ceil(side / step) * step for side in (width, height))
 
 
 def _reference_latent(width, height):
@@ -158,3 +158,57 @@ def thumbnail(path, output):
         small.save(part, format="JPEG", quality=85)
     os.replace(part, output)
     return output
+
+
+def opaque(path):
+    """
+    The image without its alpha channel. Qwen-Image 2.1 always decodes one, nearly all 255 on an opaque image (Kokon
+    found about 1% of pixels at 247-254), which shows as faint holes: made opaque unless transparency was asked for.
+    """
+    with Image.open(path) as image:
+        if image.mode not in ("RGBA", "LA", "PA") and "transparency" not in image.info:
+            return
+        kind = image.format
+        flat = image.convert("RGB")
+    part = path + ".part"
+    flat.save(part, format=kind)
+    os.replace(part, path)
+
+
+def seeds_in(file):
+    """The seeds a ComfyUI image was made with, from the workflow its PNG keeps. file: a path or an open stream."""
+    from core import seeds
+    try:
+        with Image.open(file) as image:
+            found = seeds.found_in(image.info.get("prompt") or "")
+    except (OSError, ValueError, SyntaxError):
+        found = set()
+    if hasattr(file, "seek"):
+        file.seek(0)
+    return found
+
+
+def resized(path, size, output):
+    """The image at this size (its shape is the caller's to keep), saved as output. Returns output."""
+    os.makedirs(os.path.dirname(output), exist_ok=True)
+    with Image.open(path) as image:
+        if image.size == tuple(size) and path != output:
+            image.save(output)
+        else:
+            image.resize(tuple(size), Image.LANCZOS).save(output)
+    return output
+
+
+def size_of(path):
+    with Image.open(path) as image:
+        return image.size
+
+
+OUT_OF_MEMORY = ("out of memory", "outofmemory", "allocation on device", "cuda error: out of memory", "not enough memory")
+
+
+def out_of_memory(error):
+    """Whether ComfyUI stopped because the card ran out of memory, which a smaller try can get past."""
+    text = str(error).lower()
+    return any(marker in text for marker in OUT_OF_MEMORY)
+

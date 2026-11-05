@@ -3,6 +3,8 @@ Makes a set of images with ComfyUI: from text alone, or by editing the images yo
 An LLM writes one prompt per image from a short brief, or your own prompt goes in word for word.
 """
 import argparse
+import hashlib
+import json
 import os
 import sys
 import time
@@ -11,7 +13,7 @@ from dotenv import load_dotenv
 
 from core import seeds
 from core.saved_workflows import shorthand, title_words, unique_name
-from pipelines.image import media, models, paths
+from pipelines.image import media, models, paths, regions
 from pipelines.image import planner as image_planner
 from pipelines.image.comfy import ImageClient
 from pipelines.image.run_state import STAGES, RunState, list_runs
@@ -72,7 +74,20 @@ def parse_args(argv=None):
     parser.add_argument("--option", type=parse_option, action="append", default=[], metavar="NAME=VALUE",
                         help="One of the workflow's own options, repeatable, such as group_2nd_pass=0 or lora_knpv3_1=0.8. "
                              "Its map in logs/workflows lists them under _options.")
+    parser.add_argument("--compose", action="store_true", help="The images are references for a new picture, made at the size asked for, "
+                                                                "rather than image 1 edited. On a model that can (models.COMPOSE_SWITCH).")
+    parser.add_argument("--transparent", action="store_true", help="With a transparent background, on a model that makes one.")
+    parser.add_argument("--reference-detail", choices=("standard", "full"), default="standard",
+                        help="How big the images besides the one edited are shown: standard, about a megapixel each (the default), or full.")
+    parser.add_argument("--source-seed", type=parse_seed, action="append", default=[], metavar="SEED",
+                        help="A seed that made one of the images, repeatable. An edit never uses it again: it would come out over-sharpened.")
+    parser.add_argument("--areas", metavar="FILE", help='Change only painted parts of image 1, as JSON: {"mask": PNG painted in a colour per area, '
+                                                       '"areas": [{"colour": "#e62828", "action": "change|remove|replace|add", "text": ...}]}.')
+    parser.add_argument("--expand", metavar="L,T,R,B", help="Expand image 1 by these many pixels left, top, right and bottom. The prompt, "
+                                                            "if any, says what the new parts show.")
     parser.add_argument("--plan-only", action="store_true", help="Write the prompts and stop before rendering.")
+    parser.add_argument("--enhance-only", action="store_true", help="With the workflow's own prompt enhancer on: have it write each "
+                                                                    "image's prompt, and stop there to read them. They're then made as written.")
     parser.add_argument("--first-only", action="store_true", help="Make the first image and stop, to see it before making the rest.")
     parser.add_argument("--resume", metavar="RUN", help="Continue a saved run, with its original options.")
     parser.add_argument("--redo", type=int, metavar="IMAGE", help="With --resume: make this image again, by its place in the set.")
@@ -84,7 +99,20 @@ def parse_args(argv=None):
         parser.error("--redo needs --resume.")
     if args.plan_only and (args.resume or args.direct):
         parser.error("--plan-only stops after writing prompts: with --resume or --direct none get written.")
-    if not (args.resume or args.list or args.check or args.prompt):
+    if (args.areas or args.expand) and not args.image:
+        parser.error("--areas and --expand work on an image: give it with --image.")
+    if args.areas and args.expand:
+        parser.error("Change painted areas or expand it, one at a time.")
+    if args.expand:
+        try:
+            args.expand = [int(value) for value in args.expand.split(",")]
+        except ValueError:
+            args.expand = None
+        if not args.expand or len(args.expand) != 4 or min(args.expand) < 0:
+            parser.error("--expand takes four whole numbers of pixels: left, top, right and bottom, such as 0,0,400,0.")
+    if (args.areas or args.expand) and (args.compose or args.plan_only):
+        parser.error("--areas and --expand write their own prompt: leave out --compose and --plan-only.")
+    if not (args.resume or args.list or args.check or args.prompt or args.areas or args.expand):
         parser.error("give a prompt, or --resume RUN, --list or --check.")
     return args
 
@@ -125,71 +153,189 @@ def check_setup(args):
 
 def plan_run(args, stages):
     images = [video_media.load_image(path) for path in args.image]
+    region_edit = bool(args.areas or args.expand)
     inputs = video_media.inputs_fingerprint(images, [])
-    comfy = ImageClient(dict(args.option))
+    if region_edit:
+        inputs = f"{inputs}:{_region_fingerprint(args)}"
+    options = dict(args.option)
+    model = ImageClient(options).model()
+    if args.compose:
+        if model not in models.COMPOSE_SWITCH:
+            raise RuntimeError(f"{models.label(model)} can't make a new picture from references: choose Qwen-Image 2.1's edit workflow.")
+        options[models.COMPOSE_SWITCH[model]] = "1"
+    if region_edit:
+        if model not in models.REGION_EDITS:
+            raise RuntimeError(f"{models.label(model)} can't change part of an image or expand it: choose Qwen-Image 2.1's edit workflow.")
+        # The instruction is ours, and must reach the model as it is.
+        if "prompt_enhancer" in options:
+            options["prompt_enhancer"] = "0"
+        images = images[:1]
+    if args.transparent and model not in models.TRANSPARENT:
+        raise RuntimeError(f"{models.label(model)} doesn't make transparent images: choose a Qwen-Image 2.1 workflow.")
+    args.option = list(options.items())
+    comfy = ImageClient(options)
     takes = comfy.takes()
     if not takes["min_images"] <= len(images) <= takes["max_images"]:
         raise RuntimeError(f"This workflow takes {takes['min_images']}-{takes['max_images']} images, not {len(images)}.")
-    llm = None if args.direct else args.llm or planner.default_llm()
+    direct = args.direct or region_edit
+    llm = None if direct else args.llm or planner.default_llm()
     if llm and not planner.llm_configured(llm):
         raise RuntimeError(f"{llm} has no credentials: see .env.example.")
-    model = comfy.model()
     width, height = media.pick_size(args.size, args.aspect, args.megapixels, images[0].size if images else None,
-                                    models.MOST_MEGAPIXELS.get(model))
+                                    models.most_megapixels(model, args.compose))
     # Before the LLM is paid for anything.
-    problem = models.size_problem(model, width, height) or models.count_problem(model, args.count, args.direct)
+    problem = (None if region_edit else models.size_problem_for(model, width, height, args.compose)) \
+        or models.count_problem(model, args.count, direct)
     if problem:
         raise RuntimeError(problem)
 
-    state = RunState.new(args.prompt, args.count, args.direct, width, height, llm, os.getenv("COMFYUI_WORKFLOW") or None, len(images))
+    brief = args.prompt or ""
+    state = RunState.new(brief, args.count, direct, width, height, llm, os.getenv("COMFYUI_WORKFLOW") or None, len(images))
     state.inputs = inputs
-    state.options = dict(args.option) or None
+    state.options = options or None
+    state.compose, state.transparent, state.detail = args.compose, args.transparent, args.reference_detail
     for image, path in zip(images, state.input_paths):
         media.save_source(image, path)
+    taken = set(args.source_seed)
+    for path in args.image:
+        taken |= media.seeds_in(path)
+    state.source_seeds = sorted(taken) or None
     print_stage("Prompts", stages)
     print(f"🗂️ Run folder: {state.id}")
-    if args.direct:
+    if region_edit:
+        title, versions = plan_region(state, args, model)
+    elif args.direct:
         title = " ".join(args.prompt.split()[:6])
         versions = [{"title": f"Version {number}", "prompt": args.prompt} for number in range(1, args.count + 1)]
     else:
         print(f"🧠 {llm} is writing {args.count} {'prompt' if args.count == 1 else 'prompts'}...")
-        title, versions = image_planner.write_prompts([video_media.preview_jpeg(image) for image in images], args.prompt, args.count, llm, model)
+        title, versions = image_planner.write_prompts([video_media.preview_jpeg(image) for image in images], args.prompt, args.count, llm, model,
+                                                      compose=args.compose, transparent=args.transparent)
     shots = [{"number": number, "file": None, "seed": seeds.nth(args.seed, number - 1), **version}
              for number, version in enumerate(versions, 1)]
     # At once: the prompts are what was paid for.
     output_name = unique_name(paths.OUTPUT_DIR, f"{title_words(title, 'images')}_{shorthand(state.workflow, 'image')}")
     state.update(title=title, shots=shots, output_name=output_name)
 
-    print(f"🖼️ {title}, {width}x{height}")
+    print(f"🖼️ {title}, {state.width}x{state.height}")
     for shot in shots:
         print(f"\n{shot['number']}. {shot['title']}\n   {shot['prompt']}")
     return state
 
 
+def _region_fingerprint(args):
+    """What a region edit changes, so a stopped one is only continued by the same edit."""
+    if args.expand:
+        return f"expand:{args.expand}:{args.prompt or ''}"
+    try:
+        with open(args.areas, "r", encoding="utf-8") as f:
+            spec = json.load(f)
+        with open(spec["mask"], "rb") as f:
+            painted = hashlib.sha256(f.read()).hexdigest()
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise RuntimeError(f"Can't read the painted areas in {args.areas}: {e}")
+    return f"areas:{json.dumps(spec.get('areas'), sort_keys=True)}:{painted}"
+
+
+def plan_region(state, args, model):
+    """Prepares a region edit (pipelines/image/regions.py) and its prompt, the same for every version: they differ by seed."""
+    budget = models.TOKEN_BUDGET.get(model)
+    try:
+        if args.expand:
+            region = regions.prepare_expand(state.input_paths[0], *args.expand, state.folder, args.prompt or "", budget)
+            title = "Expanded" + (f" {' '.join(args.prompt.split()[:5])}" if args.prompt else "")
+        else:
+            with open(args.areas, "r", encoding="utf-8") as f:
+                spec = json.load(f)
+            region = regions.prepare_areas(state.input_paths[0], spec["mask"], spec.get("areas") or [], state.folder, budget)
+            first = region["areas"][0]
+            title = (f"{first.get('action', 'change').capitalize()} {' '.join((first.get('text') or '').split()[:5])}".strip()
+                     if len(region["areas"]) == 1 else f"{len(region['areas'])} changes")
+    except (OSError, KeyError, TypeError) as e:
+        raise RuntimeError(f"Can't read the painted areas: {e}")
+    except ValueError as e:
+        raise RuntimeError(str(e))
+    state.region = region
+    state.width, state.height = region["size"]
+    print(f"✍️ Working on {region['work'][0]}x{region['work'][1]}, for a {state.width}x{state.height} image.")
+    versions = [{"title": f"Version {number}", "prompt": region["prompt"]} for number in range(1, args.count + 1)]
+    return title, versions
+
+
+def enhance_only(state, args):
+    """
+    Has the workflow's prompt enhancer write every image's prompt, each on its own seed, and stops so they can be read
+    and changed. What it wrote then goes to the model as it is: the enhancer is switched off for the rest of the run.
+    """
+    options = dict(args.option)
+    comfy = ImageClient(options)
+    if not comfy.wait_until_reachable():
+        raise RuntimeError(f"ComfyUI isn't running at {comfy.url}. Start it first: the prompts are saved.")
+    images = upload_images(state, comfy)
+    print(f"✍️ The workflow's prompt enhancer is writing {len(state.shots)} {'prompt' if len(state.shots) == 1 else 'prompts'}...")
+    for position, shot in enumerate(state.shots, 1):
+        seed = seeds.pick(shot.get("seed"))
+        written = comfy.enhance(shot["prompt"], images, seed)
+        if not written:
+            raise RuntimeError("This workflow has no prompt enhancer switched on: choose it under What writes the prompts.")
+        shot["enhanced_from"], shot["prompt"] = shot["prompt"], written
+        print(f"\n{position}. {written}")
+        state.save()
+    if "prompt_enhancer" in options:
+        options["prompt_enhancer"] = "0"
+    state.options = options
+    state.save()
+    print(f"\n📝 Change any prompt in the panel or {state.path}, then: python -m pipelines.image.main --resume {state.id}")
+    return 0
+
+
 def upload_images(state, comfy):
-    """The source images in ComfyUI, the first at the size asked for, as a workflow that follows it comes out that size."""
+    """
+    The images in ComfyUI. Edited, the first is fitted to the size asked for, as a workflow that follows it comes out
+    that size, and the rest are shown smaller (reference detail). As references for a new picture, all are. A region
+    edit uploads what regions.py prepared instead.
+    """
+    name = lambda number: f"autocomfyui_{state.id}{'' if number == 1 else f'_{number}'}.png"
+    if state.region:
+        return [comfy.upload(os.path.join(state.folder, shown), name(number)) for number, shown in enumerate(state.region["shown"], 1)]
     if not state.input_paths:
         return []
-    first = media.fit(state.input_paths[0], *comfy.render_size(state.width, state.height), state.fitted_path)
-    return [comfy.upload(path, f"autocomfyui_{state.id}{'' if number == 1 else f'_{number}'}.png")
-            for number, path in enumerate([first, *state.input_paths[1:]], 1)]
+    made = comfy.render_size(state.width, state.height)
+    sources = list(state.input_paths)
+    if not state.compose:
+        sources[0] = media.fit(sources[0], *made, state.fitted_path)
+    sizes = models.reference_sizes(comfy.model(), made, [media.size_of(path) for path in sources], state.detail, editing=not state.compose)
+    shown = []
+    for number, (path, size) in enumerate(zip(sources, sizes), 1):
+        if tuple(size) != tuple(media.size_of(path)):
+            path = media.resized(path, size, os.path.join(state.folder, f"shown_{number}.png"))
+        shown.append(path)
+    return [comfy.upload(path, name(number)) for number, path in enumerate(shown, 1)]
 
 
 def render_image(state, comfy, shot, images):
     """Renders until the file holds up, on a new seed each time. Returns its path, or None."""
     save_as = os.path.join(state.output_dir, state.file_stem(shot))
-    rendered = comfy.render_size(state.width, state.height)
+    rendered = tuple(state.region["work"]) if state.region else comfy.render_size(state.width, state.height)
+    taken = set(state.source_seeds or ())
     for attempt in range(1, IMAGE_ATTEMPTS + 1):
         seed = seeds.pick(shot.get("seed"), attempt)
+        if seed in taken:
+            avoided = seeds.avoid(seed, taken)
+            print(f"      🌱 Seed {seed} made the image this starts from, and would come out over-sharpened: using {avoided} instead.")
+            seed = avoided
         print(f"      🌱 Seed {seed}")
         try:
-            path = comfy.render_image(shot["prompt"], images, *rendered, save_as, seed)
+            path = comfy.render_image(shot["prompt"], images, *rendered, save_as, seed, transparent=state.transparent)
         except (RuntimeError, OSError, ValueError) as e:
             print(f"      ❌ {e} (attempt {attempt}/{IMAGE_ATTEMPTS}).")
             continue
         problem = media.image_problem(path)
         if not problem:
-            media.trim(path, rendered, (state.width, state.height))
+            if state.region:
+                path = regions.composite(path, state.region, state.input_paths[0], state.folder, path)
+            else:
+                media.trim(path, rendered, (state.width, state.height))
             shot["used_seed"] = seed
             # What the workflow's prompt enhancer made of the prompt, for the prompts view to show.
             if getattr(comfy, "enhanced", None):
@@ -262,6 +408,8 @@ def run(args):
             print(f"📝 Change any prompt in the panel or {state.path}, then: python -m pipelines.image.main --resume {state.id}")
             return 0
 
+    if not args.resume and args.enhance_only:
+        return enhance_only(state, args)
     print_stage("Images", stages)
     comfy = ImageClient(dict(args.option))
     if not comfy.wait_until_reachable():

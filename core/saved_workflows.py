@@ -40,6 +40,8 @@ IMAGE_PREFIX = "image_"
 IMAGE_SAVES = ("SaveImage", "SaveImageAdvanced", "Image Saver")
 PREVIEW = "PreviewImage"
 SWITCHES = ("ComfySwitchNode",)
+# Show the text that passes through them, as ComfyUI's Qwen-Image 2.1 templates show the prompt on its way to the model.
+TEXT_PREVIEWS = ("PreviewAny",)
 # Snap the source image to a size of their own. The pipeline fits it to the size you chose instead.
 IMAGE_SCALERS = ("FluxKontextImageScale",)
 # What a model file's name can differ by and still be that model: a precision or format after it, such as
@@ -53,6 +55,8 @@ VIDEO_SAVES = ("SaveVideo", "VHS_VideoCombine", "CreateVideo", "SaveWEBM", "Save
 # or else by the type its text encoder is loaded as.
 IMAGE_MODEL_NODES = {"TextEncodeFibo2": "fibo2", "TextEncodeQwenImageEditPlus": "qwen_image_edit"}
 IMAGE_MODEL_ENCODERS = ("fibo2", "krea2")
+# Qwen-Image 2.1's encoder, for making images and editing them: which it does depends on whether it's given an image.
+QWEN_IMAGE_21_ENCODER = "TextEncodeQwenImage21"
 # How a subgraph's links name the two ends it has in place of nodes.
 SUBGRAPH_IN, SUBGRAPH_OUT = -10, -20
 # Far more than any workflow has. Only subgraphs that contain each other get this far.
@@ -85,20 +89,50 @@ def _link_row(link):
 
 # The input types a node shows as a widget, rather than a socket to plug into.
 WIDGET_TYPES = ("INT", "FLOAT", "STRING", "BOOLEAN", "COMBO")
+# A dropdown whose choice brings widgets of its own, saved after it as name.widget, as Generate Text's sampling mode.
+DYNAMIC_COMBO = "COMFY_DYNAMICCOMBO_V3"
+
+
+def _is_widget(config):
+    kind = config[0]
+    forced = len(config) > 1 and isinstance(config[1], dict) and config[1].get("forceInput")
+    return (isinstance(kind, list) or kind in WIDGET_TYPES or kind == DYNAMIC_COMBO) and not forced
+
+
+def _spec_inputs(spec):
+    inputs = spec.get("input", {})
+    return {**inputs.get("required", {}), **inputs.get("optional", {})}
+
+
+def _chosen_widgets(config, choice):
+    """The widgets a dynamic dropdown's choice brings with it, in the order they're saved."""
+    for option in config[1].get("options", []) if len(config) > 1 and isinstance(config[1], dict) else []:
+        if isinstance(option, dict) and option.get("key") == choice:
+            inputs = option.get("inputs", {})
+            return {**inputs.get("required", {}), **inputs.get("optional", {})}
+    return {}
 
 
 def _widget_names(node, spec):
     """
     The names of a node's widgets, in the order their values are saved. The editor lists them among the node's inputs;
-    a node saved before it did has only its values, so the names come from ComfyUI's own order for its inputs.
+    a node saved before it did has only its values, so the names come from ComfyUI's own order for its inputs. So do
+    they when it lists fewer than it saved values for, as ComfyUI's Qwen-Image 2.1 template does with its encoder's
+    resolution: listed are only those it can plug into.
     """
     names = [entry["widget"]["name"] for entry in node.get("inputs", []) if "widget" in entry]
-    if names or not spec:
+    if not spec:
         return names
-    inputs = spec.get("input", {})
-    every = {**inputs.get("required", {}), **inputs.get("optional", {})}
+    every = _spec_inputs(spec)
     order = [*spec.get("input_order", {}).get("required", []), *spec.get("input_order", {}).get("optional", [])] or list(every)
-    return [name for name in order if name in every and (isinstance(every[name][0], list) or every[name][0] in WIDGET_TYPES)]
+    widgets = [name for name in order if name in every and _is_widget(every[name])]
+    if not names:
+        return widgets
+    values = node.get("widgets_values")
+    seeds = sum(1 for value in values if value in SEED_CONTROLS) if isinstance(values, list) else 0
+    if isinstance(values, list) and len(values) - seeds > len(names) and {name.split(".")[0] for name in names} <= set(widgets):
+        return widgets
+    return names
 
 
 def _widgets_of(node, spec=None):
@@ -107,9 +141,12 @@ def _widgets_of(node, spec=None):
     if isinstance(values, dict):
         return {name: value for name, value in values.items() if name != "videopreview"}
     values = list(values or [])
+    every = _spec_inputs(spec) if spec else {}
     inputs = {}
     position = 0
-    for name in _widget_names(node, spec):
+    waiting = list(_widget_names(node, spec))
+    while waiting:
+        name = waiting.pop(0)
         if position >= len(values):
             break
         inputs[name] = values[position]
@@ -117,10 +154,37 @@ def _widgets_of(node, spec=None):
         # The dropdown saved after a seed, which only the editor reads.
         if position < len(values) and values[position] in SEED_CONTROLS and isinstance(inputs[name], int):
             position += 1
+        config = every.get(name)
+        if config and config[0] == DYNAMIC_COMBO:
+            brought = [f"{name}.{widget}" for widget, sub in _chosen_widgets(config, inputs[name]).items() if _is_widget(sub)]
+            waiting = brought + [other for other in waiting if other not in brought]
     # Widgets a node's own script added, such as Power Lora Loader's list.
     loras = [value for value in values[position:] if isinstance(value, dict) and "lora" in value]
     inputs.update({f"lora_{number}": lora for number, lora in enumerate(loras, 1)})
     return inputs
+
+
+def face_names(instance, subgraph):
+    """
+    The names of a subgraph face's saved values, in order. Its values follow the face's widgets; a newer editor saves
+    one for each of the subgraph's inputs a value can be typed into, in the subgraph's order, while listing only some
+    on the face, as ComfyUI's Qwen-Image 2.1 templates are saved.
+    """
+    values = instance.get("widgets_values")
+    typed = [entry["name"] for entry in subgraph.get("inputs", []) if entry.get("type") in WIDGET_TYPES]
+    listed = [entry["widget"]["name"] for entry in instance.get("inputs", []) if "widget" in entry]
+    return typed if isinstance(values, list) and len(values) == len(typed) > len(listed) else listed
+
+
+def _face_widgets(instance, subgraph):
+    """What a subgraph's face is set to, by name."""
+    values = instance.get("widgets_values")
+    if isinstance(values, dict):
+        return _widgets_of(instance)
+    names = face_names(instance, subgraph)
+    if names != [entry["widget"]["name"] for entry in instance.get("inputs", []) if "widget" in entry]:
+        return dict(zip(names, values))
+    return _widgets_of(instance)
 
 
 def _open_subgraph(instance, subgraph, nodes, links, node_ids, link_ids):
@@ -137,7 +201,7 @@ def _open_subgraph(instance, subgraph, nodes, links, node_ids, link_ids):
     nodes += inner
 
     outer_inputs = {entry["name"]: entry for entry in instance.get("inputs", [])}
-    widgets = _widgets_of(instance)
+    widgets = _face_widgets(instance, subgraph)
     outputs = {}
     for link_id, origin, slot, target, target_slot, kind in map(_link_row, subgraph.get("links", [])):
         if target == SUBGRAPH_OUT:
@@ -338,6 +402,14 @@ def _settle_switches(api, enhance=False):
             return
 
 
+def _skip_text_previews(api):
+    """A Preview Any between a prompt and what reads it only shows it in the editor: what reads it takes the prompt itself."""
+    for node_id, node in list(api.items()):
+        if node["class_type"] in TEXT_PREVIEWS and "source" in node["inputs"]:
+            _replace_uses(api, node_id, 0, node["inputs"]["source"])
+            del api[node_id]
+
+
 def _skip_image_scalers(api):
     for node_id, node in list(api.items()):
         if node["class_type"] in IMAGE_SCALERS:
@@ -418,6 +490,7 @@ def to_api(ui, info, images=False, enhance=False):
         if not saves:
             raise Unusable("It doesn't save an image the pipeline can pick up: it needs a Save Image node.")
         _settle_switches(api, enhance)
+        _skip_text_previews(api)
         _skip_image_scalers(api)
     else:
         _keep_out_of_output_folder(api, info)
@@ -492,10 +565,12 @@ def _image_fields(api, info):
     for number, (_, node_id, users) in enumerate(sorted(found, key=lambda entry: (_in_number_order(entry[0]), entry[1])), 1):
         slot = "image" if number == 1 else f"image_{number}"
         fields[slot] = [str(node_id), "image"]
-        if len(users) == 1:
-            user_id, name = users[0]
-            if _can_be_left_empty(info[api[user_id]["class_type"]], name):
-                fields[f"{slot}_link"] = [user_id, name]
+        # One left empty comes out of everything it's plugged into, as Qwen-Image 2.1's go to its encoder and to what its
+        # prompt enhancer looks at: only if each of them runs without it.
+        if users and all(_can_be_left_empty(info[api[user_id]["class_type"]], name) for user_id, name in users):
+            fields[f"{slot}_link"] = list(users[0])
+            if len(users) > 1:
+                fields[f"{slot}_also"] = [list(user) for user in users[1:]]
     return fields
 
 
@@ -506,7 +581,28 @@ def _can_be_left_empty(spec, name):
     if group in inputs.get("optional", {}):
         return True
     config = inputs.get("required", {}).get(group)
-    return "." in name and isinstance(config, list) and bool(config) and config[0] == "COMFY_AUTOGROW_V3" and _least(config[1:]) == 0
+    if not ("." in name and isinstance(config, list) and bool(config) and config[0] == "COMFY_AUTOGROW_V3"):
+        return False
+    # Those past the fewest it takes: a batch that needs one image runs without its second.
+    least = _least(config[1:]) or 0
+    entry = name.split(".", 1)[1]
+    names = next((found for found in _all_values(config[1:], "names") if isinstance(found, list)), None)
+    if names and entry in names:
+        return names.index(entry) >= least
+    number = re.search(r"(\d+)$", entry)
+    return bool(number) and int(number.group(1)) >= least
+
+
+def _all_values(config, key):
+    """Every value under this key, however deep the settings keep it."""
+    if isinstance(config, dict):
+        for found_key, value in config.items():
+            if found_key == key:
+                yield value
+            yield from _all_values(value, key)
+    elif isinstance(config, list):
+        for value in config:
+            yield from _all_values(value, key)
 
 
 def _users(api, node_id, slot=None):
@@ -630,12 +726,22 @@ def find_image_fields(api, info):
     return fields
 
 
+# Models that edit an image: image 1 is what they edit, so it's always needed, and the rest are optional.
+EDIT_MODELS = ("qwen_image_21_edit",)
+
+
 def image_takes(fields, model=None, options=None):
     """
     As takes(), whether its size can be chosen (by its own inputs, or by the source image it follows), its model,
-    and what else a run can change in it, if anything (core/workflow_options.py).
+    and what else a run can change in it, if anything (core/workflow_options.py). A model that holds fewer images
+    than its workflow has room for takes only those (pipelines/image/models.py).
     """
+    from pipelines.image import models
     found = {**takes(fields), "size": "width" in fields or bool(image_slots(fields)), "model": model}
+    if model in models.MOST_IMAGES:
+        found["max_images"] = min(found["max_images"], models.MOST_IMAGES[model])
+    if model in EDIT_MODELS and found["max_images"]:
+        found["min_images"] = max(found["min_images"], 1)
     return {**found, "options": options} if options else found
 
 
@@ -649,6 +755,11 @@ def image_model(api):
     for node in api.values():
         if node["class_type"] in IMAGE_MODEL_NODES:
             return IMAGE_MODEL_NODES[node["class_type"]]
+    for node in api.values():
+        if node["class_type"] == QWEN_IMAGE_21_ENCODER:
+            # An edit shows the model its image as well as making one that size, so it holds less: models.py.
+            edits = any(name.startswith("images.") and isinstance(value, list) for name, value in node["inputs"].items())
+            return "qwen_image_21_edit" if edits else "qwen_image_21"
     for node in api.values():
         if node["class_type"] == "CLIPLoader" and node["inputs"].get("type") in IMAGE_MODEL_ENCODERS:
             return node["inputs"]["type"]
@@ -765,8 +876,10 @@ def _grow_references(api, info):
     """
     Wires more Load Image nodes into a reference input that grows (ref_images.ref_image_0, _1...),
     up to MOST_REFERENCES or the node's own limit. Each new one is optional, so one left empty
-    comes out of the workflow again.
+    comes out of the workflow again. Inputs that already share their images, as Qwen-Image 2.1's encoder and the
+    batch its prompt enhancer looks at do, grow together: each new image goes to all of them, never one of its own.
     """
+    growing = []
     for node_id, node in list(api.items()):
         spec = _input_spec(info.get(node["class_type"], {}))
         for group, config in spec.items():
@@ -781,11 +894,30 @@ def _grow_references(api, info):
                 if group in (VIDEO_GROUP, AUDIO_GROUP) and not any(name.startswith(f"{group}.") for name in node["inputs"]):
                     _add_media_references(api, node, group, _most(config[1:]) or MOST_MEDIA_REFERENCES, VIDEO_SOUND_GROUP in spec)
                 continue
-            most = min(MOST_REFERENCES, _most(config[1:]) or MOST_REFERENCES)
-            prefix, example = wired[max(wired)]
-            for number in range(max(wired) + 1, max(wired) + 1 + most - len(wired)):
-                added = _add_node(api, "LoadImage", dict(api[example]["inputs"]), f"Reference {number + 1} (added by the pipeline)")
-                node["inputs"][f"{group}.{prefix}{number}"] = [added, 0]
+            growing.append({"node": node, "group": group, "wired": wired, "most": min(MOST_REFERENCES, _most(config[1:]) or MOST_REFERENCES)})
+    clusters = []
+    for entry in growing:
+        sources = {source for _, source in entry["wired"].values()}
+        joined = [cluster for cluster in clusters if cluster["sources"] & sources]
+        cluster = {"members": [entry], "sources": set(sources)}
+        for other in joined:
+            clusters.remove(other)
+            cluster["members"] += other["members"]
+            cluster["sources"] |= other["sources"]
+        clusters.append(cluster)
+    for cluster in clusters:
+        members = cluster["members"]
+        # The one wired to the most leads; the others take the same new images, in order, after theirs.
+        lead = max(members, key=lambda entry: len(entry["wired"]))
+        most = min(entry["most"] for entry in members)
+        example = lead["wired"][max(lead["wired"])][1]
+        for count in range(len(lead["wired"]) + 1, most + 1):
+            added = _add_node(api, "LoadImage", dict(api[example]["inputs"]), f"Reference {count} (added by the pipeline)")
+            for entry in members:
+                prefix = entry["wired"][max(entry["wired"])][0]
+                number = max(entry["wired"]) + 1
+                entry["wired"][number] = (prefix, added)
+                entry["node"]["inputs"][f"{entry['group']}.{prefix}{number}"] = [added, 0]
 
 
 def _add_node(api, class_type, inputs, title):

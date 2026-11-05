@@ -121,8 +121,8 @@ class ComfyClient:
             if position < len(images):
                 self._set(workflow, slot, images[position])
             elif f"{slot}_link" in self.fields:
-                node_id, input_name = self.fields[f"{slot}_link"]
-                del workflow[node_id]["inputs"][input_name]
+                for node_id, input_name in [self.fields[f"{slot}_link"], *self.fields.get(f"{slot}_also", [])]:
+                    workflow.get(node_id, {}).get("inputs", {}).pop(input_name, None)
                 # Nothing uses it now, and an image it can't find would still stop ComfyUI.
                 workflow.pop(self.fields[slot][0], None)
             else:

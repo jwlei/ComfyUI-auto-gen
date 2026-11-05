@@ -476,5 +476,83 @@ class FieldsTest(unittest.TestCase):
         self.assertEqual(frames_for(1, 16) % 4, 1)
 
 
+class QwenImage21TemplateTest(unittest.TestCase):
+    """How ComfyUI's Qwen-Image 2.1 templates are saved: by a newer editor, which lists fewer widgets than it saves."""
+
+    ENCODER = {"display_name": "Text Encode Qwen Image 2.1", "input_order": {"required": ["clip", "prompt", "negative_prompt", "resolution", "images"]},
+               "input": {"required": {"clip": ["CLIP"], "prompt": ["STRING", {}], "negative_prompt": ["STRING", {}],
+                                      "resolution": ["INT", {"default": 1024}], "images": ["COMFY_AUTOGROW_V3", {}]}}}
+    GENERATE = {"display_name": "Generate Text", "input_order": {"required": ["clip", "prompt", "max_length", "sampling_mode"],
+                                                                 "optional": ["thinking", "mtp", "system_prompt"]},
+                "input": {"required": {"clip": ["CLIP"], "prompt": ["STRING", {}], "max_length": ["INT", {}],
+                                       "sampling_mode": ["COMFY_DYNAMICCOMBO_V3", {"options": [
+                                           {"key": "on", "inputs": {"required": {"temperature": ["FLOAT", {}], "seed": ["INT", {}]},
+                                                                    "optional": {"presence_penalty": ["FLOAT", {}]}}},
+                                           {"key": "off", "inputs": {"required": {}}}]}]},
+                          "optional": {"thinking": ["BOOLEAN", {}], "mtp": ["COMBO", {"options": ["auto", "off"]}],
+                                       "system_prompt": ["STRING", {"forceInput": True}]}}}
+
+    def test_a_widget_it_didnt_list_still_gets_its_value(self):
+        node = _ui_node(1, "TextEncodeQwenImage21", {"prompt": "", "negative_prompt": ""}, values=["a cat", "", 1024])
+        self.assertEqual(saved_workflows._widgets_of(node, self.ENCODER), {"prompt": "a cat", "negative_prompt": "", "resolution": 1024})
+
+    def test_a_dropdowns_own_widgets_follow_its_choice(self):
+        node = _ui_node(1, "TextGenerate", {"prompt": "", "max_length": 0, "sampling_mode.seed": 0},
+                        values=["", 4096, "on", 1.0, 7, 1.5, True, "auto"])
+        self.assertEqual(saved_workflows._widgets_of(node, self.GENERATE),
+                         {"prompt": "", "max_length": 4096, "sampling_mode": "on", "sampling_mode.temperature": 1.0, "sampling_mode.seed": 7,
+                          "sampling_mode.presence_penalty": 1.5, "thinking": True, "mtp": "auto"})
+        off = _ui_node(1, "TextGenerate", {"prompt": ""}, values=["", 512, "off", False, "auto"])
+        self.assertEqual(saved_workflows._widgets_of(off, self.GENERATE),
+                         {"prompt": "", "max_length": 512, "sampling_mode": "off", "thinking": False, "mtp": "auto"})
+
+    def test_a_face_saved_with_a_value_for_every_input_reads_in_the_subgraphs_order(self):
+        subgraph = {"inputs": [{"name": "prompt", "type": "STRING"}, {"name": "switch", "type": "BOOLEAN"}, {"name": "width", "type": "INT"},
+                               {"name": "scheduler", "type": "COMBO"}, {"name": "images.image_1", "type": "IMAGE"}]}
+        face = _ui_node(9, "sg", {"prompt": "", "scheduler": ""}, values=["a cat", False, 1024, "euler"])
+        self.assertEqual(saved_workflows._face_widgets(face, subgraph), {"prompt": "a cat", "switch": False, "width": 1024, "scheduler": "euler"})
+        listed = _ui_node(9, "sg", {"prompt": "", "scheduler": ""}, values=["a cat", "euler"])
+        self.assertEqual(saved_workflows._face_widgets(listed, subgraph), {"prompt": "a cat", "scheduler": "euler"}, "as before, when they match")
+
+    def test_a_text_preview_on_the_way_to_the_model_is_stepped_over(self):
+        api = {"1": {"class_type": "PreviewAny", "inputs": {"source": "a cat"}, "_meta": {"title": "Preview Any"}},
+               "2": {"class_type": "TextEncodeQwenImage21", "inputs": {"prompt": ["1", 0]}, "_meta": {"title": "Encode"}}}
+        saved_workflows._skip_text_previews(api)
+        self.assertEqual(api, {"2": {"class_type": "TextEncodeQwenImage21", "inputs": {"prompt": "a cat"}, "_meta": {"title": "Encode"}}})
+
+    def test_which_qwen_image_21_it_is_follows_whether_it_is_given_an_image(self):
+        made = {"1": {"class_type": "TextEncodeQwenImage21", "inputs": {"prompt": "x", "resolution": 1024}}}
+        edited = {"1": {"class_type": "TextEncodeQwenImage21", "inputs": {"prompt": "x", "images.image_1": ["2", 0]}}}
+        self.assertEqual(image_model(made), "qwen_image_21")
+        self.assertEqual(image_model(edited), "qwen_image_21_edit")
+
+
+
+class LoraFamilyTest(unittest.TestCase):
+    """A LoRA made for an earlier Qwen-Image does nothing on 2.1: told apart by its layers, from its header."""
+
+    def make(self, folder, name, keys):
+        import json
+        import struct
+        header = json.dumps({key: {"dtype": "F16", "shape": [1], "data_offsets": [0, 2]} for key in keys}).encode()
+        with open(os.path.join(folder, "models", "loras", name), "wb") as f:
+            f.write(struct.pack("<Q", len(header)) + header + bytes(2))
+
+    def test_an_earlier_qwen_image_lora_is_refused_on_2_1_only(self):
+        from unittest import mock
+        from core import lora_check
+        folder = tempfile.mkdtemp()
+        os.makedirs(os.path.join(folder, "models", "loras"))
+        self.make(folder, "old.safetensors", ["transformer_blocks.0.img_mlp.net.0.proj.lora_down.weight"])
+        self.make(folder, "new.safetensors", ["diffusion_model.transformer_blocks.0.img_mlp.gate_up.lora_A.weight"])
+        self.make(folder, "other.safetensors", ["lora_unet_down_blocks_0.weight"])
+        with mock.patch.dict(os.environ, {"COMFYUI_DIR": folder, "COMFYUI_LAUNCHER": ""}):
+            self.assertIn("earlier Qwen-Image", lora_check.problem("old.safetensors", "qwen_image_21"))
+            self.assertIn("earlier Qwen-Image", lora_check.problem("old.safetensors", "qwen_image_21_edit"))
+            self.assertIsNone(lora_check.problem("new.safetensors", "qwen_image_21"))
+            self.assertIsNone(lora_check.problem("other.safetensors", "qwen_image_21"), "not telling, so not refused")
+            self.assertIsNone(lora_check.problem("old.safetensors", "krea2"), "only Qwen-Image 2.1 is checked")
+            self.assertIsNone(lora_check.problem("gone.safetensors", "qwen_image_21"))
+
 if __name__ == "__main__":
     unittest.main()

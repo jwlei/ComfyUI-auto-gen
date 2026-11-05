@@ -1321,7 +1321,7 @@ def page_error():
 @app.route("/api/presets", methods=["GET", "POST"])
 @password_required
 def presets():
-    """A side's settings under a name: kept here, so every device has the same ones. POST saves one, or deletes it."""
+    """A side's settings under a name: kept here, so every device has the same ones. POST saves one, deletes it, or makes it the default."""
     if request.method == "GET":
         return {"ok": True, "presets": load_presets()}
     body = request.get_json(silent=True) or {}
@@ -1329,13 +1329,25 @@ def presets():
     if side not in PRESET_SIDES or not name:
         return {"ok": False, "error": "A preset needs a side and a name."}, 400
     saved = load_presets()
-    kept = [p for p in saved[side] if p["name"] != name]
-    if not body.get("delete"):
-        values = body.get("values")
-        if not isinstance(values, dict):
-            return {"ok": False, "error": "A preset needs its settings."}, 400
-        kept.append({"name": name, "values": {str(k): v for k, v in values.items() if isinstance(v, (str, bool, int, float))}})
-    saved[side] = sorted(kept, key=lambda p: p["name"].casefold())
+    if "default" in body and "values" not in body and not body.get("delete"):
+        # The side's default, set as the page opens: one at most, so making one the default unmakes the last.
+        if not any(p["name"] == name for p in saved[side]):
+            return {"ok": False, "error": "There is no preset of that name."}, 404
+        for p in saved[side]:
+            p.pop("default", None)
+            if body["default"] and p["name"] == name:
+                p["default"] = True
+    else:
+        old = next((p for p in saved[side] if p["name"] == name), {})
+        kept = [p for p in saved[side] if p["name"] != name]
+        if not body.get("delete"):
+            values = body.get("values")
+            if not isinstance(values, dict):
+                return {"ok": False, "error": "A preset needs its settings."}, 400
+            # Saved over, it stays the default if it was one.
+            kept.append({"name": name, "values": {str(k): v for k, v in values.items() if isinstance(v, (str, bool, int, float))},
+                         **({"default": True} if old.get("default") else {})})
+        saved[side] = sorted(kept, key=lambda p: p["name"].casefold())
     try:
         os.makedirs(os.path.dirname(PRESETS_PATH), exist_ok=True)
         with open(PRESETS_PATH + ".tmp", "w", encoding="utf-8") as f:

@@ -80,8 +80,12 @@ class _ComfyHandler(_Handler):
             if prompt_id in state.hanging:
                 self._send({})
             elif prompt_id in state.errors:
+                message = "out of memory" if state.errors[prompt_id] == "error" else "the node failed"
                 self._send({prompt_id: {"status": {"status_str": "error", "messages": [
-                    ["execution_error", {"node_type": "FakeNode", "exception_message": "out of memory"}]]}}})
+                    ["execution_error", {"node_type": "FakeNode", "exception_message": message}]]}}})
+            elif prompt_id in state.texts:
+                # Only the enhancer was run: what it wrote, on the Preview Any watching it.
+                self._send({prompt_id: {"status": {"completed": True}, "outputs": state.texts[prompt_id]}})
             else:
                 self._send({prompt_id: {"status": {"completed": True}, "outputs": {"140": {"gifs": [
                     {"filename": f"{prompt_id}.png", "type": "temp"},
@@ -101,6 +105,9 @@ class _ComfyHandler(_Handler):
             part = next(p for p in body.split(b"--" + boundary) if b'name="image"' in p)
             state.uploads.append(part.split(b"\r\n\r\n", 1)[1])
             self._send({"name": "uploaded.png", "subfolder": ""})
+        elif self.path == "/free":
+            state.frees += 1
+            self._send({})
         elif self.path == "/prompt":
             data = json.loads(body)
             with state.lock:
@@ -109,8 +116,16 @@ class _ComfyHandler(_Handler):
                 step = state.script.pop(0) if state.script else "ok"
             prompt_id = f"p{number}"
             seconds = _clip_seconds(data["prompt"])
-            if step == "error":
-                state.errors.add(prompt_id)
+            nodes = data["prompt"]
+            watching = [node_id for node_id, node in nodes.items() if node["class_type"] == "PreviewAny"]
+            if watching and not any(node["class_type"] in ("PreviewImage", "SaveImage", "VHS_VideoCombine", "SaveVideo") for node in nodes.values()):
+                writer = nodes[nodes[watching[0]]["inputs"]["source"][0]]["inputs"]
+                state.texts[prompt_id] = {watching[0]: {"text": [f"Enhanced: {writer.get('prompt')} ({number})"]}}
+                self._send({"prompt_id": prompt_id})
+                return
+            if step in ("error", "fail"):
+                # "error" runs out of memory, as most real failures do; "fail" is any other failure.
+                state.errors[prompt_id] = step
             elif step == "hang":
                 state.hanging.add(prompt_id)
                 state.queue = {"queue_running": [[0, prompt_id, {}, {"client_id": data["client_id"]}]], "queue_pending": []}
@@ -171,7 +186,7 @@ def fake_comfy(folder):
     server = _serve(_ComfyHandler)
     server.folder, server.lock = folder, threading.Lock()
     server.prompts, server.uploads, server.script, server.cancels = [], [], [], []
-    server.errors, server.hanging = set(), set()
+    server.errors, server.hanging, server.frees, server.texts = {}, set(), 0, {}
     server.queue = {"queue_pending": [], "queue_running": []}
     server.saved, server.object_info = {}, {}
     server.url = f"http://127.0.0.1:{server.server_port}"
@@ -234,6 +249,11 @@ OBJECT_INFO["MiniMaxH3ReferenceToVideo"] = {"display_name": "MiniMax H3 Referenc
                  for group, most in (("ref_images", 9), ("ref_videos", 3), ("ref_video_audios", 3), ("ref_audios", 3))}}}
 OBJECT_INFO["ComfySwitchNode"]["input"]["optional"] = {"on_false": ["COMFY_MATCHTYPE_V3", {}], "on_true": ["COMFY_MATCHTYPE_V3", {}]}
 OBJECT_INFO["TextEncodeQwenImageEditPlus"]["input"]["optional"] = {"image1": ["IMAGE"], "image2": ["IMAGE"]}
+# Qwen-Image 2.1's encoder: its images a growing list that can hold none, named image_1 on.
+OBJECT_INFO["TextEncodeQwenImage21"] = {"display_name": "Text Encode Qwen Image 2.1", "input_order": {"required": ["clip", "prompt", "resolution", "images"]},
+                                        "input": {"required": {"clip": ["CLIP"], "prompt": ["STRING", {}], "resolution": ["INT", {}], "images": [
+                                            "COMFY_AUTOGROW_V3", {"template": {"input": {"required": {"image": ["IMAGE", {}]}},
+                                                                               "names": [f"image_{n}" for n in range(1, 17)], "min": 0}}]}}}
 
 
 def saved_workflow():
@@ -375,6 +395,54 @@ def edit_image_workflow():
                _inside(4, 151, 0, 169, 1, "CONDITIONING"), _inside(5, 149, 0, 169, 2, "CONDITIONING"), _inside(6, 156, 0, 169, 3, "LATENT"),
                _inside(7, 169, 0, 158, 0, "LATENT"), _inside(344, 158, 0, -20, 0, "IMAGE"),
            ]}]}}
+
+
+def qwen21_edit_workflow():
+    """
+    Like ComfyUI's Qwen-Image 2.1 Turbo edit template: a Load Image into a subgraph whose face lists fewer widgets than
+    it saves values for, and a Custom size switch there that gives it a size of its own instead of image 1's.
+    """
+    return {"nodes": [
+        _ui_node(41, "LoadImage", {"image": "example.png"}, values=["example.png", "image"], outputs=["IMAGE", "MASK"]),
+        {**_ui_node(459, "sub-q21", {"prompt": "", "switch": False}, {"images.image_1": 704, "images.image_2": None}, ["IMAGE"]),
+         "widgets_values": [0, "saved instruction", False, 1024, 1024]},
+        _ui_node(195, "SaveImageAdvanced", {"filename_prefix": "Edit", "format": "png"}, {"images": 672}),
+    ], "links": [[704, 41, 0, 459, 0, "IMAGE"], [672, 459, 0, 195, 0, "IMAGE"]],
+       "definitions": {"subgraphs": [{"id": "sub-q21", "name": "Image Edit (Qwen Image 2.1 Turbo)", "inputs": [
+           {"name": "resolution", "type": "INT"}, {"name": "prompt", "type": "STRING"}, {"name": "switch", "type": "BOOLEAN", "label": "custom_size"},
+           {"name": "width", "type": "INT"}, {"name": "height", "type": "INT"},
+           {"name": "images.image_1", "type": "IMAGE"}, {"name": "images.image_2", "type": "IMAGE"}],
+           "outputs": [{"name": "IMAGE", "type": "IMAGE"}],
+           "nodes": [
+               _ui_node(1, "CheckpointLoader", {"ckpt_name": "model.safetensors"}, outputs=["MODEL", "CLIP"]),
+               _ui_node(474, "TextEncodeQwenImage21", {"resolution": 0}, {"clip": 1, "prompt": 743, "resolution": 725, "images.image_1": 710,
+                                                                          "images.image_2": 711}, ["CONDITIONING", "CONDITIONING", "LATENT"]),
+               _ui_node(456, "EmptyLatentImage", {"batch_size": 1}, {"width": 660, "height": 661}, ["LATENT"]),
+               _ui_node(468, "ComfySwitchNode", {}, {"on_false": 724, "on_true": 684, "switch": 703}, ["LATENT"]),
+               _ui_node(169, "KSampler", {"seed": 7, "steps": 8}, {"model": 3, "positive": 4, "negative": 5, "latent_image": 913}, ["LATENT"]),
+               _ui_node(158, "VAEDecode", links={"samples": 7}, outputs=["IMAGE"]),
+           ],
+           "links": [
+               _inside(725, -10, 0, 474, 2, "INT"), _inside(743, -10, 1, 474, 1, "STRING"), _inside(703, -10, 2, 468, 2, "BOOLEAN"),
+               _inside(660, -10, 3, 456, 0, "INT"), _inside(661, -10, 4, 456, 1, "INT"), _inside(710, -10, 5, 474, 3, "IMAGE"),
+               _inside(711, -10, 6, 474, 4, "IMAGE"), _inside(1, 1, 1, 474, 0, "CLIP"), _inside(3, 1, 0, 169, 0, "MODEL"),
+               _inside(4, 474, 0, 169, 1, "CONDITIONING"), _inside(5, 474, 1, 169, 2, "CONDITIONING"), _inside(724, 474, 2, 468, 0, "LATENT"),
+               _inside(684, 456, 0, 468, 1, "LATENT"), _inside(913, 468, 0, 169, 3, "LATENT"), _inside(7, 169, 0, 158, 0, "LATENT"),
+               _inside(650, 158, 0, -20, 0, "IMAGE"),
+           ]}]}}
+
+
+def qwen21_text_workflow():
+    """Qwen-Image 2.1 from text: its encoder given no image, an empty latent of the size asked for."""
+    return {"nodes": [
+        _ui_node(1, "CheckpointLoader", {"ckpt_name": "model.safetensors"}, outputs=["MODEL", "CLIP"]),
+        _ui_node(2, "TextEncodeQwenImage21", {"prompt": "saved prompt", "resolution": 1024}, {"clip": 1}, ["CONDITIONING", "CONDITIONING", "LATENT"]),
+        _ui_node(3, "EmptyLatentImage", {"width": 1024, "height": 1024, "batch_size": 1}, outputs=["LATENT"]),
+        _ui_node(4, "KSampler", {"seed": 7, "steps": 8}, {"model": 2, "positive": 3, "negative": 4, "latent_image": 5}, ["LATENT"]),
+        _ui_node(5, "VAEDecode", links={"samples": 6}, outputs=["IMAGE"]),
+        _ui_node(6, "PreviewImage", links={"images": 7}),
+    ], "links": [[1, 1, 1, 2, 0, "CLIP"], [2, 1, 0, 4, 0, "MODEL"], [3, 2, 0, 4, 1, "CONDITIONING"], [4, 2, 1, 4, 2, "CONDITIONING"],
+                 [5, 3, 0, 4, 3, "LATENT"], [6, 4, 0, 5, 0, "LATENT"], [7, 5, 0, 6, 0, "IMAGE"]]}
 
 
 def _placed(node, x, y):

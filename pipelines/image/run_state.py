@@ -35,6 +35,11 @@ class RunState:
     inputs: str = None  # Fingerprint of the images it was planned from, for Generate to recognise them
     output_name: str = None  # <title words>_<workflow>, the folder and the start of each file name; None for older sets
     options: dict = None  # The workflow's options as chosen, such as {"group_2nd_pass": "0"} (core/workflow_options.py)
+    compose: bool = False  # The images are references for a new picture, sized as asked, rather than image 1 edited
+    transparent: bool = False  # Made with a transparent background, on a model that makes one
+    detail: str = "standard"  # How big the images besides the one edited are shown: standard (about 1 MP) or full
+    source_seeds: list = None  # Seeds that made the images it starts from, which its own never repeat (core/seeds.py avoid)
+    region: dict = None  # Part of image 1 changed, or it expanded: what pipelines/image/regions.py prepared
 
     @classmethod
     def new(cls, brief, count, direct, width, height, llm=None, workflow=None, image_count=0):

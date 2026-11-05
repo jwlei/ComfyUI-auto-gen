@@ -21,6 +21,7 @@ import json
 import os
 import re
 
+from core import lora_check
 from core import saved_workflows as sw
 
 BYPASSERS = ("Fast Groups Bypasser (rgthree)", "Fast Groups Muter (rgthree)")
@@ -93,7 +94,7 @@ def _subgraphs(ui):
 def _face_choices(instance, subgraph, prefix, label):
     """A choice set on a subgraph's face that feeds a Custom Combo inside it, with that combo's list."""
     found = []
-    widgets = sw._widgets_of(instance)
+    widgets = sw._face_widgets(instance, subgraph)
     combos = {node["id"]: node for node in subgraph.get("nodes", []) if node["type"] == CHOOSER}
     for link in map(sw._link_row, subgraph.get("links", [])):
         if link[1] != sw.SUBGRAPH_IN or link[3] not in combos:
@@ -127,7 +128,7 @@ def _face_settings(instance, subgraph, info):
     The switches on a subgraph's face, as ComfyUI's templates have them (enable_lora, enable_turbo_mode), and what goes
     with each by name: lora_name and lora_strength with enable_lora. A value that goes with no switch isn't offered.
     """
-    widgets = sw._widgets_of(instance)
+    widgets = sw._face_widgets(instance, subgraph)
     faced = [(slot, entry, entry.get("label") or entry["name"]) for slot, entry in enumerate(subgraph.get("inputs", []))
              if entry["name"] in widgets and not FACE_SKIP.search(entry.get("label") or entry["name"])]
     switches = [{"id": f"face_{_slug(label)}", "kind": "switch", "label": _words(label), "default": ON if widgets[entry["name"]] else OFF,
@@ -225,11 +226,13 @@ def _before(ui, options, chosen):
             if _inside(node, group) and node["type"] not in sw.NOTES + sw.EDITOR_ONLY:
                 _set_mode(ui, node, 0 if wanted == ON else BYPASSED)
     nodes = {node["id"]: node for node in ui["nodes"]}
+    subgraphs = _subgraphs(ui)
     for option in options:
         # A value on a subgraph's face: a choice, a switch or a number there.
         if "input" in option and option["id"] in chosen and option["node"] in nodes:
             node = nodes[option["node"]]
-            names = [entry["widget"]["name"] for entry in node.get("inputs", []) if "widget" in entry]
+            names = (sw.face_names(node, subgraphs[node["type"]]) if node["type"] in subgraphs
+                     else [entry["widget"]["name"] for entry in node.get("inputs", []) if "widget" in entry])
             values = node.get("widgets_values")
             value = chosen[option["id"]]
             value = value == ON if option["kind"] == "switch" else float(value) if option["kind"] == "number" else value
@@ -280,15 +283,19 @@ def _after(api, options, chosen, info):
             node["inputs"]["attention_mode"] = "sdpa"
 
 
-def lora_problem(option, info):
-    """Why a LoRA can't be switched on: its file isn't installed. None if it can."""
+def lora_problem(option, info, model=None):
+    """
+    Why a LoRA can't be switched on, or does nothing: its file isn't installed, or it was made for an earlier version
+    of the model (core/lora_check.py). None if it's fine.
+    """
     if option["kind"] != "strength" or option["id"] == "prompt_boost":
         return None
     loras = (info.get("LoraLoader") or info.get("LoraLoaderModelOnly") or {}).get("input", {}).get("required", {}).get("lora_name", [[]])[0]
     name = option["label"].split(": ", 1)[1]
-    if not any(os.path.splitext(os.path.basename(lora.replace("\\", "/")))[0] == name for lora in loras):
+    found = next((lora for lora in loras if os.path.splitext(os.path.basename(lora.replace("\\", "/")))[0] == name), None)
+    if not found:
         return f"Its file {name} isn't installed."
-    return None
+    return lora_check.problem(found, model)
 
 
 def convert(ui, info, chosen=None, pipeline="image"):
@@ -316,14 +323,15 @@ def offered(ui, info, pipeline="image"):
     The options as the form shows them: each with a problem, if choosing the other way can't run. A way for the
     workflow to write its own prompt also says how many images it takes then: image to prompt needs its picture.
     """
-    _, _, _, options = convert(ui, info, pipeline=pipeline)
+    _, _, model, options = convert(ui, info, pipeline=pipeline)
     for option in options:
-        problem = lora_problem(option, info)
+        problem = lora_problem(option, info, model)
         if not problem and option["kind"] == "switch":
             try:
-                _, fields, _, _ = convert(ui, info, {option["id"]: ON if option["default"] == OFF else OFF}, pipeline)
+                _, fields, model, _ = convert(ui, info, {option["id"]: ON if option["default"] == OFF else OFF}, pipeline)
                 if option.get("role"):
-                    option["takes"] = sw.takes(fields)
+                    found = sw.image_takes(fields, model) if pipeline == "image" else sw.takes(fields)
+                    option["takes"] = {key: found[key] for key in ("min_images", "max_images")}
             except sw.Unusable as e:
                 problem = str(e)
         if problem:

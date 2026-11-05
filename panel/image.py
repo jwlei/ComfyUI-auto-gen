@@ -1,4 +1,5 @@
 """The panel's Image side: sets of images from text or from an image, with prompts the LLM writes or you do."""
+import json
 import os
 import secrets
 import sys
@@ -11,7 +12,7 @@ from core.saved_workflows import shorthand
 from panel.server import (read_outcome, IMAGE_TIMINGS, PIPELINES, _runs_cache, app, busy_runs, form_options, password_required, run_queue, saved_at,
                           saved_workflows)
 from panel.video import clean_inputs, queue_label, shot_seeds
-from pipelines.image import media, models
+from pipelines.image import media, models, regions
 from pipelines.image import planner as image_planner
 from pipelines.image.run_eta import RunEta
 from pipelines.image.run_state import STAGES, RunState, list_runs
@@ -42,7 +43,7 @@ def chosen_workflow(form, image_count=None):
         if "problem" in entry:
             return None, None, f"{entry['label']} can't run: {entry['problem']}"
         return {"COMFYUI_WORKFLOW": entry["path"]}, entry["takes"], None
-    entry = automatic([entry for entry in entries if "problem" not in entry], image_count or 0)
+    entry = automatic([entry for entry in entries if "problem" not in entry], image_count or 0, form.get("image_mode") or "edit")
     if entry:
         return {"COMFYUI_WORKFLOW": entry["path"]}, entry["takes"], None
     if image_count is None:
@@ -53,11 +54,15 @@ def chosen_workflow(form, image_count=None):
                         else f"No workflow that {wanted} is saved in ComfyUI with a name starting image_.")
 
 
-def automatic(usable, image_count):
+def automatic(usable, image_count, mode="edit"):
     """
     The workflow Automatic picks, in name order. One made for what you gave it comes first: text alone goes to one that
     takes no image, and an image to one that needs one, so Fibo 2.0, which does both, is for when nothing else fits.
+    A new picture from references, or a change to part of an image, needs a model that can (models.py).
     """
+    can = {"compose": models.COMPOSE_SWITCH, "areas": models.REGION_EDITS, "expand": models.REGION_EDITS}.get(mode)
+    if can is not None:
+        usable = [entry for entry in usable if entry["takes"].get("model") in can]
     fits = [entry for entry in usable if entry["takes"]["min_images"] <= image_count <= entry["takes"]["max_images"]]
     made_for = [entry for entry in fits if (entry["takes"]["min_images"] >= 1 if image_count else entry["takes"]["max_images"] == 0)]
     return (made_for or fits or [None])[0]
@@ -79,17 +84,76 @@ def role_of(flags):
                  if flag == "--option" and value.split("=")[0] in workflow_options.ROLES), None)
 
 
+# What can be done with the images given, by the form's image_mode, and what a model needs to do it.
+IMAGE_MODES = ("edit", "compose", "areas", "expand")
+
+
+def mode_problem(mode, takes, flags):
+    """Why the chosen workflow can't do this with the images, or None."""
+    model, label = takes.get("model"), models.label(takes.get("model"))
+    if mode == "compose" and model not in models.COMPOSE_SWITCH:
+        return f"{label} can't make a new picture from references: choose Qwen-Image 2.1's edit workflow, or Automatic."
+    if mode in ("areas", "expand") and model not in models.REGION_EDITS:
+        return f"{label} can't change part of an image or expand it: choose Qwen-Image 2.1's edit workflow, or Automatic."
+    if "--transparent" in flags and model not in models.TRANSPARENT:
+        return f"{label} doesn't make transparent images: choose a Qwen-Image 2.1 workflow."
+    return None
+
+
+def region_flags(form, files, source_size):
+    """
+    The flags for a change to painted areas or an expansion, from the form, with what they need saved under inputs.
+    Returns (flags, error).
+    """
+    mode = form.get("image_mode")
+    if mode == "areas":
+        mask = files.get("areas_mask")
+        try:
+            areas = json.loads(form.get("areas") or "[]")
+        except ValueError:
+            return None, "The painted areas didn't come through: paint them again."
+        if not (mask and mask.filename) or not isinstance(areas, list) or not areas:
+            return None, "Paint the area to change on image 1 first."
+        for area in areas:
+            if not isinstance(area, dict) or (area.get("action") or "change") not in regions.ACTIONS:
+                return None, "The painted areas didn't come through: paint them again."
+            if not (area.get("text") or "").strip() and not (len(areas) == 1 and area.get("action") == "remove"):
+                return None, "Say what goes in each painted area. Only Remove can go without."
+        os.makedirs(video_paths.INPUTS_DIR, exist_ok=True)
+        stem = os.path.join(video_paths.INPUTS_DIR, secrets.token_hex(8))
+        mask.save(stem + "_mask.png")
+        with open(stem + "_areas.json", "w", encoding="utf-8") as f:
+            json.dump({"mask": stem + "_mask.png", "areas": [{"colour": str(area.get("colour") or "red"), "action": area.get("action") or "change",
+                                                               "text": str(area.get("text") or "")} for area in areas]}, f)
+        return ["--areas", stem + "_areas.json"], None
+    if mode == "expand":
+        try:
+            sides = [float(form.get(f"expand_{side}") or 0) for side in ("left", "top", "right", "bottom")]
+        except ValueError:
+            return None, "Expand by whole numbers."
+        if min(sides) < 0 or not any(sides):
+            return None, "Say how far to expand it on at least one side."
+        if form.get("expand_units") == "percent":
+            sides = [value / 100 * (source_size[0] if index % 2 == 0 else source_size[1]) for index, value in enumerate(sides)]
+        return ["--expand", ",".join(str(round(value)) for value in sides)], None
+    return [], None
+
+
 def model_problem(flags, takes, source):
     """Why the chosen workflow's model shouldn't make this: too big, or too many prompts for the LLM. None if it's fine."""
     model = takes.get("model")
+    if "--areas" in flags or "--expand" in flags:
+        return models.count_problem(model, int(option(flags, "--count")), True)
     if not takes.get("size"):
         size = None
     elif not source and media.FROM_IMAGE in (option(flags, "--aspect"), option(flags, "--megapixels")) and not option(flags, "--size"):
         size = None  # Comes from an image not chosen yet, which is held to the model's limit when it is
     else:
+        compose = "--compose" in flags
         size = media.pick_size(option(flags, "--size"), option(flags, "--aspect"), option(flags, "--megapixels"), source,
-                               models.MOST_MEGAPIXELS.get(model))
-    return (size and models.size_problem(model, *size)) or models.count_problem(model, int(option(flags, "--count")), "--direct" in flags)
+                               models.most_megapixels(model, compose))
+        return models.size_problem_for(model, *size, compose) or models.count_problem(model, int(option(flags, "--count")), "--direct" in flags)
+    return models.count_problem(model, int(option(flags, "--count")), "--direct" in flags)
 
 
 def resume_argv(state, redo=None):
@@ -167,6 +231,9 @@ def build_options(form):
         if llm in workflow_options.ROLES:
             # The workflow writes them from yours, on its own: no LLM is asked.
             flags += ["--direct", "--option", f"{llm}={workflow_options.ON}"]
+            # Its prompts can be read first: it writes them in ComfyUI, and the run stops there.
+            if llm == "prompt_enhancer" and form.get("review"):
+                flags.append("--enhance-only")
         elif llm not in dict(planner.LLMS):
             return None, "Unknown LLM."
         else:
@@ -176,6 +243,27 @@ def build_options(form):
 
     if form.get("try_first"):
         flags.append("--first-only")
+
+    mode = form.get("image_mode") or "edit"
+    if mode not in IMAGE_MODES:
+        return None, "Unknown way to use the images."
+    if mode == "compose":
+        flags.append("--compose")
+    if form.get("transparent") and mode not in ("areas", "expand"):
+        flags.append("--transparent")
+    if form.get("detail") == "full":
+        flags += ["--reference-detail", "full"]
+    for value in form.getlist("source_seed") if hasattr(form, "getlist") else []:
+        if str(value).strip().isdigit():
+            flags += ["--source-seed", str(int(value))]
+    if mode in ("areas", "expand"):
+        # Their prompt is written from what's painted, or says what the new parts show: no LLM writes it.
+        flags = [flag for flag in flags if flag not in ("--plan-only", "--enhance-only")]
+        if "--llm" in flags:
+            index = flags.index("--llm")
+            del flags[index:index + 2]
+        flags = [flag for flag in flags if flag != "--direct"]
+        return flags, None
 
     flags_, error = size_flags(form)
     return (None, error) if error else (flags + flags_, None)
@@ -211,7 +299,8 @@ def generate():
     if error:
         return {"ok": False, "error": error}, 400
     prompt = (request.form.get("prompt") or "").strip()
-    if not prompt:
+    mode = request.form.get("image_mode") or "edit"
+    if not prompt and mode not in ("areas", "expand"):
         return {"ok": False, "error": "Say what you want." if "--direct" not in flags else "Write the prompt to use."}, 400
     llm = option(flags, "--llm")
     role = role_of(flags)
@@ -238,6 +327,18 @@ def generate():
         images = [video_media.load_image(upload.stream) for upload in uploads]
     except RuntimeError:
         return {"ok": False, "error": "That file isn't an image this can read."}, 400
+    if mode in ("compose", "areas", "expand") and not images:
+        return {"ok": False, "error": "Choose the image first."}, 400
+    problem = mode_problem(mode, takes, flags)
+    if problem:
+        return {"ok": False, "error": problem}, 400
+    extra, error = region_flags(request.form, request.files, images[0].size if images else None)
+    if error:
+        return {"ok": False, "error": error}, 400
+    flags += extra
+    # What made the images given, so an edit never starts from the noise that made one (core/seeds.py avoid).
+    for upload in uploads:
+        flags += [flag for seed in sorted(media.seeds_in(upload.stream)) for flag in ("--source-seed", str(seed))]
     problem = model_problem(flags, takes, images[0].size if images else None)
     if problem:
         return {"ok": False, "error": problem}, 400
@@ -246,7 +347,8 @@ def generate():
         return {"ok": False, "error": problem}, 400
     flags += option_flags
 
-    state = run_to_continue(prompt, flags, env, images)
+    # A change to part of an image is a new one each time: what's painted isn't something to look for in a stopped run.
+    state = None if extra else run_to_continue(prompt, flags, env, images)
     if state:
         if "--plan-only" in flags:
             return {"ok": True, "queued": False, "shots": state.id, "continued": state.title}
@@ -258,20 +360,27 @@ def generate():
         return reply if isinstance(reply, tuple) else {**reply, "continued": state.title}
 
     # Kept in a folder of its own, under a name of our own: queued, it may wait for hours.
-    clean_inputs()
+    # The painted areas wait with the images: queued, it may be hours before they're read.
+    region_files = []
+    if "--areas" in extra:
+        areas_file = extra[extra.index("--areas") + 1]
+        region_files = [areas_file, areas_file.replace("_areas.json", "_mask.png")]
+    clean_inputs(keep=region_files)
     image_paths = [os.path.join(video_paths.INPUTS_DIR, f"{secrets.token_hex(8)}.png") for _ in images]
     for image, path in zip(images, image_paths):
         media.save_source(image, path)
 
-    argv = [*COMMAND, *flags, *[flag for path in image_paths for flag in ("--image", path)], "--", prompt]
-    plan_only = "--plan-only" in flags
+    argv = [*COMMAND, *flags, *[flag for path in image_paths for flag in ("--image", path)], *(["--", prompt] if prompt else [])]
+    plan_only = "--plan-only" in flags or "--enhance-only" in flags
     count = int(option(flags, "--count"))
-    detail = [f"{count} {'image' if count == 1 else 'images'}", "edits an image" if images else "from text",
-              ROLE_NAMES.get(role) or llm or "your prompt, word for word", *(["review the prompts first"] if plan_only else [])]
+    what = {"compose": "a new picture from the images", "areas": "changes painted areas", "expand": "expands the image"}.get(
+        mode, "edits an image" if images else "from text")
+    writer = "its own instruction" if mode in ("areas", "expand") else ROLE_NAMES.get(role) or llm or "your prompt, word for word"
+    detail = [f"{count} {'image' if count == 1 else 'images'}", what, writer, *(["review the prompts first"] if plan_only else [])]
     if env.get("COMFYUI_WORKFLOW"):
         detail.append(os.path.splitext(os.path.basename(env["COMFYUI_WORKFLOW"]))[0])
     item = {"pipeline": "image", "label": queue_label(prompt), "detail": " · ".join(detail), "argv": argv, "env": env,
-            "image": image_paths[0] if image_paths else None, "references": image_paths[1:], "plan_only": plan_only, "first_only": "--first-only" in flags,
+            "image": image_paths[0] if image_paths else None, "references": image_paths[1:] + region_files, "plan_only": plan_only, "first_only": "--first-only" in flags,
             "estimate": RunEta(argv, env, IMAGE_TIMINGS).plan()["total"]}
     queued = run_queue.add(item)
     if item.get("error"):
@@ -458,6 +567,7 @@ def discard_run(run_id):
 
 UPSCALE = [sys.executable, "-m", "pipelines.image.upscale"]
 UPSCALE_SECONDS = 180  # About what SeedVR2 takes for one image on this card
+FAST_UPSCALE_SECONDS = 20  # Superscale-SP: seconds, as Kokon measured it (13 s for 1472² on a 5070 Ti)
 
 
 @app.route("/image-runs/<run_id>/upscale/<int:position>", methods=["POST"])
@@ -469,8 +579,17 @@ def upscale_image(run_id, position):
         return refused
     if not 1 <= position <= len(state.shots) or not state.shots[position - 1].get("file"):
         return {"ok": False, "error": "That image isn't made yet."}, 400
-    item = {"pipeline": "image", "label": queue_label(f"Upscale: {state.shots[position - 1]['title']}"), "detail": "SeedVR2, twice the size",
-            "argv": [*UPSCALE, "--resume", state.id, "--image", str(position)], "env": {}, "resume": state.id, "estimate": UPSCALE_SECONDS}
+    method = request.args.get("method") or (request.get_json(silent=True) or {}).get("method") or "seedvr2"
+    if method not in ("seedvr2", "fast"):
+        return {"ok": False, "error": "Unknown way to upscale."}, 400
+    try:
+        strength = float(request.args.get("strength") or (request.get_json(silent=True) or {}).get("strength") or 1)
+    except ValueError:
+        return {"ok": False, "error": "Strength is a number from 0 to 1."}, 400
+    how = "SeedVR2, twice the size" if method == "seedvr2" else f"Superscale-SP, twice the size, strength {round(strength * 100)}%"
+    item = {"pipeline": "image", "label": queue_label(f"Upscale: {state.shots[position - 1]['title']}"), "detail": how,
+            "argv": [*UPSCALE, "--resume", state.id, "--image", str(position), "--method", method, "--strength", f"{min(1, max(0, strength)):g}"],
+            "env": {}, "resume": state.id, "estimate": UPSCALE_SECONDS if method == "seedvr2" else FAST_UPSCALE_SECONDS}
     queued = run_queue.add(item)
     _runs_cache["at"] = 0.0
     if item.get("error"):

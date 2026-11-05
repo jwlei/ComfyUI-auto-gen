@@ -779,9 +779,16 @@ assert(/<div class="viewer-tools" id="viewerTools" hidden>[\s\S]*?id="viewerVari
 assert(/if \(shot\) Object\.assign\(s, \{ prompt: shot\.prompt, direct: true, count: VARIATIONS \}\);/.test(script), 'its own prompt, word for word, on new seeds');
 
 // Presets: the picker where the workflow was, the workflow at the top of Generation; "Save as preset" only while what's set isn't one.
-assert(/<div class="workflow-top preset-top">\s*<div class="preset-head"><label for="imagePreset">Preset<\/label><button type="button" class="preset-save" data-preset-save="image" hidden>Save as preset<\/button><\/div>/.test(html));
+assert(/<div class="workflow-top preset-top">\s*<div class="preset-head"><label for="imagePreset">Preset<\/label><span class="preset-head-actions"><button type="button" class="preset-default" data-preset-default="image" aria-pressed="false" hidden><svg[^>]*><path[^>]*\/><\/svg><\/button><button type="button" class="preset-save" data-preset-save="image" hidden>Save as preset<\/button><\/span><\/div>/.test(html));
 assert(/<summary class="section-title">Generation<\/summary>\s*<div class="workflow-in">\s*<label for="imageWorkflow">Workflow<\/label>/.test(html), 'the workflow at the top of Generation');
 assert(run("samePreset({ a: '1', b: true }, { b: true, a: '1' })") === true && run("samePreset({ a: '1' }, { a: '2' })") === false);
+assert(run("samePreset({ a: '1' }, { a: '1', transparent: false })") === true, 'a field added since a preset was saved does not unmatch it');
+assert(/presetPicked\[side\] = \{ name, values: presetValues\(side\) \};\s*syncPresets\(side\);\s*\}/.test(script), 'the preset picked stays in the box, even where it could not set a field');
+
+// Inpaint: the whole screen, its title quiet at the top, the colour prompts in a box of their own, Close and Save at the bottom.
+assert(/id="paintDialogTitle">Inpaint<\/div>/.test(html) && !html.includes('One colour is one change'));
+assert(/id="paintPrompts" class="panel-dialog"[\s\S]*?id="paintAreaList"/.test(html), 'the colour prompts open over a blurred painting');
+assert(/id="paintCancel">Close<\/button>\s*<button type="button" class="panel-close paint-save" id="paintDone">Save<\/button>\s*<\/div>\s*<\/dialog>/.test(html));
 assert(/const PRESET_SKIP = \['prompt', 'narration', 'seed', 'topic', 'output', 'review'\];/.test(script), 'what each run is about stays out of a preset');
 
 // Try one first; start later; a note when something ends.
