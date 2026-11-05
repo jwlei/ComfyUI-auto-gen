@@ -43,6 +43,9 @@ def png_bytes(color=(10, 200, 30)):
     return buffer.getvalue()
 
 
+SAVED_OPTIONS = [{"id": "steps", "kind": "number", "label": "Steps", "default": "20", "min": 1, "max": 150, "step": 1, "advanced": True},
+                 {"id": "negative", "kind": "text", "label": "Negative prompt", "default": "saved negative", "advanced": True}]
+
 class PanelTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.mkdtemp()
@@ -610,8 +613,8 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(self.client.get("/api/workflows?pipeline=shorts").get_json()["workflows"], [], "none are tuned for Shorts")
         self.assertEqual(reply["workflows"], [
             {"name": "r2v.json", "label": "r2v", "takes": {"min_images": 0, "max_images": 20}, "clip_seconds": [5, 10, 8]},
-            {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0, "options": [{"id": "steps", "kind": "number", "label": "Steps", "default": "20", "min": 1, "max": 150, "step": 1, "advanced": True}]}, "clip_seconds": [5, 10, 8]},
-            {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1, "options": [{"id": "steps", "kind": "number", "label": "Steps", "default": "20", "min": 1, "max": 150, "step": 1, "advanced": True}]}, "clip_seconds": [5, 10, 8]}],
+            {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0, "options": SAVED_OPTIONS}, "clip_seconds": [5, 10, 8]},
+            {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1, "options": SAVED_OPTIONS}, "clip_seconds": [5, 10, 8]}],
             "each with the workflow's own options: a KSampler's steps here")
 
     def test_a_films_workflow_options_are_used_and_kept(self):
@@ -775,10 +778,33 @@ class PanelTest(unittest.TestCase):
             self.assertFalse(reply["online"])
             self.assertEqual(reply["workflows"], [
                 {"name": "r2v.json", "label": "r2v", "takes": {"min_images": 0, "max_images": 20}, "clip_seconds": [5, 10, 8]},
-                {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0, "options": [{"id": "steps", "kind": "number", "label": "Steps", "default": "20", "min": 1, "max": 150, "step": 1, "advanced": True}]}, "clip_seconds": [5, 10, 8]},
-                {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1, "options": [{"id": "steps", "kind": "number", "label": "Steps", "default": "20", "min": 1, "max": 150, "step": 1, "advanced": True}]}, "clip_seconds": [5, 10, 8]}])
+                {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0, "options": SAVED_OPTIONS}, "clip_seconds": [5, 10, 8]},
+                {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1, "options": SAVED_OPTIONS}, "clip_seconds": [5, 10, 8]}])
             self.assertEqual(os.path.basename(video_panel.chosen_workflow({"workflow": "wan.json"})[0]["COMFYUI_WORKFLOW"]), "wan.json")
         webapp._comfyui_cache.update(at=0.0)
+
+    def test_the_log_says_what_each_line_is(self):
+        self.assertEqual([webapp.line_kind(text) for text in ("▶ Stage 1/3: Plan", "❌ failed", "⚠️ careful", "✅ Done", "🎛️ ComfyUI · Sampling · 4s", "plain")],
+                         ["stage", "err", "warn", "ok", "comfy", ""])
+        webapp.job.log("🎛️ ComfyUI · Sampling · 4s")
+        self.assertEqual(webapp.job.lines[-1]["k"], "comfy")
+
+    def test_the_workflow_of_the_last_run_can_be_looked_at(self):
+        self.save_workflows()
+        self.client.get("/api/workflows?pipeline=video")
+        path = os.path.join(webapp.SAVED_WORKFLOWS_DIR, "wan.json")
+        saved = webapp.job.workflow
+        try:
+            webapp.job.workflow = None
+            self.assertEqual(self.client.get("/api/run-workflow").status_code, 404)
+            webapp.job.workflow = {"path": path, "pipeline": "video", "options": {"steps": "7"}}
+            reply = self.client.get("/api/run-workflow").get_json()
+            self.assertEqual(reply["name"], "wan")
+            self.assertEqual(next(option for option in reply["options"] if option["label"] == "Steps")["value"], "7")
+            sampler = next(node for node in reply["nodes"] if node["type"] == "KSampler")
+            self.assertEqual(sampler["inputs"]["steps"], "7", "the options this run was started with")
+        finally:
+            webapp.job.workflow = saved
 
     def test_the_built_in_workflow_is_still_the_default(self):
         self.assertEqual(video_panel.chosen_workflow({}), ({}, video_panel.BUILT_IN_TAKES, None))

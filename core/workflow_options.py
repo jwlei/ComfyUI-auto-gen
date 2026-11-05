@@ -287,20 +287,108 @@ def _flag(api, value):
     return value if isinstance(value, bool) else None
 
 
-def _number_source(api, node_id, name, depth=0):
+def _number_source(api, node_id, name, depth=0, kinds=(int,)):
     """Where the number an input takes is set: [node id, input], through a primitive or the side a switch takes. Or None."""
     value = api.get(node_id, {}).get("inputs", {}).get(name)
-    if type(value) is int:
+    if type(value) in kinds:
         return [node_id, name]
     if not isinstance(value, list) or depth > 4:
         return None
     source = api.get(value[0], {}).get("inputs", {})
-    if type(source.get("value")) is int:
+    if type(source.get("value")) in kinds:
         return [value[0], "value"]
     if api.get(value[0], {}).get("class_type") in sw.SWITCHES:
         on = _flag(api, source.get("switch"))
-        return None if on is None else _number_source(api, value[0], "on_true" if on else "on_false", depth + 1)
+        return None if on is None else _number_source(api, value[0], "on_true" if on else "on_false", depth + 1, kinds)
     return None
+
+
+def _text_source(api, node_id, name):
+    """[node id, input] if the input holds its text itself, rather than taking it from another node. Or None."""
+    return [node_id, name] if isinstance(api.get(node_id, {}).get("inputs", {}).get(name), str) else None
+
+
+def _distinct(found):
+    return [target for number, target in enumerate(found) if target and target not in found[:number]]
+
+
+def _combo(info, class_type, name):
+    """The values ComfyUI offers this node's input, or []."""
+    inputs = sw._input_spec(info.get(class_type, {}))
+    return list(sw._options(inputs[name]) or []) if name in inputs else []
+
+
+FLOATS = (int, float)
+MOST_CFG = 30
+MOST_TEXT = 4000
+FOLLOWERS = ("steps", "cfg", "sampler", "scheduler")
+NEGATIVE_TEXT = ("CLIPTextEncode",)
+LTX_FPS = "LTXVConditioning"
+SLOT = "lora_slot"
+NO_LORA = "None"
+DISTILLED = "The workflow sets its own steps with fixed sigmas, as a distilled one does."
+
+
+def _negatives(api):
+    """Where a negative prompt is typed, if one node has it: [node id, input]. Or None."""
+    positive = {value[0] for node in api.values() for name, value in node["inputs"].items() if name == "positive" and isinstance(value, list)}
+    found = [[node_id, "text"] for node_id, node in api.items() if node["class_type"] in NEGATIVE_TEXT and node_id not in positive
+             and isinstance(node["inputs"].get("text"), str)
+             and any(isinstance(value, list) and value[0] == node_id for other in api.values() for name, value in other["inputs"].items() if name == "negative")]
+    found += [[node_id, "negative_prompt"] for node_id, node in api.items() if isinstance(node["inputs"].get("negative_prompt"), str)]
+    return found[0] if len(found) == 1 else None
+
+
+def _tune(api, info, chosen):
+    """
+    What the sampling takes, wherever the graph has it: sampler, scheduler and CFG (under Steps), the negative prompt,
+    and for LTX its frame rate, image strength, NAG scale and a LoRA to add. Applies what's chosen. Returns the options.
+    """
+    options = []
+    locked = any(node["class_type"] == "ManualSigmas" for node in api.values())
+
+    def offer(option, targets, value=str):
+        option = {"advanced": True, **option, "default": str(api[targets[0][0]]["inputs"][targets[0][1]])}
+        if locked and option.get("parent") == "steps":
+            option["problem"] = DISTILLED
+        options.append(option)
+        if option["id"] in chosen and not option.get("problem"):
+            for node_id, name in targets:
+                api[node_id]["inputs"][name] = value(chosen[option["id"]])
+
+    for name, label in (("sampler_name", "Sampler"), ("scheduler", "Scheduler")):
+        targets = _distinct([_text_source(api, node_id, name) for node_id, node in api.items() if name in node["inputs"]])
+        choices = _combo(info, api[targets[0][0]]["class_type"], name) if targets else []
+        if choices and (len(targets) == 1 or locked):
+            offer({"id": name.split("_")[0], "kind": "choice", "label": label, "parent": "steps", "choices": choices}, targets[:1])
+    cfg = _distinct([_number_source(api, node_id, "cfg", kinds=FLOATS) for node_id, node in api.items() if "cfg" in node["inputs"]])
+    if cfg and (len(cfg) == 1 or locked):
+        offer({"id": "cfg", "kind": "number", "label": "CFG", "parent": "steps", "min": 0, "max": MOST_CFG, "step": 0.1}, cfg[:1], float)
+    negative = _negatives(api)
+    # With the CFG fixed at 1 by distilled sigmas, a negative prompt is never used, unless NAG reads it.
+    if negative and (not locked or any(node["class_type"] == "LTX2_NAG" for node in api.values())):
+        offer({"id": "negative", "kind": "text", "label": "Negative prompt"}, [negative])
+    if any(node["class_type"] == LTX_FPS for node in api.values()):
+        fps = _distinct([_number_source(api, node_id, "frame_rate", kinds=FLOATS) for node_id, node in api.items() if "frame_rate" in node["inputs"]])
+        if len(fps) == 1:
+            offer({"id": "fps", "kind": "number", "label": "Frames per second", "min": 1, "max": 120, "step": 1}, fps, float)
+    strength = _distinct([_number_source(api, node_id, "strength", kinds=FLOATS) for node_id, node in api.items()
+                          if node["class_type"] in ("LTXVImgToVideoInplace", "LTXVImgToVideo")])
+    if strength:
+        offer({"id": "image_strength", "kind": "number", "label": "Image strength", "min": 0, "max": 1, "step": 0.05}, strength, float)
+    nag = _distinct([_number_source(api, node_id, "nag_scale", kinds=FLOATS) for node_id, node in api.items() if node["class_type"] == "LTX2_NAG"])
+    if nag:
+        offer({"id": "nag_scale", "kind": "number", "label": "NAG scale", "min": 0, "max": MOST_CFG, "step": 0.5}, nag, float)
+    loaders = [node_id for node_id, node in api.items() if node["class_type"] == LORA_LOADER]
+    if len(loaders) == 1 and not any(re.fullmatch(r"lora_\d+", name) for name in api[loaders[0]]["inputs"]):
+        loras = _combo(info, "LoraLoader", "lora_name") or _combo(info, "LoraLoaderModelOnly", "lora_name")
+        if loras:
+            options.append({"id": SLOT, "kind": "choice", "label": "Add a LoRA", "choices": [NO_LORA, *loras], "default": NO_LORA, "advanced": True})
+            options.append({"id": f"{SLOT}_strength", "kind": "number", "label": "LoRA strength", "parent": SLOT, "default": "1", "min": -2, "max": 2,
+                            "step": 0.05, "advanced": True})
+            if chosen.get(SLOT, NO_LORA) != NO_LORA:
+                api[loaders[0]]["inputs"]["lora_1"] = {"on": True, "lora": chosen[SLOT], "strength": float(chosen.get(f"{SLOT}_strength", 1)), "strengthTwo": None}
+    return options
 
 
 def _steps(api):
@@ -375,6 +463,7 @@ def convert(ui, info, chosen=None, pipeline="image"):
                         "advanced": True})
         if "steps" in chosen:
             api[node_id]["inputs"][name] = int(float(chosen["steps"]))
+    options += _tune(api, info, chosen)
     if pipeline == "image":
         return api, sw.find_image_fields(api, info), sw.image_model(api), options
     return api, sw.find_fields(api, info, needs_audio=pipeline == "shorts"), None, options
@@ -386,11 +475,14 @@ def offered(ui, info, pipeline="image"):
     workflow to write its own prompt also says how many images it takes then: image to prompt needs its picture.
     """
     _, _, model, options = convert(ui, info, pipeline=pipeline)
+    # A switch such as turbo has its own steps, CFG and sampler: they show the ones that go with it as it's set.
+    flips = {}
     for option in options:
         problem = lora_problem(option, info, model)
         if not problem and option["kind"] == "switch":
             try:
-                _, fields, model, _ = convert(ui, info, {option["id"]: ON if option["default"] == OFF else OFF}, pipeline)
+                _, fields, model, flipped = convert(ui, info, {option["id"]: ON if option["default"] == OFF else OFF}, pipeline)
+                flips[option["id"]] = flipped
                 if option.get("role"):
                     found = sw.image_takes(fields, model) if pipeline == "image" else sw.takes(fields)
                     option["takes"] = {key: found[key] for key in ("min_images", "max_images")}
@@ -398,14 +490,16 @@ def offered(ui, info, pipeline="image"):
                 problem = str(e)
         if problem:
             option["problem"] = problem
-    # A turbo switch picks its own step count: Steps shows the one that goes with the switch as it's set.
-    steps = next((option for option in options if option["id"] == "steps"), None)
-    for option in options:
-        if steps and option.get("primitive") and not option.get("problem") and "follows" not in steps:
-            flipped = ON if option["default"] == OFF else OFF
-            other = next((found["default"] for found in convert(ui, info, {option["id"]: flipped}, pipeline)[3] if found["id"] == "steps"), None)
-            if other and other != steps["default"]:
-                steps["follows"] = {"switch": option["id"], option["default"]: steps["default"], flipped: other}
+    switches = {option["id"]: option for option in options if option["kind"] == "switch"}
+    for target in options:
+        if target["id"] not in FOLLOWERS or target.get("problem"):
+            continue
+        for switch_id, flipped in flips.items():
+            other = next((found["default"] for found in flipped if found["id"] == target["id"]), None)
+            if other and other != target["default"] and not switches[switch_id].get("problem"):
+                flipped_to = ON if switches[switch_id]["default"] == OFF else OFF
+                target["follows"] = {"switch": switch_id, switches[switch_id]["default"]: target["default"], flipped_to: other}
+                break
     return options
 
 
@@ -457,6 +551,8 @@ def check(options, chosen):
             return f"{option['label']} is on or off."
         if option["kind"] == "choice" and value not in option["choices"]:
             return f"{option['label']} is one of {', '.join(option['choices'])}."
+        if option["kind"] == "text" and (not isinstance(value, str) or len(value) > MOST_TEXT):
+            return f"{option['label']} is text of up to {MOST_TEXT} characters."
         if option["kind"] in ("strength", "number"):
             try:
                 number = float(value)

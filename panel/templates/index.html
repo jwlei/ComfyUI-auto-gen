@@ -98,6 +98,21 @@
   .ln.warn .x { color: #f2b84b; }
   .ln.ok .x { color: var(--ok); }
   .ln.dim .x { color: var(--muted); }
+  .ln.comfy .x { color: #7fb4d9; }
+  .log-panes.hide-comfy .ln.comfy { display: none; }
+  .log-panes.problems-only .ln:not(.err):not(.warn):not(.stage) { display: none; }
+  .log-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+  .log-chip { padding: 2px 10px; font-size: .78rem; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; }
+  .log-chip[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+  dialog.workflow-view { width: min(760px, calc(100vw - 24px)); }
+  .workflow-nodes { max-height: 52dvh; overflow: auto; font-size: .82rem; }
+  .workflow-nodes details { border-top: 1px solid var(--line); padding: 3px 0; }
+  .workflow-nodes summary { cursor: pointer; }
+  .workflow-nodes summary small { color: var(--muted); margin-left: 6px; }
+  .workflow-nodes dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 12px; margin: 4px 0 6px 14px; }
+  .workflow-nodes dt { color: var(--muted); }
+  .workflow-nodes dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .workflow-tools { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
   .ln.stage { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line); }
   .ln.stage:first-child { margin-top: 0; padding-top: 1px; border-top: 0; }
   .ln.stage .x { color: var(--accent); font-weight: 700; }
@@ -206,11 +221,23 @@
     background: transparent; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
   @media (prefers-reduced-motion: reduce) { dialog.panel-dialog { animation: none; } }
   .status-toggle .failed { color: var(--err); }
-  dialog.upscale-dialog { width: auto; max-width: calc(100vw - 16px); position: fixed; padding: 10px 12px; gap: 6px; }
-  dialog.upscale-dialog::backdrop { background: rgba(0, 0, 0, .25); -webkit-backdrop-filter: none; backdrop-filter: none; }
-  .upscale-note { text-align: center; color: var(--muted); font-size: .72rem; }
-  .upscale-row { display: flex; gap: 6px; align-items: center; justify-content: center; flex-wrap: wrap; }
-  .upscale-row button, .upscale-row select { width: auto; margin: 0; padding: 4px 10px; font-size: .8rem; }
+  dialog.upscale-dialog { position: fixed; margin: 0; padding: 8px 10px; gap: 6px; flex-direction: column; align-items: stretch; justify-content: space-between;
+      overflow: visible; max-height: none; max-width: none; box-sizing: border-box; background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 6px 20px rgba(0, 0, 0, .5); animation: none; }
+    dialog.upscale-dialog::backdrop { background: rgba(0, 0, 0, .25); -webkit-backdrop-filter: none; backdrop-filter: none; }
+    .upscale-row { display: flex; gap: 8px; align-items: center; justify-content: center; }
+    .upscale-dialog button, .upscale-dialog select { width: auto; margin: 0; padding: 5px 14px; font-size: .78rem; font-weight: 600; border-radius: 999px;
+      background: transparent; border: 1px solid var(--line); color: #ddd; }
+    .upscale-dialog select { padding-right: 8px; }
+    .upscale-note { color: #aaa; font-size: .72rem; font-variant-numeric: tabular-nums; }
+  .upscale-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: .78rem; font-weight: 600; }
+  .upscale-dialog [data-method].active { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); color: #fff; }
+  .upscale-dialog #upscaleGo { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .upscale-dialog .upscale-row button { flex: 1 1 0; min-width: 0; }
+  .upscale-dialog select[hidden] { display: none; }
+  .viewer-head { position: relative; width: 100%; }
+  .viewer-head .viewer-title { padding: 0 72px; }
+  .viewer-res { position: absolute; right: 0; top: 0; color: #999; font-size: .72rem; font-variant-numeric: tabular-nums; }
+  .viewer-res:empty { display: none; }
   /* One line each: when, how it ended and what it is, centred beside a title of at most two lines; a rule between them. */
   .finished .results .result { display: flex; align-items: center; gap: 8px; width: 100%; margin: 0; padding: 7px 0; background: none; border: 0;
     border-radius: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
@@ -561,6 +588,11 @@
   .icon-btn svg { width: 17px; height: 17px; pointer-events: none; }
   .pipeline-form .option-choice { display: inline-block; width: auto; max-width: 100%; margin: 4px 0 0 8px; padding: 3px 6px; font-size: .85rem; text-overflow: ellipsis; }
   .pipeline-form .option-strength { display: inline-block; width: 5.5em; margin-left: 8px; padding: 3px 6px; font-size: .85rem; }
+  .pipeline-form .option-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 6px; }
+  .pipeline-form .option-row > label { margin: 0; }
+  .pipeline-form .option-row > input[type=number] { width: 6em; }
+  .pipeline-form .option-row .option-choice, .pipeline-form .option-row .option-strength { margin: 0; }
+  .option-sub { font-size: .8rem; opacity: .7; }
   .shot-image { max-width: 100%; max-height: 300px; margin-top: 8px; border-radius: 8px; display: block; background: #000; }
   /* Phones: the page is one long column, so this stays at the bottom to get around it. */
   .stick {
@@ -876,6 +908,11 @@
   <details class="log-box" id="logBox">
     <summary>Log</summary>
     <div class="log-panes" id="logPanes">
+      <div class="log-tools">
+        <button type="button" class="log-chip" id="logComfy" aria-pressed="true" title="What ComfyUI is doing, and how long each part took">ComfyUI activity</button>
+        <button type="button" class="log-chip" id="logProblems" aria-pressed="false" title="Only the stages, warnings and errors">Problems only</button>
+        <button type="button" class="log-chip" id="logWorkflow" title="The workflow this run renders with, and the options it was set to">Workflow</button>
+      </div>
       <div class="q-group">Generation</div>
       <div class="log" id="log"><span class="empty-log">No run yet.</span></div>
       <div class="q-group only-shorts">Upload</div>
@@ -1329,6 +1366,17 @@
   <dl class="run-facts-list" id="runFactsList"></dl>
   <button type="button" class="panel-close" id="runFactsClose">Close</button>
 </dialog>
+<dialog id="workflowDialog" class="panel-dialog run-facts workflow-view" aria-labelledby="workflowTitle">
+  <div class="panel-dialog-title" id="workflowTitle">Workflow</div>
+  <div class="hint" id="workflowNote"></div>
+  <dl class="run-facts-list" id="workflowOptions"></dl>
+  <div class="workflow-tools">
+    <button type="button" id="workflowCopy">Copy JSON</button>
+    <button type="button" id="workflowExpand">Expand all</button>
+  </div>
+  <div class="workflow-nodes" id="workflowNodes"></div>
+  <button type="button" class="panel-close" id="workflowClose">Close</button>
+</dialog>
 <dialog id="paintDialog" class="paint-dialog" aria-labelledby="paintDialogTitle">
   <div class="paint-title" id="paintDialogTitle">Inpaint</div>
   <div class="paint-error" id="paintError" role="alert" hidden></div>
@@ -1376,7 +1424,7 @@
   <img id="viewerImage" alt="">
   <video id="viewerVideo" controls playsinline preload="none" hidden></video>
   <div class="viewer-bar">
-    <div class="viewer-title" id="viewerTitle"></div>
+    <div class="viewer-head"><div class="viewer-title" id="viewerTitle"></div><span class="viewer-res" id="viewerRes"></span></div>
     <div class="viewer-tools" id="viewerTools" hidden>
       <button type="button" id="viewerVariations" title="More like this one: its prompt and settings in Generate, on new seeds">More like this</button>
       <button type="button" id="viewerUpscale" title="Make this one bigger, as a new image in its set">Upscale</button>
@@ -1391,14 +1439,18 @@
   </div>
 </dialog>
 <dialog id="viewerUpscaleBar" class="panel-dialog upscale-dialog" aria-label="Upscale to twice the size">
+  <div class="upscale-head"><span>Upscale 2×</span><span class="upscale-note" id="upscaleNote"></span></div>
   <div class="upscale-row">
-    <button type="button" data-upscale="fast" title="Superscale-SP: seconds, and adds no new detail. Queued as a new image in this set">Fast</button>
-    <select id="viewerUpscaleStrength" aria-label="Upscaler mix" title="How much of the upscaler's result is used, the rest a plain resize. Lower tones down texture the upscaler invents. Fast only.">
+    <button type="button" data-method="fast" title="Superscale-SP: seconds, and adds no new detail">Fast</button>
+    <button type="button" data-method="seedvr2" title="SeedVR2: minutes, and draws finer detail">SeedVR2</button>
+    <select id="viewerUpscaleStrength" aria-label="Upscaler mix" title="How much of the upscaler's result is used, the rest a plain resize. Lower tones down texture the upscaler invents.">
       <option value="1">Upscaler 100%</option><option value="0.75">Upscaler 75%</option><option value="0.5">Upscaler 50%</option>
     </select>
-    <button type="button" data-upscale="seedvr2" title="SeedVR2: minutes, and draws finer detail. Queued as a new image in this set">SeedVR2</button>
   </div>
-  <div class="upscale-note">2× size, added to the queue as a new image</div>
+  <div class="upscale-row">
+    <button type="button" id="upscaleCancel">Cancel</button>
+    <button type="button" id="upscaleGo" title="Adds it to the queue as a new image in this set">Add to queue</button>
+  </div>
 </dialog>
 
 <script>
@@ -2823,9 +2875,32 @@ function syncImageSize() {
 function imageOptionHtml(option, all) {
   const name = `opt_${option.id}`, locked = option.problem ? ' disabled' : '';
   const problem = option.problem ? `<div class="hint">Can't be changed: ${esc(option.problem)}</div>` : '';
-  if (option.kind === 'number' && !option.parent) {
+  // A setting that goes with another sits beside it, as Sampler, Scheduler and CFG do with Steps.
+  const beside = child => {
+    const off = child.problem ? ' disabled' : '';
+    const label = `<span class="option-sub">${esc(child.label)}</span>`;
+    return child.kind === 'choice'
+      ? ` ${label}<select name="opt_${esc(child.id)}" aria-label="${esc(child.label)}" title="${esc(child.label)}" class="option-choice"${off}>${child.choices.map(value =>
+        `<option${value === child.default ? ' selected' : ''}>${esc(value)}</option>`).join('')}</select>`
+      : ` ${label}<input type="number" class="option-strength" name="opt_${esc(child.id)}" aria-label="${esc(child.label)}" title="${esc(child.label)}" min="${child.min}" max="${child.max}" step="${child.step}" value="${esc(child.default)}"${off}>`;
+  };
+  const group = all.filter(other => other.parent === option.id);
+  if (option.parent && all.some(other => other.id === option.parent)) return '';
+  if (option.kind === 'group') {
+    return `<div class="option-row"><label>${esc(option.label)}</label>${group.map(beside).join('')}${group.find(child => child.problem) ? `<div class="hint">Can't be changed: ${esc(group.find(child => child.problem).problem)}</div>` : ''}</div>`;
+  }
+  if (option.kind === 'text') {
     return `<label for="opt_${esc(option.id)}">${esc(option.label)}</label>
-      <input type="number" id="opt_${esc(option.id)}" name="${esc(name)}" min="${option.min}" max="${option.max}" step="${option.step}" value="${esc(option.default)}">`;
+      <textarea id="opt_${esc(option.id)}" name="${esc(name)}" rows="3" maxlength="4000"${locked}>${esc(option.default)}</textarea>`;
+  }
+  if (option.kind === 'choice') {
+    return `<div class="option-row"><label for="opt_${esc(option.id)}">${esc(option.label)}</label>
+      <select id="opt_${esc(option.id)}" name="${esc(name)}" class="option-choice"${locked}>${option.choices.map(value =>
+        `<option${value === option.default ? ' selected' : ''}>${esc(value)}</option>`).join('')}</select>${group.map(beside).join('')}</div>`;
+  }
+  if (option.kind === 'number') {
+    return `<div class="option-row"><label for="opt_${esc(option.id)}">${esc(option.label)}</label>
+      <input type="number" id="opt_${esc(option.id)}" name="${esc(name)}" min="${option.min}" max="${option.max}" step="${option.step}" value="${esc(option.default)}"${locked}>${group.map(beside).join('')}</div>`;
   }
   if (option.kind === 'switch') {
     // What goes with it, such as a LoRA's file and strength with Enable LoRA, beside it.
@@ -2854,7 +2929,9 @@ function syncOptions(section, box, options, workflow = '') {
   $(box).dataset.workflow = `${section}|${workflow}`;
   // Turbo and Steps, wherever the workflow has them, sit under Advanced at the bottom.
   const draw = list => list.map(option => imageOptionHtml(option, options)).join('');
-  const advanced = options.filter(option => option.advanced);
+  // Sampler, Scheduler and CFG go with Steps, even where the workflow has no steps of its own to set.
+  const orphans = options.some(option => option.parent === 'steps') && !options.some(option => option.id === 'steps');
+  const advanced = [...(orphans ? [{ id: 'steps', kind: 'group', label: 'Steps', advanced: true }] : []), ...options.filter(option => option.advanced)];
   $(box).innerHTML = draw(options.filter(option => !option.advanced))
     + (advanced.length ? `<div class="options-advanced"><div class="options-subtitle">Advanced</div>${draw(advanced)}</div>` : '');
   $(box).optionList = options;
@@ -2875,7 +2952,7 @@ function savedOptions() {
   try { return JSON.parse(localStorage.getItem(OPTIONS_KEY)) || {}; } catch (e) { return {}; }
 }
 // The inputs you set: a checkbox's hidden "0" beside it is only there for the form.
-const optionInputs = box => [...box.querySelectorAll('input[name], select[name]')].filter(el => el.type !== 'hidden');
+const optionInputs = box => [...box.querySelectorAll('input[name], select[name], textarea[name]')].filter(el => el.type !== 'hidden');
 function rememberOptions(box) {
   const all = savedOptions();
   all[box.dataset.workflow] = Object.fromEntries(optionInputs(box).map(el => [el.name, el.type === 'checkbox' ? el.checked : el.value]));
@@ -3164,22 +3241,32 @@ $('viewerVariations').addEventListener('click', () => {
 $('viewerUpscale').addEventListener('click', () => {
   const box = $('viewerUpscaleBar');
   if (box.open) return;
+  const img = $('viewerImage'), w = img.naturalWidth, h = img.naturalHeight;
+  $('upscaleNote').textContent = w ? `${w} × ${h}  →  ${w * 2} × ${h * 2}` : '2× the size';
+  setUpscaleMethod('fast');
   box.showModal();
-  // Over the buttons: centred on the Upscale one, kept inside the window.
-  const at = $('viewerUpscale').getBoundingClientRect(), me = box.getBoundingClientRect();
-  const left = Math.max(8, Math.min(innerWidth - me.width - 8, at.left + at.width / 2 - me.width / 2));
-  const top = Math.max(8, Math.min(innerHeight - me.height - 8, at.top + at.height / 2 - me.height / 2));
-  Object.assign(box.style, { margin: '0', right: 'auto', bottom: 'auto', left: `${left}px`, top: `${top}px` });
+  // Over the buttons: the Download/Close/Delete row's width and bottom edge, growing upwards for its extra rows.
+  const actions = $('viewerDownload').parentElement.getBoundingClientRect();
+  Object.assign(box.style, { margin: '0', right: 'auto', bottom: 'auto', height: 'auto', left: `${actions.left}px`, width: `${actions.width}px` });
+  box.style.top = `${actions.bottom - box.getBoundingClientRect().height}px`;
 });
+function setUpscaleMethod(method) {
+  $('viewerUpscaleBar').dataset.method = method;
+  for (const b of document.querySelectorAll('#viewerUpscaleBar [data-method]')) b.classList.toggle('active', b.dataset.method === method);
+  $('viewerUpscaleStrength').hidden = method !== 'fast';
+}
 // A tap outside it, on the dimmed viewer, closes it.
 $('viewerUpscaleBar').addEventListener('click', e => {
   const r = e.currentTarget.getBoundingClientRect();
   if (e.target === e.currentTarget && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) e.currentTarget.close();
 });
 $('viewerUpscaleBar').addEventListener('click', async e => {
-  const button = e.target.closest && e.target.closest('[data-upscale]');
+  const pick = e.target.closest && e.target.closest('[data-method]');
+  if (pick) { setUpscaleMethod(pick.dataset.method); return; }
+  if (e.target.closest && e.target.closest('#upscaleCancel')) { $('viewerUpscaleBar').close(); return; }
+  const button = e.target.closest && e.target.closest('#upscaleGo');
   if (!button || !viewing || viewing.film) return;
-  const { id, position } = viewing, method = button.dataset.upscale;
+  const { id, position } = viewing, method = $('viewerUpscaleBar').dataset.method;
   const query = method === 'fast' ? `?method=fast&strength=${encodeURIComponent($('viewerUpscaleStrength').value)}` : '?method=seedvr2';
   let body;
   try { body = await (await fetch(`/image-runs/${encodeURIComponent(id)}/upscale/${position}${query}`, { method: 'POST' })).json(); }
@@ -3294,8 +3381,13 @@ function openViewer(id, position) {
   const at = set.images.indexOf(picture);
   $('viewerTitle').textContent = set.images.length > 1 ? `${picture.title} · ${at + 1} of ${set.images.length}` : picture.title;
   $('viewerDownload').href = `${url}&download=1`;
+  $('viewerRes').textContent = '';
   if (!$('imageViewer').open) $('imageViewer').showModal();
 }
+$('viewerImage').addEventListener('load', () => {
+  const img = $('viewerImage');
+  $('viewerRes').textContent = viewing && !viewing.film && img.naturalWidth ? `${img.naturalWidth} × ${img.naturalHeight}` : '';
+});
 // The image before or after this one in its set: a swipe, or the arrow keys.
 function stepViewer(by) {
   if (!viewing) return false;
@@ -3952,7 +4044,7 @@ function lineKind(text) {
 }
 function logWriter(el, follow) {
   let first = null, last = 0;
-  const row = l => `<div class="ln ${lineKind(l.text)}"><span class="t">${l.t}</span><span class="x">${esc(l.text)}</span></div>`;
+  const row = l => `<div class="ln ${l.k ?? lineKind(l.text)}"><span class="t">${l.t}</span><span class="x">${esc(l.text)}</span></div>`;
   return lines => {
     // A new run, or old lines trimmed off the top: redraw. Otherwise append what is new.
     if (first !== null && lines[0].n > first && lines[0].n <= last) {
@@ -4253,11 +4345,31 @@ $('comfyDialog').addEventListener('click', e => { if (e.target === $('comfyDialo
 // What's being made, in Status. A new one slides in, as it leaves the queue below.
 // The run the title is about, and what it renders with, a tap away.
 let workItem = null;
-$('currentWork').addEventListener('click', () => {
+let lastStatus = null;
+// Everything known about the run, not just its title: where it is, how long it has gone, and what ComfyUI is doing.
+function runFactRows() {
   const facts = (workItem && workItem.facts) || {};
+  const d = lastStatus || {}, p = d.progress || {}, c = d.comfyui || {};
+  const rows = [['Workflow', facts.workflow], ['Resolution', facts.resolution], ...(facts.prompt ? [['Prompt', facts.prompt]] : [])];
+  if (d.started_at) {
+    rows.push(['Status', d.running ? 'Running' : d.stopped ? 'Stopped' : d.returncode ? `Failed, exit code ${d.returncode}` : 'Finished']);
+    rows.push(['Started', `${d.started_at} · ${fmt(d.elapsed || 0)} ${d.running ? 'so far' : 'in all'}`]);
+  }
+  if (p.stage) rows.push(['Stage', `${p.stage[0]} of ${p.stage[1]}: ${p.stage[2]}${d.running ? ` · ${fmt(p.stage_elapsed || 0)}` : ''}`]);
+  if (p.detail) rows.push(['Now', p.detail]);
+  if (p.eta && d.running && p.eta.total_left != null) rows.push(['Estimate', `${fmtEta(p.eta.total_left)} left, done around ${clockIn(p.eta.total_left)}`]);
+  if (c.connected) {
+    const steps = c.max && c.value != null ? ` · step ${c.value} of ${c.max}` : '';
+    rows.push(['ComfyUI', `${c.active ? c.label || 'Working' : 'Idle'}${steps}${c.queue > 1 ? ` · ${c.queue - 1} more queued` : ''}`]);
+  }
+  if (d.command) rows.push(['Command', d.command]);
+  return rows;
+}
+$('currentWork').addEventListener('click', () => {
   $('runFactsTitle').textContent = $('currentWork').textContent;
-  $('runFactsList').innerHTML = [['Workflow', facts.workflow], ['Resolution', facts.resolution], ...(facts.prompt ? [['Prompt', facts.prompt]] : [])]
-    .map(([name, value]) => `<dt>${name}</dt><dd>${esc(value || 'Not known yet')}</dd>`).join('');
+  $('runFactsList').innerHTML = runFactRows().map(([name, value]) => `<dt>${name}</dt><dd>${esc(value || 'Not known yet')}</dd>`).join('')
+    + '<dt>Details</dt><dd><button type="button" id="runFactsWorkflow">Show the workflow</button></dd>';
+  $('runFactsWorkflow').addEventListener('click', showWorkflow);
   $('runFacts').showModal();
 });
 $('runFactsClose').addEventListener('click', () => $('runFacts').close());
@@ -4434,6 +4546,7 @@ async function pollOnce() {
   $('go').disabled = $('goStick').disabled = submitting;
   if (!submitting) $('go').textContent = $('goStick').textContent = running || runsQueued ? 'Add to queue' : 'Generate';
   workItem = running ? queue.current : nextUp ? queue.items[0] : null;
+  lastStatus = data;
   showWork(running ? `${SIDE_NAMES[data.pipeline] || 'Shorts'}: ${(queue.current || {}).label || 'Starting'}`
     : nextUp ? `${SIDE_NAMES[queue.items[0].pipeline] || 'Shorts'}: ${queue.items[0].label}` : '');
   // A job on the other side still has the GPU, so the switch says so.
@@ -4498,6 +4611,59 @@ $('uploadLog').addEventListener('scroll', () => {
   const el = $('uploadLog');
   // A folded log has no height: that isn't scrolling away from the end.
   if (el.clientHeight) uploadFollow = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+});
+
+// --- Log filters and the workflow view ---
+for (const [id, cls, onWhenPressed] of [['logComfy', 'hide-comfy', false], ['logProblems', 'problems-only', true]]) {
+  const saved = localStorage.getItem(`comfyui-auto-gen.${id}`);
+  const apply = pressed => {
+    $(id).setAttribute('aria-pressed', String(pressed));
+    $('logPanes').classList.toggle(cls, pressed === onWhenPressed);
+    if (autoScroll) $('log').scrollTop = $('log').scrollHeight;
+  };
+  if (saved !== null) apply(saved === '1');
+  $(id).addEventListener('click', () => {
+    const pressed = $(id).getAttribute('aria-pressed') !== 'true';
+    apply(pressed);
+    try { localStorage.setItem(`comfyui-auto-gen.${id}`, pressed ? '1' : '0'); } catch (e) {}
+  });
+}
+let shownWorkflow = null;
+async function showWorkflow() {
+  $('workflowTitle').textContent = 'Workflow';
+  $('workflowNote').textContent = 'Loading…';
+  $('workflowOptions').innerHTML = $('workflowNodes').innerHTML = '';
+  if (!$('workflowDialog').open) $('workflowDialog').showModal();
+  let reply;
+  try {
+    const response = await fetch('/api/run-workflow');
+    reply = await response.json();
+  } catch (e) { reply = { error: 'The panel could not be reached.' }; }
+  if (reply.error) { $('workflowNote').textContent = reply.error; shownWorkflow = null; return; }
+  shownWorkflow = reply;
+  $('workflowTitle').textContent = reply.name;
+  const changed = reply.options.filter(option => option.changed).length;
+  $('workflowNote').textContent = `${reply.nodes.length} nodes, as sent to ComfyUI${reply.running ? '' : ' (the last run)'}. `
+    + (reply.options.length ? `${changed} of its ${reply.options.length} options set away from the workflow as saved.` : 'It has no options of its own.');
+  $('workflowOptions').innerHTML = reply.options.map(option =>
+    `<dt>${esc(option.label)}</dt><dd>${esc(option.value)}${option.changed ? ' · changed' : ''}</dd>`).join('');
+  $('workflowNodes').innerHTML = reply.nodes.map(node =>
+    `<details><summary>${esc(node.id)} · ${esc(node.type)}<small>${Object.keys(node.inputs).length} inputs</small></summary><dl>${
+      Object.entries(node.inputs).map(([name, value]) => `<dt>${esc(name)}</dt><dd>${esc(value)}</dd>`).join('')}</dl></details>`).join('');
+}
+$('logWorkflow').addEventListener('click', showWorkflow);
+$('workflowClose').addEventListener('click', () => $('workflowDialog').close());
+$('workflowDialog').addEventListener('click', e => { if (e.target === $('workflowDialog')) $('workflowDialog').close(); });
+$('workflowExpand').addEventListener('click', () => {
+  const all = [...$('workflowNodes').querySelectorAll('details')], open = all.some(el => !el.open);
+  for (const el of all) el.open = open;
+  $('workflowExpand').textContent = open ? 'Collapse all' : 'Expand all';
+});
+$('workflowCopy').addEventListener('click', async () => {
+  if (!shownWorkflow) return;
+  try { await navigator.clipboard.writeText(JSON.stringify(shownWorkflow.api, null, 2)); $('workflowCopy').textContent = 'Copied'; }
+  catch (e) { $('workflowCopy').textContent = 'Could not copy'; }
+  setTimeout(() => { $('workflowCopy').textContent = 'Copy JSON'; }, 1500);
 });
 
 function showFormError(text) {

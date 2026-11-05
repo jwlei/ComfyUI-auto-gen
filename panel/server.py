@@ -34,7 +34,7 @@ from dotenv import load_dotenv
 from flask import (Flask, abort, has_request_context, redirect, render_template, request,
                    send_file, session, url_for)
 
-from core import batch_stop
+from core import batch_stop, eta_keys, workflow_options
 from core.paths import LOGS_DIR, PROJECT_ROOT, SAVED_WORKFLOWS_DIR, comfyui_client_id
 from core.quota import quota_summary
 from core.saved_workflows import list_saved, pipeline_of
@@ -45,6 +45,7 @@ from pipelines.shorts.paths import OUTPUT_DIR as SHORTS_READY, UPLOADED_DIR as S
 from pipelines.shorts.run_eta import RunEta as ShortsEta
 from pipelines.video.paths import OUTPUT_DIR as VIDEO_OUTPUT
 from pipelines.video import planner as video_planner
+from pipelines.video import comfy as video_comfy
 from pipelines.video.comfy import workflow_model
 from pipelines.video.run_eta import RunEta as VideoEta
 
@@ -96,6 +97,17 @@ def kill_tree(pid):
             pass
 
 
+# What a log line is, for the page to colour and filter by: a stage, a problem, a warning, a success, ComfyUI's own, or dim.
+LINE_KINDS = (("stage", re.compile(r"^(▶ Stage|=====)")), ("err", re.compile(r"^(❌|🚨)|\bError\b|Traceback")),
+              ("warn", re.compile(r"^(⚠️|🛑)")), ("ok", re.compile(r"^(✅|✨|📦)")),
+              ("comfy", re.compile(r"^🎛️ ComfyUI")), ("dim", re.compile(r"^(Deleted:|🧹)")))
+
+
+def line_kind(text):
+    text = text.strip()
+    return next((kind for kind, pattern in LINE_KINDS if pattern.search(text)), "")
+
+
 class Job:
     """
     Tracks one process at a time. Rendering saturates the CPU and GPU, so a second
@@ -111,6 +123,10 @@ class Job:
         # {"n": sequence number, "t": "HH:MM:SS", "text": ...}; the page appends by n.
         self.lines = []
         self.seq = 0
+        # Lines come from the pipeline's output and from ComfyUI's websocket at once.
+        self._log_lock = threading.Lock()
+        # The workflow file and options this run was started with, kept after it ends so it can still be looked at.
+        self.workflow = None
         self.started_at = None
         self.finished_at = None
         self.returncode = None
@@ -159,6 +175,8 @@ class Job:
             self.finished_at = None
             self.returncode = None
             self.command = " ".join(argv[1:])
+            self.workflow = {"path": (env or {}).get("COMFYUI_WORKFLOW"), "pipeline": pipeline,
+                             "options": eta_keys.options_in(argv) if pipeline == "image" else eta_keys.options_in_env(env)}
             self.progress = {}
             self.eta = eta
             self.pipeline = pipeline
@@ -187,8 +205,9 @@ class Job:
         self.finished_at = datetime.now()
 
     def log(self, text):
-        self.seq += 1
-        self.lines.append({"n": self.seq, "t": datetime.now().strftime("%H:%M:%S"), "text": text})
+        with self._log_lock:
+            self.seq += 1
+            self.lines.append({"n": self.seq, "t": datetime.now().strftime("%H:%M:%S"), "k": line_kind(text), "text": text})
 
     # Lines main.py and its modules print, turned into structured progress.
     PATTERNS = {
@@ -588,7 +607,7 @@ def form_options(form, takes):
                 chosen[option["id"]] = (form.get(f"{name}_strength") or option.get("usual") or "1").strip() if on else workflow_options.OFF
         elif name in form:
             chosen[option["id"]] = form.getlist(name)[-1].strip()
-    chosen = {key: value for key, value in chosen.items() if value != next(option["default"] for option in options if option["id"] == key)}
+    chosen = {key: value for key, value in chosen.items() if value != next(option["default"] for option in options if option["id"] == key).strip()}
     error = workflow_options.check(options, chosen)
     return (None, error) if error else (chosen, None)
 
@@ -783,6 +802,22 @@ class ComfyMonitor:
             pass
         return {}
 
+    def _note(self, text, kind="🎛️ ComfyUI · "):
+        """A line in the run's log, from ComfyUI's side: what it did, and how long it took."""
+        if job.running:
+            job.log(f"{kind}{text}")
+
+    def _close(self):
+        """Says what the node that just ended took, when it was worth saying: a second or more, or sampling steps."""
+        s = self.state
+        started, steps = getattr(self, "node_at", None), getattr(self, "node_steps", None)
+        self.node_at = self.node_steps = None
+        if started is None or not s.get("label") or s.get("node") is None:
+            return
+        seconds = time.time() - started
+        if seconds >= 1 or steps:
+            self._note(f"{s['label']}{f' · {steps} steps' if steps else ''} · {int(seconds)}s")
+
     def _handle(self, msg):
         kind, data = msg.get("type"), msg.get("data") or {}
         with self.lock:
@@ -792,9 +827,12 @@ class ComfyMonitor:
             elif kind == "execution_start":
                 self.nodes = self._load_nodes(data.get("prompt_id"))
                 self.samplers_seen = []
+                self.node_at = self.node_steps = None
                 s.update(active=True, started=time.time(), node=None, label="Starting", value=None, max=None)
+                self._note(f"started a workflow of {len(self.nodes)} nodes" if self.nodes else "started a workflow")
             elif kind == "executing":
                 node = data.get("node")
+                self._close()
                 if node is None:
                     s.update(active=False, label="Idle", node=None, value=None, max=None)
                     return
@@ -806,9 +844,20 @@ class ComfyMonitor:
                     passes = sum(1 for c in self.nodes.values() if c == cls)
                     label += f" - pass {self.samplers_seen.index(node) + 1} of {passes}"
                 s.update(active=True, node=node, label=label, value=None, max=None)
+                self.node_at = time.time()
             elif kind == "progress":
                 s.update(value=data.get("value"), max=data.get("max"))
+                self.node_steps = data.get("max")
             elif kind in ("execution_success", "execution_error", "execution_interrupted"):
+                self._close()
+                if kind == "execution_error":
+                    where = data.get("node_type") or "a node"
+                    self._note(f"failed in {where}: {str(data.get('exception_message') or 'no reason given').strip()[:300]}", "❌ ComfyUI ")
+                elif kind == "execution_interrupted":
+                    self._note("stopped", "⚠️ ComfyUI ")
+                else:
+                    total = int(time.time() - s["started"]) if s.get("started") else None
+                    self._note(f"finished{f' in {total}s' if total is not None else ''}")
                 s.update(active=False, label="Idle" if kind == "execution_success" else kind.replace("_", " "),
                          node=None, value=None, max=None)
 
@@ -1489,6 +1538,54 @@ def status():
     payload["gpu"] = gpu_stats()
     payload["quota"] = cached_quota()
     return payload
+
+
+def _shown(value):
+    """An input as the workflow viewer says it: a link to another node's output, or the value itself, cut if long."""
+    if isinstance(value, list) and len(value) == 2 and isinstance(value[1], int):
+        return f"→ node {value[0]}" + (f" (output {value[1]})" if value[1] else "")
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    return text if len(text) <= 400 else text[:400] + "…"
+
+
+@app.route("/api/run-workflow")
+@password_required
+def run_workflow():
+    """
+    The workflow the current or last run renders with, as it is sent to ComfyUI with that run's options: which options
+    were set, and every node with what it is given. For the page's Workflow view.
+    """
+    started = job.workflow
+    if not started:
+        return {"error": "Nothing has run yet."}, 404
+    path, chosen, pipeline = started.get("path"), started.get("options") or {}, started.get("pipeline")
+    if not path and pipeline == "video":
+        path = video_comfy.DEFAULT_WORKFLOW
+    if not path:
+        return {"error": "This run uses the built-in workflow, which isn't a saved one."}, 404
+    api = None
+    if chosen:
+        try:
+            api = workflow_options.remake(path, chosen, pipeline)[0]
+        except RuntimeError:
+            api = None
+    if api is None:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                api = json.load(f)
+        except (OSError, ValueError):
+            return {"error": "That workflow's file is gone."}, 404
+    try:
+        with open(os.path.splitext(path)[0] + ".map.json", "r", encoding="utf-8") as f:
+            offered = json.load(f).get("_options") or []
+    except (OSError, ValueError):
+        offered = []
+    options = [{"label": option["label"], "value": chosen.get(option["id"], option["default"]), "changed": option["id"] in chosen}
+               for option in offered if not option.get("role")]
+    nodes = [{"id": node_id, "type": node.get("class_type", ""), "inputs": {name: _shown(value) for name, value in node.get("inputs", {}).items()}}
+             for node_id, node in sorted(api.items(), key=lambda item: (not item[0].isdigit(), int(item[0]) if item[0].isdigit() else 0, item[0]))]
+    return {"name": os.path.splitext(os.path.basename(path))[0], "pipeline": pipeline, "options": options, "nodes": nodes,
+            "running": job.running, "api": api}
 
 
 PRESETS_PATH = os.path.join(LOGS_DIR, "presets.json")

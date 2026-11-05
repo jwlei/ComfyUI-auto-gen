@@ -273,6 +273,86 @@ class OptionsTest(unittest.TestCase):
         self.assertIn("LoraLoaderModelOnly", [node["class_type"] for node in api.values()], "its switch went the way chosen")
 
 
+class SamplingOptionsTest(unittest.TestCase):
+    """Sampler, scheduler, CFG, the negative prompt and LTX's own settings: each changes the input it is for."""
+    INFO = {"KSampler": {"input": {"required": {"sampler_name": [["euler", "uni_pc"]], "scheduler": [["simple", "karras"]]}}},
+            "KSamplerSelect": {"input": {"required": {"sampler_name": [["euler", "lcm"]]}}},
+            "LoraLoader": {"input": {"required": {"lora_name": [["a.safetensors", "b.safetensors"]]}}}}
+
+    def ksampler(self):
+        return {"1": {"class_type": "KSampler", "inputs": {"steps": 20, "cfg": ["2", 0], "sampler_name": "euler", "scheduler": "simple",
+                                                           "positive": ["3", 0], "negative": ["4", 0]}},
+                "2": {"class_type": "PrimitiveFloat", "inputs": {"value": 4.0}},
+                "3": {"class_type": "CLIPTextEncode", "inputs": {"text": "a cat"}},
+                "4": {"class_type": "CLIPTextEncode", "inputs": {"text": "ugly"}}}
+
+    def ltx(self):
+        return {"1": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "lcm"}},
+                "2": {"class_type": "CFGGuider", "inputs": {"cfg": 1, "positive": ["5", 0], "negative": ["5", 0]}},
+                "3": {"class_type": "ManualSigmas", "inputs": {"sigmas": "1, 0"}},
+                "4": {"class_type": "PrimitiveFloat", "inputs": {"value": 24}},
+                "5": {"class_type": "LTXVConditioning", "inputs": {"frame_rate": ["4", 0], "positive": ["6", 0], "negative": ["7", 0]}},
+                "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "a cat"}},
+                "7": {"class_type": "CLIPTextEncode", "inputs": {"text": "blurry"}},
+                "8": {"class_type": "LTXVImgToVideoInplace", "inputs": {"strength": 1.0}},
+                "9": {"class_type": "LTXVImgToVideoInplace", "inputs": {"strength": 1.0}},
+                "10": {"class_type": "LTX2_NAG", "inputs": {"nag_scale": 11.0}},
+                "11": {"class_type": workflow_options.LORA_LOADER, "inputs": {"model": ["12", 0]}}}
+
+    def test_sampler_scheduler_and_cfg_sit_under_steps(self):
+        found = {option["id"]: option for option in workflow_options._tune(self.ksampler(), self.INFO, {})}
+        self.assertEqual([found[key]["parent"] for key in ("sampler", "scheduler", "cfg")], ["steps"] * 3)
+        self.assertEqual((found["sampler"]["default"], found["cfg"]["default"], found["negative"]["default"]), ("euler", "4.0", "ugly"))
+        self.assertFalse(any(option.get("problem") for option in found.values()))
+
+    def test_each_choice_changes_its_own_input(self):
+        api = self.ksampler()
+        workflow_options._tune(api, self.INFO, {"sampler": "uni_pc", "scheduler": "karras", "cfg": "6.5", "negative": "blurry"})
+        self.assertEqual((api["1"]["inputs"]["sampler_name"], api["1"]["inputs"]["scheduler"]), ("uni_pc", "karras"))
+        self.assertEqual(api["2"]["inputs"]["value"], 6.5, "the CFG primitive, not the sampler's link")
+        self.assertEqual(api["4"]["inputs"]["text"], "blurry")
+        self.assertEqual(api["3"]["inputs"]["text"], "a cat", "the prompt itself is left alone")
+
+    def test_a_distilled_graph_locks_its_sampling(self):
+        api = self.ltx()
+        found = {option["id"]: option for option in workflow_options._tune(api, self.INFO, {"sampler": "euler", "cfg": "3"})}
+        self.assertTrue(found["sampler"]["problem"] and found["cfg"]["problem"])
+        self.assertEqual((api["1"]["inputs"]["sampler_name"], api["2"]["inputs"]["cfg"]), ("lcm", 1), "locked ones aren't changed")
+        self.assertIn("The workflow", workflow_options.check(list(found.values()), {"cfg": "3"}))
+
+    def test_ltx_options_change_their_nodes(self):
+        api = self.ltx()
+        found = {option["id"]: option for option in workflow_options._tune(
+            api, self.INFO, {"fps": "30", "negative": "ugly", "image_strength": "0.5", "nag_scale": "5", "lora_slot": "b.safetensors", "lora_slot_strength": "0.7"})}
+        self.assertEqual(set(found), {"sampler", "cfg", "negative", "fps", "image_strength", "nag_scale", "lora_slot", "lora_slot_strength"})
+        self.assertEqual(api["4"]["inputs"]["value"], 30.0)
+        self.assertEqual(api["7"]["inputs"]["text"], "ugly")
+        self.assertEqual([api[key]["inputs"]["strength"] for key in ("8", "9")], [0.5, 0.5], "both passes")
+        self.assertEqual(api["10"]["inputs"]["nag_scale"], 5.0)
+        self.assertEqual(api["11"]["inputs"]["lora_1"], {"on": True, "lora": "b.safetensors", "strength": 0.7, "strengthTwo": None})
+
+    def test_no_lora_chosen_leaves_the_loader_empty(self):
+        api = self.ltx()
+        workflow_options._tune(api, self.INFO, {})
+        self.assertEqual(list(api["11"]["inputs"]), ["model"])
+
+    def test_two_samplers_that_aren_t_distilled_are_left_alone(self):
+        api = self.ksampler()
+        api["5"] = {"class_type": "KSampler", "inputs": {"steps": 8, "cfg": 1, "sampler_name": "euler", "scheduler": "simple"}}
+        ids = [option["id"] for option in workflow_options._tune(api, self.INFO, {})]
+        self.assertNotIn("sampler", ids)
+        self.assertNotIn("cfg", ids)
+
+    def test_the_negative_prompt_is_checked(self):
+        found = workflow_options._tune(self.ksampler(), self.INFO, {})
+        self.assertIsNone(workflow_options.check(found, {"negative": "x" * 10}))
+        self.assertIn("characters", workflow_options.check(found, {"negative": "x" * (workflow_options.MOST_TEXT + 1)}))
+
+    def test_a_turbo_switch_brings_its_steps_along(self):
+        ui, info = turbo_workflow(), OBJECT_INFO
+        offered = {option["id"]: option for option in workflow_options.offered(ui, info, "video")}
+        self.assertEqual(offered["steps"]["follows"], {"switch": "switch_lightning_lora", "0": "20", "1": "4"})
+
 class TurboTest(unittest.TestCase):
     """MiniMax H3's Enable Lightning LoRA: a named Boolean choosing the turbo LoRA and its steps through switches."""
 

@@ -164,7 +164,11 @@ gets them, on Shorts and Video too, where a run keeps them for Continue and redo
 | A switch on a subgraph's face, as ComfyUI's templates have | A tickbox, with what goes with it by name beside it: Krea-2's Enable LoRA with the LoRA and its strength, Qwen-Image-Edit's Enable turbo mode. |
 | A LoRA in rgthree's Power Lora Loader | A tickbox and its strength. Saved under a folder of the author's, it's found where it's installed. |
 | The Krea2T Enhancer | A tickbox and its prompt-adherence strength, 0 to 2. |
-| A sampler whose steps can be found | Steps. |
+| A sampler whose steps can be found | Steps, under Advanced. |
+| A KSampler, KSamplerSelect, BasicScheduler, CFGGuider or CFG primitive | Beside Steps, under Advanced: Sampler, Scheduler and CFG, wherever the workflow has just one of each. A distilled graph (ManualSigmas) has its own fixed steps and CFG, so they show greyed out. |
+| A switch such as turbo that changes the steps | Steps, CFG, Sampler and Scheduler follow it as it's ticked: Qwen-Image-Edit's Enable turbo mode, MiniMax's lightning LoRA. |
+| One text input that is the negative prompt (CLIPTextEncode into a negative, or a Fibo 2 negative_prompt) | Negative prompt, under Advanced. Not offered on a distilled graph, whose CFG of 1 never reads it, unless it has NAG (LTX). |
+| An LTX graph | Frames per second, Image strength (both passes), NAG scale, and Add a LoRA (any installed LoRA and its strength, into an empty Power Lora Loader), under Advanced. |
 
 Not offered, as the pipeline does those itself: what writes or enhances the prompt (an Image to prompt or Prompt
 enhancer group stays off, as the LLM or you write it), what sets the size, the seed, and which model files load. One that

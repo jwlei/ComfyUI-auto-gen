@@ -8,6 +8,7 @@ first render.
 
 Times are kept in `logs/stage_timings_<side>.json` as {"steps": {...}, "renders": {key: seconds}}.
 """
+import hashlib
 import json
 import os
 import re
@@ -53,7 +54,9 @@ def render_keys(workflow, options=None, size=None, fallback="built-in"):
     """The keys a render is timed under, from the most particular to the least."""
     name = os.path.splitext(os.path.basename(workflow))[0] if workflow else fallback
     model = (workflow_models(workflow) if workflow else None) or name
-    chosen = ",".join(f"{key}={value}" for key, value in sorted((options or {}).items())) or "as saved"
+    # A long text, such as a negative prompt, would make a key of paragraphs: it is told apart by a short digest.
+    shown = lambda value: str(value) if len(str(value)) <= 24 else "#" + hashlib.sha1(str(value).encode("utf-8")).hexdigest()[:8]
+    chosen = ",".join(f"{key}={shown(value)}" for key, value in sorted((options or {}).items())) or "as saved"
     keys = [model, SEPARATOR.join((model, name)), SEPARATOR.join((model, name, chosen))]
     if size:
         keys.append(SEPARATOR.join((model, name, chosen, size)))

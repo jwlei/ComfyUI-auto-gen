@@ -237,6 +237,13 @@ portrait videos sit in three columns on one screen.
 On a phone a header stays on top with Options, Run (with a short status), Queue, Log, Quota
 and Videos, and a small progress bar under it while a run or upload is going.
 
+The **Log** colours each line by what it is, and what ComfyUI does while a run renders is in it too, with how long each
+part took (sampling steps, decoding, a failed node and why). **ComfyUI activity** hides those lines and **Problems only**
+leaves just the stages, warnings and errors. **Workflow**, in the log, opens the workflow the current or last run
+renders with, as it was sent to ComfyUI: the options it was set to and every node with what it is given, with Copy JSON.
+Tapping the title of the run in Status opens its details: stage, time so far, estimate, what ComfyUI is on, and the
+command.
+
 Before a run, the panel estimates how long it will take from the options you have
 set, and updates as you change them: videos, avatar layout and source, clips per
 video, clip length and uploading. During a run it shows an ETA for each step and for
