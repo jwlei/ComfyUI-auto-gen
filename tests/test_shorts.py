@@ -624,5 +624,22 @@ class SwitchTest(unittest.TestCase):
             self.assertEqual(names("video"), ["b.json"])
 
 
+
+class UploadTest(unittest.TestCase):
+    def test_a_short_is_marked_as_ai_made(self):
+        from pipelines.shorts import publisher
+        video = os.path.join(tempfile.mkdtemp(), "short.mp4")
+        self.addCleanup(shutil.rmtree, os.path.dirname(video), True)
+        open(video, "wb").close()
+        keys = {"YOUTUBE_CLIENT_ID": "id", "YOUTUBE_CLIENT_SECRET": "secret", "YOUTUBE_REFRESH_TOKEN": "token"}
+        service = mock.MagicMock()
+        service.videos().insert().next_chunk.return_value = (None, {"id": "abc"})
+        with mock.patch.dict(os.environ, keys), mock.patch.object(publisher.YouTubeUploader, "_service", return_value=service),                 mock.patch.object(publisher, "MediaFileUpload"), mock.patch.object(publisher, "log_api_call"):
+            url = publisher.YouTubeUploader().upload(video, "A title", "A description")
+        self.assertEqual(url, "https://youtube.com/shorts/abc")
+        body = service.videos().insert.call_args.kwargs["body"]
+        self.assertIs(body["status"]["containsSyntheticMedia"], True, "YouTube's altered or synthetic content box is ticked")
+
+
 if __name__ == "__main__":
     unittest.main()

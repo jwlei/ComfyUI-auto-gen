@@ -211,6 +211,8 @@ python -m pipelines.shorts.main --voice en-gb-storyteller-2 --output daily_short
 | `--seed N` | The first avatar clip's seed, and the next number for each clip after it. Default: a random seed for every clip. The panel has it under Avatar, with a shuffle button to pick one; the log shows each clip's. |
 | `--avatar-clips` | `auto` (default: hook + 3-5 scenes, more where the stock footage fits badly), `3` (hook + two middle scenes), `2` (two middle scenes only) or `0` (no avatar). Overrides `AVATAR_CLIPS`. |
 
+Every upload ticks YouTube's **Altered or synthetic content** box (`containsSyntheticMedia`), since each short has an AI avatar, voice and script.
+
 Schedule a daily short with cron:
 
 ```cron

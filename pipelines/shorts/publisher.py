@@ -84,6 +84,9 @@ class YouTubeUploader:
             "status": {
                 "privacyStatus": privacy_status,
                 "selfDeclaredMadeForKids": False,
+                # YouTube's "Altered or synthetic content" box, ticked: every short has an AI avatar, voice and
+                # script, and YouTube asks for realistic AI content to say so. Left out, it stays unticked.
+                "containsSyntheticMedia": True,
             },
         }
 
