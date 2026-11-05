@@ -393,6 +393,7 @@ assert.strictEqual(run('folder'), 'image');
 assert.strictEqual(els.jumpResults.textContent, 'Images');
 run("setPipeline('shorts', false)");
 assert.strictEqual(els.jumpResults.textContent, 'Shorts', 'on Shorts the footer says Shorts');
+assert(/\.check \.hint \{ display: block;/.test(html), 'a checkbox hint sits under its label');
 run("setPipeline('video', false)");
 assert.strictEqual(els.jumpResults.textContent, 'Videos');
 run("setPipeline('shorts', false)");

@@ -136,7 +136,8 @@
   .section-title { font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin: 14px 0 0; font-weight: 700; }
   .check { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; cursor: pointer; text-transform: none; letter-spacing: 0; font-size: .95rem; color: var(--text); }
   .check input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
-  .check .hint { margin-top: 2px; }
+  /* Under what it explains, on a line of its own: a span inside the label otherwise ran on after it. */
+  .check .hint { display: block; margin-top: 2px; }
   /* Red wherever it is: Output's own button colours would otherwise win. Held at the width it had (secondTap pins it):
      only growing and shrinking were turned off before, and in the viewer, whose buttons start from nothing (flex: 1 1 0),
      that left it at no width at all, so it vanished. */
