@@ -360,7 +360,8 @@
   .comfy-now { margin-top: 12px; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; }
   .bar { height: 6px; background: #0a0b0f; border-radius: 4px; overflow: hidden; margin-top: 8px; }
   .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .4s; }
-  .gpu { margin: -6px 0 12px; font-variant-numeric: tabular-nums; }
+  .gpu { margin: -6px 0 12px; font-variant-numeric: tabular-nums; font-size: .72rem; white-space: nowrap; }
+  .gpu .mi { width: 1.15em; height: 1.15em; vertical-align: -.22em; margin-right: 2px; }
   .gpu:empty, #stageDetail:empty { display: none; }
   .q-group { font-size: .72rem; color: var(--muted); margin: 9px 0 2px; }
   .q-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; font-size: .78rem; padding: 2px 0; }
@@ -1025,7 +1026,6 @@
         <select id="workflow" name="workflow">
           <option value="">LTX-2.3</option>
         </select>
-        <button type="button" class="ghost" id="comfyStart" title="Only ComfyUI can list what's saved in it." hidden>Start ComfyUI</button>
       </div>
 
       <label for="runs">How many videos</label>
@@ -1768,11 +1768,6 @@ async function loadWorkflows() {
   applyDefaultPreset('shorts');
 }
 $('workflow').addEventListener('focus', loadWorkflows);
-$('comfyStart').addEventListener('click', async () => {
-  $('comfyStart').hidden = true;
-  const body = await (await fetch('/comfyui/start', { method: 'POST' })).json();
-  if (!body.ok) alert(body.error);
-});
 
 function syncForm() {
   $('avatarOpts').classList.toggle('hidden', $('avatar_clips').value === '0');
@@ -2337,14 +2332,30 @@ $('restartPanel').addEventListener('click', async () => {
   } catch (e) { return; }
   reloadWhenBack();
 });
+// With ComfyUI off there is nothing to restart: the same button starts it.
+let comfyOff = false;
+const armed = {};
+function syncComfyButton(c) {
+  comfyOff = !c.online && !c.listening;
+  const label = $('restartComfy').querySelector('span');
+  const text = comfyOff ? (c.starting ? 'Starting ComfyUI…' : 'Start ComfyUI') : 'Restart ComfyUI';
+  if (!armed.restartComfy) label.textContent = text;
+  $('restartComfy').disabled = comfyOff && (c.starting || !c.can_start);
+  if (comfyOff) $('restartComfy').classList.remove('pulse');
+}
 $('restartComfy').addEventListener('click', async () => {
+  if (comfyOff) {
+    $('restartComfy').disabled = true;
+    const body = await (await fetch('/comfyui/start', { method: 'POST' })).json();
+    if (!body.ok) { settingsNote(body.error || 'Could not start it.', true); $('restartComfy').disabled = false; }
+    return;
+  }
   if (!confirmTap('restartComfy', 'Restart ComfyUI')) return;
   $('restartComfy').classList.remove('pulse');
   const body = await (await fetch('/restart/comfyui', { method: 'POST' })).json();
   settingsNote(body.ok ? '' : body.error || 'Could not restart it.', !body.ok);
 });
 // The three buttons ask for a second tap within a few seconds instead of a box: the first arms it, the second does it.
-const armed = {};
 function confirmTap(id, label) {
   const label_ = $(id).querySelector('span');
   if (armed[id]) {
@@ -4250,10 +4261,14 @@ function renderNow(data) {
   }
 
   const g = data.gpu;
-  const ram = c.ram ? ` · RAM ${+(c.ram.total - c.ram.free).toFixed(1)}/${c.ram.total}GB` : '';
-  $('gpuLine').textContent = g
-    ? `GPU ${g.util}% · VRAM ${g.mem_used}/${g.mem_total}GB${ram} · ${g.power}W · ${g.temp}°C`
-    : ram.slice(3);
+  const icon = (title, paths) => `<svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><title>${title}</title>${paths}</svg>`;
+  const vramIcon = icon('VRAM', '<rect x="2" y="7" width="20" height="10" rx="1.5"/><circle cx="8" cy="12" r="2.5"/><path d="M14 10h5M14 14h5M5 17v3"/>');
+  const ramIcon = icon('RAM', '<rect x="2" y="8" width="20" height="8" rx="1"/><path d="M6 8v8M10 8v8M14 8v8M18 8v8M4 16v2.5M8 16v2.5M12 16v2.5M16 16v2.5M20 16v2.5"/>');
+  const parts = [];
+  if (g) parts.push(`GPU ${g.util}%`, `${vramIcon}${g.mem_used}/${g.mem_total}GB`);
+  if (c.ram) parts.push(`${ramIcon}${+(c.ram.total - c.ram.free).toFixed(1)}/${c.ram.total}GB`);
+  if (g) parts.push(`${g.power}W`, `${g.temp}°C`);
+  $('gpuLine').innerHTML = parts.join(' · ');
 }
 
 // --- Quota ---
@@ -4852,7 +4867,7 @@ async function pollOnce() {
 
   const c = data.comfyui;
   if (c.online !== workflowsFor) { workflowsFor = c.online; loadWorkflows(); loadVideoWorkflows(); loadImageWorkflows(); }
-  $('comfyStart').hidden = c.online || c.starting || !c.can_start;
+  syncComfyButton(c);
   lastComfy = { ...c, gpu: data.gpu };
   $('comfyDot').className = 'dot ' + (c.online ? 'ok' : c.starting || c.listening ? 'warn' : 'fail');
   $('comfyStatus').title = `ComfyUI: ${comfyState(c)}`;
