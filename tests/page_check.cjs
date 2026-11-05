@@ -392,7 +392,10 @@ run("setPipeline('image', false)");
 assert.strictEqual(run('folder'), 'image');
 assert.strictEqual(els.jumpResults.textContent, 'Images');
 run("setPipeline('shorts', false)");
+assert.strictEqual(els.jumpResults.textContent, 'Shorts', 'on Shorts the footer says Shorts');
+run("setPipeline('video', false)");
 assert.strictEqual(els.jumpResults.textContent, 'Videos');
+run("setPipeline('shorts', false)");
 assert(/body\.on-image \{ --accent/.test(html));
 
 // A stopped run reads top to bottom in its own box: title, details, then the buttons.

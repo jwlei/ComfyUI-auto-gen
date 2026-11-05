@@ -4383,7 +4383,7 @@ function setPipeline(side, remember = true) {
     $(id).classList.toggle('active', side === own);
     $(id).setAttribute('aria-selected', side === own);
   }
-  $('jumpResults').textContent = side === 'image' ? 'Images' : 'Videos';
+  $('jumpResults').textContent = { shorts: 'Shorts', video: 'Videos', image: 'Images' }[side];
   $('formNote').hidden = true;
   $(SIDE_FORMS[side]).appendChild($('formActions'));
   folder = side === 'shorts' ? 'output' : side;
