@@ -18,6 +18,13 @@ DEFAULT_WORKFLOW = os.path.join(WORKFLOWS_DIR, "video_workflow.json")
 DEFAULT_TIMEOUT = 3600
 VIDEO_EXTENSIONS = (".mp4", ".webm", ".mov", ".mkv", ".gif")
 POLL_INTERVAL = 5
+# ComfyUI can stop answering for minutes while it works, with no harm to the render: loading SeedVR2's 7B model to
+# the CPU holds up its web server too, and a long video holds it up longer. A slow reply is waited out; only this long
+# without any answer gives up (the render's own timeout still caps it).
+MOST_SILENCE = 1800
+POLL_TIMEOUT = (10, 60)
+# Queueing is answered as soon as ComfyUI has a moment, and one sent again could make the image twice.
+QUEUE_TIMEOUT = (10, 180)
 
 
 class ComfyClient:
@@ -181,7 +188,7 @@ class ComfyClient:
             if "save_output" in node.get("inputs", {}):
                 node["inputs"]["save_output"] = False
 
-        response = requests.post(f"{self.url}/prompt", json={"prompt": workflow, "client_id": self.client_id}, timeout=30)
+        response = requests.post(f"{self.url}/prompt", json={"prompt": workflow, "client_id": self.client_id}, timeout=QUEUE_TIMEOUT)
         if response.status_code != 200:
             raise RuntimeError(f"ComfyUI rejected the workflow: {response.text[:800]}")
 
@@ -218,9 +225,22 @@ class ComfyClient:
 
     def _wait_for(self, prompt_id):
         """Polls until the prompt finishes. Returns its history entry, or raises on error or timeout."""
-        started = time.time()
+        started = answered = time.time()
+        quiet = False
         while time.time() - started < self.timeout:
-            entry = requests.get(f"{self.url}/history/{prompt_id}", timeout=30).json().get(prompt_id)
+            # Busy is not broken: before, one reply slower than 30s gave the image up while ComfyUI went on making it,
+            # and the try after it waited behind, so neither was saved.
+            try:
+                entry = requests.get(f"{self.url}/history/{prompt_id}", timeout=POLL_TIMEOUT).json().get(prompt_id)
+            except (requests.Timeout, requests.ConnectionError) as e:
+                if time.time() - answered > MOST_SILENCE:
+                    raise RuntimeError(f"ComfyUI has not answered for {MOST_SILENCE // 60} minutes ({e}).") from e
+                if not quiet:
+                    print("      ⏳ ComfyUI is too busy to answer right now: still waiting for it.")
+                    quiet = True
+                time.sleep(POLL_INTERVAL)
+                continue
+            answered, quiet = time.time(), False
             if entry:
                 status = entry.get("status", {})
                 if status.get("status_str") == "error":

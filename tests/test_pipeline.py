@@ -863,5 +863,28 @@ class ArgsTest(unittest.TestCase):
             main.parse_args(["--resume", "run_1", "--plan-only"])
 
 
+class BusyComfyTest(unittest.TestCase):
+    """ComfyUI too busy to answer for a while is waited out; silent for too long, it's given up."""
+
+    def client(self):
+        client = object.__new__(comfy.ComfyClient)
+        client.url, client.timeout = "http://comfy", 3600
+        return client
+
+    def test_a_slow_reply_is_waited_out(self):
+        done = mock.Mock(json=lambda: {"p1": {"status": {"completed": True}, "outputs": {}}})
+        replies = [comfy.requests.ReadTimeout("read timeout=30"), comfy.requests.ReadTimeout("read timeout=30"), done]
+        with mock.patch.object(comfy.requests, "get", side_effect=replies) as get, mock.patch.object(comfy.time, "sleep"):
+            entry = self.client()._wait_for("p1")
+        self.assertEqual(entry["status"], {"completed": True}, "the image it was making is still collected")
+        self.assertEqual(get.call_count, 3)
+
+    def test_silent_for_too_long_gives_up(self):
+        now = [0.0]
+        with mock.patch.object(comfy.requests, "get", side_effect=comfy.requests.ConnectionError("refused")),                 mock.patch.object(comfy.time, "time", lambda: now[0]),                 mock.patch.object(comfy.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds)):
+            with self.assertRaisesRegex(RuntimeError, "has not answered for 30 minutes"):
+                self.client()._wait_for("p1")
+
+
 if __name__ == "__main__":
     unittest.main()
