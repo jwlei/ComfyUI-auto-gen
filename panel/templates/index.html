@@ -606,7 +606,15 @@
   .start-later { width: auto; margin: 0 0 0 auto; padding: 2px 8px; background: none; border: 0; color: var(--muted); font-size: .8rem; font-weight: 600; }
   body.on-shorts .not-shorts { display: none !important; }
   .log-box { margin-top: 8px; font-size: .85rem; }
-  .current-work { font-size: .95rem; font-weight: 600; margin-bottom: 8px; overflow-wrap: anywhere; }
+  .current-work { display: block; width: auto; margin: 0 0 8px; padding: 0; background: none; border: 0; border-radius: 0; color: var(--text);
+    font-size: .95rem; font-weight: 600; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+  .current-work[hidden] { display: none; }
+  .current-work::after { content: "A"; display: inline-block; margin-left: 6px; color: var(--muted); transform: rotate(90deg); }
+  /* What the run renders with: a small box over the blurred page. */
+  dialog.run-facts { width: min(360px, calc(100vw - 24px)); }
+  .run-facts-list { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; margin: 0; font-size: .88rem; }
+  .run-facts-list dt { color: var(--muted); }
+  .run-facts-list dd { margin: 0; overflow-wrap: anywhere; }
   .run-card .btns:empty { display: none; }
   .status-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .status-head .section-title { margin: 0; }
@@ -783,7 +791,7 @@
     <span id="statusText">Idle</span>
   </div>
   <div class="hint gpu" id="gpuLine"></div>
-  <div class="current-work" id="currentWork" hidden></div>
+  <button type="button" class="current-work" id="currentWork" aria-haspopup="dialog" title="What it renders with" hidden></button>
   <div class="progress" id="runProgress" hidden>
     <div class="strip-head"><b id="runProgressText"></b><span id="runProgressRight"></span></div>
     <div class="bar"><div id="runProgressBar"></div></div>
@@ -1276,6 +1284,11 @@
   <div class="panel-dialog-body" id="panelDialogBody"></div>
   <button type="button" class="panel-close" id="panelDialogClose">Close</button>
 </dialog>
+<dialog id="runFacts" class="panel-dialog run-facts" aria-labelledby="runFactsTitle">
+  <div class="panel-dialog-title" id="runFactsTitle"></div>
+  <dl class="run-facts-list" id="runFactsList"></dl>
+  <button type="button" class="panel-close" id="runFactsClose">Close</button>
+</dialog>
 <dialog id="paintDialog" class="paint-dialog" aria-labelledby="paintDialogTitle">
   <div class="paint-title" id="paintDialogTitle">Inpaint</div>
   <div class="paint-error" id="paintError" role="alert" hidden></div>
@@ -1328,6 +1341,7 @@
       <button type="button" id="viewerVariations" title="More like this one: its prompt and settings in Generate, on new seeds">More like this</button>
       <button type="button" id="viewerUpscale" title="Make this one bigger, as a new image in its set">Upscale</button>
       <button type="button" id="viewerEdit" title="Edit this one: it goes to Generate as image 1, with the Qwen-Image 2.1 edit workflow">Edit</button>
+      <button type="button" id="viewerPrompts" title="This image's prompt, and its set's">Prompts</button>
     </div>
     <div class="viewer-compare" id="viewerUpscaleBar" hidden>
       <button type="button" data-upscale="fast" title="Superscale-SP: seconds, and adds no new detail">Fast</button>
@@ -3131,6 +3145,12 @@ async function editInGenerate(id, position) {
   const box = sourceBoxes()[0];
   if (box) await useOutput(box, id, position);
 }
+$('viewerPrompts').addEventListener('click', () => {
+  if (!viewing || viewing.film) return;
+  const { id, position } = viewing;
+  closeViewer();
+  openShots(id, position);
+});
 $('viewerEdit').addEventListener('click', () => {
   if (!viewing || viewing.film) return;
   const { id, position } = viewing;
@@ -3527,7 +3547,8 @@ function shotsHtml(run) {
   <div class="shots-list">${run.shots.map((shot, i) => shotHtml(run, shot, i)).join('')}</div>
   <div class="shots-foot">${go}${save}<button type="button" class="plain" data-close="1">Close</button></div>`;
 }
-async function openShots(id) {
+// page: the image to open on, from 1; the first otherwise.
+async function openShots(id, page) {
   let data;
   try {
     data = await (await fetch(runUrl(id))).json();
@@ -3547,6 +3568,7 @@ async function openShots(id) {
       closeSeedFolds();
     }, { passive: true });
   }
+  if (carousel && page > 1) carousel.scrollLeft = (Math.min(page, data.shots.length) - 1) * carousel.clientWidth;
 }
 // The arrow keys turn a set's pages, unless you're typing in a prompt or seed.
 $('shotsDialog').addEventListener('keydown', e => {
@@ -4065,6 +4087,17 @@ for (const id of ['runQueue', 'uploadQueue']) {
 
 // --- Header: the short status on Run, and a bar under it per job ---
 // What's being made, in Status. A new one slides in, as it leaves the queue below.
+// The run the title is about, and what it renders with, a tap away.
+let workItem = null;
+$('currentWork').addEventListener('click', () => {
+  const facts = (workItem && workItem.facts) || {};
+  $('runFactsTitle').textContent = $('currentWork').textContent;
+  $('runFactsList').innerHTML = [['Workflow', facts.workflow], ['Resolution', facts.resolution], ...(facts.prompt ? [['Prompt', facts.prompt]] : [])]
+    .map(([name, value]) => `<dt>${name}</dt><dd>${esc(value || 'Not known yet')}</dd>`).join('');
+  $('runFacts').showModal();
+});
+$('runFactsClose').addEventListener('click', () => $('runFacts').close());
+$('runFacts').addEventListener('click', e => { if (e.target === $('runFacts')) $('runFacts').close(); });
 function showWork(text) {
   const el = $('currentWork');
   el.hidden = !text;
@@ -4227,6 +4260,7 @@ async function poll() {
   safely(() => renderStrips(data));
   $('go').disabled = $('goStick').disabled = submitting;
   if (!submitting) $('go').textContent = $('goStick').textContent = running || runsQueued ? 'Add to queue' : 'Generate';
+  workItem = running ? queue.current : nextUp ? queue.items[0] : null;
   showWork(running ? `${SIDE_NAMES[data.pipeline] || 'Shorts'}: ${(queue.current || {}).label || 'Starting'}`
     : nextUp ? `${SIDE_NAMES[queue.items[0].pipeline] || 'Shorts'}: ${queue.items[0].label}` : '');
   // A job on the other side still has the GPU, so the switch says so.

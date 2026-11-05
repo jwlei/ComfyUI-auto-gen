@@ -195,7 +195,8 @@ class PanelTest(unittest.TestCase):
         # A second film waits its turn, and Stop puts it on hold.
         self.assertEqual(self.generate(prompt="a second film").get_json(), {"ok": True, "queued": True})
         queue_status = self.status()["queue"]
-        self.assertEqual(queue_status["items"][0]["label"], "a second film")
+        self.assertEqual(queue_status["items"][0]["label"], "1 video", "titled like every side's")
+        self.assertEqual(queue_status["items"][0]["facts"]["prompt"], "a second film", "the prompt is what the title opens")
         # The first film's plan and clips were timed: the fakes are quick, so it is short, but it's there.
         self.assertGreater(queue_status["items"][0]["estimate"], 0)
 
@@ -447,6 +448,16 @@ class PanelTest(unittest.TestCase):
         post({"side": "image", "name": "Edits", "delete": True})
         self.assertEqual([p["name"] for p in self.client.get("/api/presets").get_json()["presets"]["image"]], ["Phone wallpaper"])
         self.assertEqual(post({"side": "nowhere", "name": "x", "values": {}}).status_code, 400)
+
+    def test_a_runs_title_opens_its_workflow_and_resolution(self):
+        image = {"pipeline": "image", "argv": ["--count", "3", "--size", "1272x2772"],
+                 "env": {"COMFYUI_WORKFLOW": "C:/x/logs/workflows/image_krea2_SFW_NSFW.json"}}
+        self.assertEqual(webapp.run_facts(image), {"workflow": "image_krea2_SFW_NSFW", "resolution": "1272x2772"})
+        by_aspect = {"pipeline": "image", "argv": ["--aspect", "16:9", "--megapixels", "2"], "env": {}}
+        self.assertEqual(webapp.run_facts(by_aspect), {"workflow": "Built-in", "resolution": "16:9 at 2 MP"})
+        shorts = {"pipeline": "shorts", "argv": ["--runs", "3"], "env": {"AVATAR_SIZE": "576x1024", "COMFYUI_WORKFLOW": "w/avatar_lipsync.json"}}
+        self.assertEqual(webapp.run_facts(shorts), {"workflow": "avatar_lipsync", "resolution": "576x1024"})
+        self.assertEqual(webapp.run_facts({"pipeline": "video", "argv": ["--resume", "r1"], "env": {}})["resolution"], "As the run was set up")
 
     def test_a_side_has_one_default_preset_at_most(self):
         if os.path.exists(webapp.PRESETS_PATH):
@@ -852,7 +863,7 @@ class PanelTest(unittest.TestCase):
         self.assertFalse(webapp.job.running)
         self.assertIn(("/interrupt", {"prompt_id": "p1"}), self.comfy.cancels)
         with open(webapp.run_queue.path, encoding="utf-8") as f:
-            self.assertEqual([item["label"] for item in json.load(f)], ["still queued"])
+            self.assertEqual([item["prompt"] for item in json.load(f)], ["still queued"])
         self.assertTrue(RunState.load(run_id).shots, "it can continue after the restart")
 
     # --- The page ---

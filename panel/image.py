@@ -379,7 +379,8 @@ def generate():
     detail = [f"{count} {'image' if count == 1 else 'images'}", what, writer, *(["review the prompts first"] if plan_only else [])]
     if env.get("COMFYUI_WORKFLOW"):
         detail.append(os.path.splitext(os.path.basename(env["COMFYUI_WORKFLOW"]))[0])
-    item = {"pipeline": "image", "label": queue_label(prompt), "detail": " · ".join(detail), "argv": argv, "env": env,
+    # Titled like every side's: how much, with the prompt a tap away in what the title opens.
+    item = {"pipeline": "image", "label": f"{count} {'image' if count == 1 else 'images'}", "prompt": prompt, "detail": " · ".join(detail), "argv": argv, "env": env,
             "image": image_paths[0] if image_paths else None, "references": image_paths[1:] + region_files, "plan_only": plan_only, "first_only": "--first-only" in flags,
             "estimate": RunEta(argv, env, IMAGE_TIMINGS).plan()["total"]}
     queued = run_queue.add(item)

@@ -302,7 +302,8 @@ def generate():
     detail = ["film as long as its audio" if audio else f"{length} film", llm or "your prompt, every clip", "review the prompts first" if plan_only else "renders straight away"]
     if env:
         detail.append(request.form["workflow"].removesuffix(".json"))
-    item = {"pipeline": "video", "label": queue_label(prompt), "detail": " · ".join(detail), "argv": argv, "env": env,
+    # Titled like every side's: how much, with the prompt a tap away in what the title opens.
+    item = {"pipeline": "video", "label": "1 video", "prompt": prompt, "detail": " · ".join(detail), "argv": argv, "env": env,
             "image": image_paths[0] if image_paths else None, "references": image_paths[1:] + ([audio_path] if audio_path else []) + media_paths, "plan_only": plan_only, "first_only": "--first-only" in flags,
             "estimate": RunEta(argv, VIDEO_TIMINGS, env).plan()["total"]}
     queued = run_queue.add(item)

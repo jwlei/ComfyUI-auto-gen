@@ -204,7 +204,7 @@ def describe_run(form, argv):
     """The queue's label and small print for a run built from this form."""
     topic = (form.get("topic") or "").strip()
     runs = argv[argv.index("--runs") + 1]
-    label = topic or ("AI picks the topic" if runs == "1" else f"{runs} videos, AI picks the topics")
+    label = topic or ("1 video" if runs == "1" else f"{runs} videos")
     avatar = "no avatar" if form.get("avatar_clips") == "0" else "ComfyUI avatar"
     if form.get("workflow") and avatar == "ComfyUI avatar":
         avatar = f"ComfyUI avatar ({form['workflow'].removesuffix('.json')})"

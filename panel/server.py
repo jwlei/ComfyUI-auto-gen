@@ -490,11 +490,27 @@ class JobQueue:
     def snapshot(self):
         with self.lock:
             self._advance()
-            public = lambda item: {key: item.get(key) for key in ("id", "label", "detail", "estimate", "videos", "pipeline", "later")}
+            public = lambda item: {**{key: item.get(key) for key in ("id", "label", "detail", "estimate", "videos", "pipeline", "later")},
+                                   "facts": run_facts(item)}
             return {"items": [public(item) for item in self.items],
                     "current": public(self.current) if self.current else None,
                     "results": list(self.results),
                     "held": self.held}
+
+
+def run_facts(item):
+    """What a run's title opens on: the workflow it renders with and the size it makes, as its options say."""
+    argv, env = item.get("argv") or [], item.get("env") or {}
+    flag = lambda name: argv[argv.index(name) + 1] if name in argv[:-1] else None
+    workflow = env.get("COMFYUI_WORKFLOW")
+    size = flag("--size") or env.get("AVATAR_SIZE")
+    if not size and flag("--aspect"):
+        size = f"{flag('--aspect')} at {flag('--megapixels') or '1'} MP"
+    if not size and item.get("pipeline", "shorts") == "shorts":
+        size = (os.getenv("AVATAR_SIZE") or "736x1280").lower()
+    return {"workflow": os.path.splitext(os.path.basename(workflow))[0] if workflow else "Built-in",
+            "resolution": size or ("As the run was set up" if "--resume" in argv else "The workflow's own"),
+            **({"prompt": item["prompt"]} if item.get("prompt") else {})}
 
 
 def notify_ended(item, outcome, note=None):
