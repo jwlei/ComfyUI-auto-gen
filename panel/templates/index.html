@@ -612,7 +612,9 @@
   .current-work { display: block; width: auto; margin: 0 0 8px; padding: 0; background: none; border: 0; border-radius: 0; color: var(--text);
     font-size: .95rem; font-weight: 600; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
   .current-work[hidden] { display: none; }
-  .current-work::after { content: "A"; display: inline-block; margin-left: 6px; color: var(--muted); transform: rotate(90deg); }
+  /* A right-pointing chevron, drawn with two borders so no font can turn it into another glyph. */
+  .current-work::after { content: ""; display: inline-block; width: .42em; height: .42em; margin-left: .5em; vertical-align: .1em;
+    border-top: 2px solid var(--muted); border-right: 2px solid var(--muted); transform: rotate(45deg); }
   /* What the run renders with: a small box over the blurred page. */
   dialog.run-facts { width: min(360px, calc(100vw - 24px)); }
   .run-facts-list { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; margin: 0; font-size: .88rem; }
