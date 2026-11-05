@@ -940,6 +940,14 @@ def work_left():
     return job.running or uploads.running or run_queue.pending() or upload_queue.pending()
 
 
+def restart_blocked():
+    """
+    Something a restart would cut short: a run or upload going, or a queue about to start one. A queue on hold
+    isn't: it's saved, and comes back on hold.
+    """
+    return job.running or uploads.running or any(queue.pending() and not queue.held for queue in (run_queue, upload_queue))
+
+
 _runs_cache = {"at": 0.0, "value": []}
 
 
@@ -1311,7 +1319,7 @@ def shutdown():
 def launcher_refresh():
     """
     Exits if the code changed after this server started, so start_webapp.pyw can
-    start a fresh one. Only answers this PC, and never stops a run.
+    start a fresh one. Only answers this PC, and never stops a run or a queue that's going.
     """
     if not on_this_pc():
         abort(403)
@@ -1319,7 +1327,7 @@ def launcher_refresh():
         code_changed_at = float(request.form.get("code_changed_at", 0))
     except ValueError:
         abort(400)
-    if code_changed_at <= STARTED_AT or work_left():
+    if code_changed_at <= STARTED_AT or restart_blocked():
         return {"restarting": False}
     threading.Timer(0.5, os._exit, args=(0,)).start()
     return {"restarting": True}

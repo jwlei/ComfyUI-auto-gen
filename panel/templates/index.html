@@ -50,6 +50,7 @@
   .queue-pending .bar > div { transition: width .2s ease; }
   .queue-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; margin-bottom: 4px; }
   .queue-head b { font-weight: 600; }
+  .queue-foot { display: flex; justify-content: flex-end; margin-top: 8px; }
   .queue-head .when { color: var(--muted); font-size: .78rem; }
   .queue-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
   .queue-item .what { flex: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -3957,7 +3958,7 @@ function renderQueue(el, q, doneIn, moving = false) {
   el.hidden = !waiting.length;
   if (el.hidden) return;
   const head = `<b>${el.dataset.title} (${waiting.length})</b>` + (q.held
-    ? `<span class="when">On hold until you press Resume</span><button type="button" data-resume="1">Resume</button>`
+    ? `<span class="when">On hold until you press Resume</span>`
     : doneIn ? `<span class="when">All done around ${clockIn(doneIn)}</span>` : '');
   const items = waiting.map((item, i) => `
     <div class="queue-item" data-id="${esc(String(item.id))}">
@@ -3966,7 +3967,9 @@ function renderQueue(el, q, doneIn, moving = false) {
         : item.estimate ? `<span class="when">${fmtEta(item.estimate)}</span>` : ''}
       <button type="button" data-remove="${item.id}" aria-label="Remove from the queue" title="Remove from the queue">✕</button>
     </div>`).join('');
-  const html = `<div class="queue-head">${head}</div>${items}`;
+  // Resume under what it lets go, where a thumb ends up after reading the list.
+  const foot = q.held ? `<div class="queue-foot"><button type="button" data-resume="1">Resume</button></div>` : '';
+  const html = `<div class="queue-head">${head}</div>${items}${foot}`;
   // Only when it changed, so a poll can't swallow a click on a button it just replaced.
   if (el.dataset.html !== html) {
     el.innerHTML = html;

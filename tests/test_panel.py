@@ -884,8 +884,14 @@ class PanelTest(unittest.TestCase):
             old = self.client.post("/launcher/refresh", data={"code_changed_at": "1"})
             self.assertEqual(old.get_json(), {"restarting": False})
             timer.assert_not_called()
-            new = self.client.post("/launcher/refresh", data={"code_changed_at": str(time.time() + 60)})
-            self.assertEqual(new.get_json(), {"restarting": True})
+            newer = {"code_changed_at": str(time.time() + 60)}
+            # A queue about to start something isn't cut short; one on hold is saved and comes back on hold.
+            with mock.patch.object(webapp.run_queue, "pending", return_value=[{"id": 1}]):
+                with mock.patch.object(webapp.run_queue, "held", False):
+                    self.assertEqual(self.client.post("/launcher/refresh", data=newer).get_json(), {"restarting": False})
+                    timer.assert_not_called()
+                with mock.patch.object(webapp.run_queue, "held", True):
+                    self.assertEqual(self.client.post("/launcher/refresh", data=newer).get_json(), {"restarting": True})
             timer.assert_called_once()
 
 
