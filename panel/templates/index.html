@@ -1264,6 +1264,7 @@
           <select id="imageMegapixels" name="megapixels">
             <option value="image">Same as the image</option>
             {% for value in image_megapixels %}<option value="{{ value }}">{{ value }} MP</option>{% endfor %}
+            <option value="1.6" hidden disabled>1.6 MP</option>
           </select>
         </div>
       </div>
@@ -2854,20 +2855,30 @@ function pickedSize() {
   const [width, height] = sourceSize || [1, 1];
   const parts = aspect.split(':');
   const ratio = aspect === 'image' ? width / height : +parts[0] / +parts[1];
-  const area = megapixels === 'image' ? (sourceSize ? Math.min(width * height, MOST_MEGAPIXELS * MEGAPIXEL) : MEGAPIXEL) : +megapixels * MEGAPIXEL;
+  const model = imageModel();
+  const cap = (model && model.most_megapixels || MOST_MEGAPIXELS) * MEGAPIXEL;
+  const area = megapixels === 'image' ? (sourceSize ? Math.min(width * height, cap) : MEGAPIXEL) : +megapixels * MEGAPIXEL;
   return [onGrid(Math.sqrt(area * ratio)), onGrid(Math.sqrt(area / ratio))];
 }
 // Greys out the sizes and pixel counts a model doesn't make well. Returns what the hint should say about it.
 function syncImageLimits() {
   const model = imageModel(), most = model && model.most_megapixels;
+  // Qwen edit works up to 1.6 MP, so there it's only an aspect ratio and a pixel count, not screens or an exact size.
+  const plain = imageTakes().model === 'qwen_image_21_edit';
   const tooBig = (width, height) => !!most && width * height > most * MEGAPIXEL;
+  for (const group of [...($('imageAspect').querySelectorAll ? $('imageAspect').querySelectorAll('optgroup') : [])]) group.hidden = plain && group.label !== 'Aspect ratio';
   for (const option of [...($('imageAspect').options || [])]) {
     const sides = /^(\d+)x(\d+)$/.exec(option.value);
-    if (sides) option.disabled = tooBig(+sides[1], +sides[2]);
+    if (sides) option.disabled = plain || tooBig(+sides[1], +sides[2]);
+    else if (option.value === 'custom') { option.disabled = plain; option.hidden = plain; }
   }
   for (const option of [...($('imageMegapixels').options || [])]) {
+    if (option.value === '1.6') { option.disabled = option.hidden = !plain; continue; }
     if (option.value !== 'image') option.disabled = !!most && +option.value > most;
   }
+  const picked = select => [...(select.options || [])].find(o => o.value === select.value);
+  if (plain && picked($('imageAspect')) && picked($('imageAspect')).disabled) $('imageAspect').value = 'image';
+  if (picked($('imageMegapixels')) && picked($('imageMegapixels')).disabled && $('imageMegapixels').value === '1.6') $('imageMegapixels').value = 'image';
   return most ? ` ${model.label} makes images up to ${most} MP.` : '';
 }
 function syncImageSize() {
@@ -3315,6 +3326,9 @@ async function openEditor() {
   const name = editWorkflowName();
   if (!name) { showFormError(`Save Qwen-Image 2.1's edit workflow in ComfyUI as ${EDIT_WORKFLOW.replace('.json', '')} to edit images here.`); }
   else $('imageWorkflow').value = name;
+  // Starts at the image's own shape and size, held to what the edit model makes.
+  $('imageAspect').value = 'image';
+  $('imageMegapixels').value = 'image';
   syncImageForm();
   saveImageForm();
   backToGenerate();

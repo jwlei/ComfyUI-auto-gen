@@ -747,8 +747,8 @@ class PanelTest(unittest.TestCase):
         self.comfy.saved = {"image_text.json": text_to_image_workflow(), "image_edit.json": broken, "film.json": {"nodes": []}}
         listed = self.client.get("/api/workflows?pipeline=image").get_json()["workflows"]
         self.assertEqual(listed, [
-            {"name": "image_edit.json", "label": "image_edit", "problem": "Needs gone.safetensors, which isn't installed."},
-            {"name": "image_text.json", "label": "image_text", "takes": {"min_images": 0, "max_images": 0, "size": True, "model": None, "options": [
+            {"name": "image_edit.json", "label": "edit", "problem": "Needs gone.safetensors, which isn't installed."},
+            {"name": "image_text.json", "label": "text", "takes": {"min_images": 0, "max_images": 0, "size": True, "model": None, "options": [
                 {"id": "face_enable_lora", "kind": "switch", "label": "Enable LoRA", "default": "0", "node": 30, "input": "value_3",
                  "problem": "Needs krea2_darkbrush.safetensors, which isn't installed."},
                 {"id": "prompt_enhancer", "kind": "switch", "role": "llm", "label": "Prompt enhancer", "default": "0",

@@ -1661,6 +1661,9 @@ def workflows():
     pipeline = request.args.get("pipeline") or "video"
     found = [{key: w[key] for key in ("name", "label", "takes", "problem") if key in w} for w in saved_workflows()
              if w.get("pipeline", pipeline_of(w["name"])) == pipeline and (pipeline == "image" or "problem" not in w)]
+    # The image_, video_ or shorts_ in front only sorts them in ComfyUI: here the side already says it.
+    for w in found:
+        w["label"] = re.sub(r"^(image|video|shorts?)_", "", w["label"], flags=re.I) or w["label"]
     if pipeline == "video":
         # How long its video model makes a clip, for the form to say.
         paths = {w["name"]: w.get("path") for w in saved_workflows()}
