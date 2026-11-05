@@ -274,12 +274,15 @@
     background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
   .settings-actions button:disabled { opacity: .5; }
   .settings-actions button.armed { border-color: var(--accent); color: var(--accent); }
-  .reserve button { margin: 0; padding: 6px 14px; }
+  .settings-body { display: flex; flex-direction: column; gap: 10px; }
+  .reserve-row { flex-wrap: wrap; row-gap: 4px; }
+  .reserve-row > label { flex: 1 1 auto; }
+  .reserve-row b { font-weight: 600; font-size: .85rem; }
+  .reserve-row button { width: auto; flex: none; margin: 0; padding: 1px 9px; font-size: .7rem; background: transparent; border: 1px solid var(--line); color: var(--muted); }
+  .reserve-row button.changed { border-color: var(--accent); color: var(--accent); background: rgba(255, 255, 255, .05); }
+  .reserve-row input { flex: 1 0 100%; margin: 0; }
   #restartComfy.pulse { border-color: #e6b800; color: #e6b800; background: rgba(230, 184, 0, .14); animation: pulse 1.2s ease-in-out infinite; }
   @keyframes pulse { 50% { box-shadow: 0 0 0 4px rgba(230, 184, 0, .35); } }
-  .reserve { display: flex; align-items: center; gap: 10px; flex: 1; justify-content: flex-end; }
-  .reserve input { flex: 1; max-width: 12rem; }
-  .reserve b { min-width: 3.2rem; text-align: right; font-weight: 600; }
   .settings-actions #shutdown { background: rgba(229, 83, 75, .14); border-color: var(--err); color: var(--err); }
   .settings-actions #shutdown.armed { background: var(--err); color: #fff; }
   .settings-note { margin: 0; }
@@ -1426,13 +1429,14 @@
 <dialog id="shotsDialog"><div id="shotsBody"></div></dialog>
 <dialog id="settingsDialog" class="panel-dialog settings-dialog" aria-labelledby="settingsTitle">
   <div class="panel-dialog-title" id="settingsTitle">Settings</div>
+  <div class="panel-dialog-body settings-body">
   <div class="settings-actions">
     <button type="button" id="restartPanel" title="Start the panel again, to load new code. Not while a run or upload is going."><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span>Restart panel</span></button>
     <button type="button" id="restartComfy" title="Close ComfyUI and start it again, which also frees its memory. Not while a run is going."><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx=".5"/><path d="M9 2.5v3M15 2.5v3M9 18.5v3M15 18.5v3M2.5 9h3M2.5 15h3M18.5 9h3M18.5 15h3"/></svg><span>Restart ComfyUI</span></button>
     <button type="button" id="shutdown" title="Shut down: force-stops everything, then the panel's server. Start it again with start_webapp.pyw or the ComfyUI auto-gen shortcut."><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/></svg><span>Shut down</span></button>
   </div>
   <div class="hint settings-note" id="settingsNote" hidden></div>
-  <div class="settings-row"><label for="reserveRam">Reserve free RAM</label><span class="reserve"><input type="range" id="reserveRam" min="3" max="12" step="1"><b id="reserveRamValue"></b><button type="button" id="reserveSet">Set</button></span></div>
+  <div class="settings-row reserve-row"><label for="reserveRam">Reserve free RAM</label><b id="reserveRamValue"></b><button type="button" id="reserveSet">Set</button><input type="range" id="reserveRam" min="3" max="12" step="1"></div>
   <label class="settings-check"><input type="checkbox" id="lowPriority"><span>Run generation at lower priority<small>The pipeline and ComfyUI give way to your other programs, so the PC stays responsive while it renders.</small></span></label>
   <div class="settings-group">Default workflow</div>
   <div class="settings-row"><label for="defaultShorts">Shorts</label><select id="defaultShorts" data-side="shorts"></select></div>
@@ -1444,6 +1448,7 @@
   {% if tailscale_problem %}<div class="hint">Anywhere (Tailscale): {{ tailscale_problem }}</div>{% endif %}
   <div class="settings-group">Storage</div>
   <div class="disk" id="diskBox"><div class="hint">Checking…</div></div>
+  </div>
   <button type="button" class="panel-close" id="settingsClose">Close</button>
 </dialog>
 <dialog id="panelDialog" class="panel-dialog" aria-labelledby="panelDialogTitle">
@@ -2255,6 +2260,7 @@ async function fillSettings() {
   $('lowPriority').checked = !!SETTINGS.low_priority;
   $('reserveRam').value = SETTINGS.reserve_ram_gb || 3;
   $('reserveRamValue').textContent = $('reserveRam').value + ' GB';
+  $('reserveSet').classList.remove('changed');
   for (const side of ['shorts', 'video', 'image']) {
     const select = document.getElementById('default' + side[0].toUpperCase() + side.slice(1));
     const chosen = (SETTINGS.default_workflow || {})[side] || '';
@@ -2283,10 +2289,15 @@ $('settingsBtn').addEventListener('click', e => {
 $('settingsClose').addEventListener('click', () => settingsDialog.close());
 settingsDialog.addEventListener('click', e => { if (e.target === settingsDialog) settingsDialog.close(); });
 $('lowPriority').addEventListener('change', () => saveSettings({ low_priority: $('lowPriority').checked }));
-$('reserveRam').addEventListener('input', () => { $('reserveRamValue').textContent = $('reserveRam').value + ' GB'; });
+const reserveSaved = () => SETTINGS.reserve_ram_gb || 3;
+$('reserveRam').addEventListener('input', () => {
+  $('reserveRamValue').textContent = $('reserveRam').value + ' GB';
+  $('reserveSet').classList.toggle('changed', Number($('reserveRam').value) !== reserveSaved());
+});
 $('reserveSet').addEventListener('click', async () => {
   const gb = Number($('reserveRam').value);
   await saveSettings({ reserve_ram_gb: gb <= 3 ? 0 : gb });
+  $('reserveSet').classList.remove('changed');
   $('restartComfy').classList.add('pulse');
 });
 settingsDialog.addEventListener('change', e => {
