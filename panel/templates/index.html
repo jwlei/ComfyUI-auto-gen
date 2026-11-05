@@ -4104,7 +4104,7 @@ function renderQueue(el, q, doneIn, moving = false) {
   if (el._leaving || el._dragging) return;  // Drawn once it has gone, or been dropped
   const waiting = moving ? q.items.slice(1) : q.items;
   // What left since: it slides up out of the queue, towards Status, and the rest close up behind it.
-  const gone = [...el.querySelectorAll('.queue-item[data-id]')].filter(node => !waiting.some(item => String(item.id) === node.dataset.id));
+  const gone = [...el.querySelectorAll('.queue-item[data-id]:not(.leaving)')].filter(node => !waiting.some(item => String(item.id) === node.dataset.id));
   if (gone.length && !el.hidden) {
     el._leaving = true;
     for (const node of gone) {
@@ -4115,7 +4115,12 @@ function renderQueue(el, q, doneIn, moving = false) {
     return;
   }
   el.hidden = !waiting.length;
-  if (el.hidden) return;
+  if (el.hidden) {
+    // Not what left, which would otherwise stay in it, hidden, and keep its head and Resume.
+    el.innerHTML = '';
+    el.dataset.html = '';
+    return;
+  }
   const head = `<b>${el.dataset.title} (${waiting.length})</b>` + (q.held
     ? `<span class="when">On hold until you press Resume</span>`
     : doneIn ? `<span class="when">All done around ${clockIn(doneIn)}</span>` : '');
