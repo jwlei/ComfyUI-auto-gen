@@ -8,7 +8,7 @@ import requests
 from PIL import Image
 
 from pipelines.video import h3_prompt, wan_prompt
-from core import seeds, workflow_options
+from core import director, seeds, workflow_options
 from core.paths import WORKFLOWS_DIR, comfyui_client_id as client_id
 from core.saved_workflows import MOST_REFERENCES_FIELD, frames_for, image_slots, media_slots, takes
 
@@ -174,6 +174,7 @@ class ComfyClient:
             self._set(workflow, "frames", frames_for(seconds, workflow[node_id]["inputs"][input_name]))
         self._set(workflow, "width", width)
         self._set(workflow, "height", height)
+        director.shape(workflow)
         if audio:
             self._set(workflow, "audio", audio)
         return self._download(self._run(workflow, seed), save_as)

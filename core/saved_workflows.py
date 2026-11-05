@@ -17,6 +17,8 @@ from urllib.parse import quote
 
 import requests
 
+from core import director
+
 # Only in the editor: nothing of these reaches ComfyUI's API.
 NOTES = ("Note", "MarkdownNote")
 # rgthree's labels, bookmarks and group switches: the editor's alone. core/workflow_options.py offers what the switches do.
@@ -29,7 +31,7 @@ SEED_CONTROLS = ("fixed", "increment", "decrement", "randomize")
 FRAME_STEP = 4
 PROMPT_INPUTS = ("text", "prompt", "value")
 # Tuned for Shorts, and all Shorts offers. Everything else saved in ComfyUI is for Video.
-SHORTS_SUFFIX = "_ytautoshort"
+SHORTS_SUFFIX = "_shorts"
 # SaveVideo always writes to ComfyUI's output folder, which the pipeline stays out of.
 COMBINE = "VHS_VideoCombine"
 COMBINE_DEFAULTS = {"loop_count": 0, "filename_prefix": "pipeline", "format": "video/h264-mp4", "pix_fmt": "yuv420p",
@@ -89,7 +91,7 @@ def _link_row(link):
 
 
 # The input types a node shows as a widget, rather than a socket to plug into.
-WIDGET_TYPES = ("INT", "FLOAT", "STRING", "BOOLEAN", "COMBO")
+WIDGET_TYPES = ("INT", "FLOAT", "STRING", "BOOLEAN", "COMBO", "BDGROUP")  # BDGROUP: a section header some nodes save a text for
 # A dropdown whose choice brings widgets of its own, saved after it as name.widget, as Generate Text's sampling mode.
 DYNAMIC_COMBO = "COMFY_DYNAMICCOMBO_V3"
 
@@ -143,9 +145,14 @@ def _widgets_of(node, spec=None):
         return {name: value for name, value in values.items() if name != "videopreview"}
     values = list(values or [])
     every = _spec_inputs(spec) if spec else {}
+    names = _widget_names(node, spec)
+    seeds = sum(1 for value in values if value in SEED_CONTROLS)
+    if None in values and len(values) - seeds > len(names):
+        # The editor saves a null for each button or label a node's script adds, which ComfyUI has no input for.
+        values = [value for value in values if value is not None]
     inputs = {}
     position = 0
-    waiting = list(_widget_names(node, spec))
+    waiting = list(names)
     while waiting:
         name = waiting.pop(0)
         if position >= len(values):
@@ -513,6 +520,7 @@ def to_api(ui, info, images=False, enhance=False):
             raise Unusable("It doesn't make a video the pipeline can pick up.")
     api = _upstream(api, saves)
     _check_installed(api, info)
+    director.adapt(api)
     return api
 
 
@@ -528,6 +536,8 @@ def _titled(api, pattern, kinds):
 
 def _prompt_input(api):
     """Walks up from what the sampler treats as positive, or a node that takes a prompt itself, to the text it started as."""
+    if director.INPUTS_ID in api and api[director.INPUTS_ID]["class_type"] == director.INPUTS:
+        return [director.INPUTS_ID, "ref_prompt_1"]
     waiting = [value[0] for node in api.values() for name, value in node["inputs"].items()
                if name == "positive" and isinstance(value, list)]
     if not waiting:
@@ -581,7 +591,8 @@ def _image_fields(api, info):
         fields[slot] = [str(node_id), "image"]
         # One left empty comes out of everything it's plugged into, as Qwen-Image 2.1's go to its encoder and to what its
         # prompt enhancer looks at: only if each of them runs without it.
-        if users and all(_can_be_left_empty(info[api[user_id]["class_type"]], name) for user_id, name in users):
+        if users and all(api[user_id]["class_type"] == director.ASSETS or
+                         _can_be_left_empty(info[api[user_id]["class_type"]], name) for user_id, name in users):
             fields[f"{slot}_link"] = list(users[0])
             if len(users) > 1:
                 fields[f"{slot}_also"] = [list(user) for user in users[1:]]
@@ -707,6 +718,12 @@ def find_fields(api, info, needs_audio=False):
     width, height = _titled(api, r"^width$", (int,)), _titled(api, r"^height$", (int,))
     size_node = next((node_id for node_id, node in api.items()
                       if all(k in node["inputs"] for k in ("width", "height", "length"))), None)
+    clip_node = director.director_of(api) or next((node_id for node_id, node in api.items()
+                                                    if node["class_type"] == director.DIRECTOR), None)
+    if clip_node:
+        fields["frames"], fields["fps"] = [clip_node, "total_frames"], [clip_node, "frame_rate"]
+        fields["width"], fields["height"] = [clip_node, "width"], [clip_node, "height"]
+        return fields
     if seconds:
         fields["seconds"] = seconds
     elif size_node:
@@ -815,7 +832,7 @@ def is_for_image(name):
 def shorthand(workflow, default):
     """
     A workflow's short name, for file names and the gallery: its name without the image_, video_ or shorts_ in front
-    or the _ytautoshort marker behind. default for the built-in one.
+    or the _shorts marker behind. default for the built-in one.
     """
     if not workflow:
         return default
@@ -969,7 +986,8 @@ def _prepare(name, ui, info, folder, pipeline):
     if options:
         # A run with other options makes its workflow again from these, with what the pipeline adds to it.
         kinds = {node["type"] for node in _without_subgraphs(_with_hidden_links(ui))["nodes"]}
-        kinds |= {PREVIEW, COMBINE, "LoraLoader", "LoadImage", "LoadVideo", "LoadAudio", "GetVideoComponents"}
+        kinds |= {PREVIEW, COMBINE, "LoraLoader", "LoadImage", "LoadVideo", "LoadAudio", "GetVideoComponents",
+                  workflow_options.H3_MEMORY, workflow_options.H3_SPARSE, director.INPUTS, director.ASSETS}
         _write_json(stem + ".ui.json", ui)
         _write_json(stem + ".info.json", {kind: info[kind] for kind in kinds if kind in info})
     _write_json(stem + ".json", api)

@@ -41,7 +41,7 @@ DEFAULT_REFERENCE_IMAGES = os.path.join("assets", "avatar", "avatar*.jpg")
 
 # How a workflow's nodes give away the video model it runs, for the label on its videos.
 VIDEO_MODELS = (("MiniMaxH3", "minimax-h3"), ("LTX", "ltx"), ("Wan", "wan"))
-BUILT_IN_LTX_NAME = "video_LTX-2.3_-_I2V_T2V_Basic_GGUF_ytautoshort"
+BUILT_IN_LTX_NAME = "video_LTX23_I2V_T2V_shorts"
 VIDEO_EXTENSIONS = (".mp4", ".webm", ".mov", ".mkv", ".gif")
 POLL_INTERVAL = 5
 

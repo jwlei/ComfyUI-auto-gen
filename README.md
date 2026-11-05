@@ -6,7 +6,7 @@ Makes videos and images with ComfyUI from one panel, with three pipelines behind
 |---|---|---|---|
 | Makes | Vertical YouTube Shorts: AI script, narration, stock footage and a lip-synced presenter | A film of up to 10 minutes from an image and a prompt, whose shot prompts you can read first | A set of up to 100 images, from text or by editing an image, with prompts an LLM writes or your own |
 | Audio | Always narrated | None, an uploaded file, or text to speech | None |
-| Workflows | Those saved in ComfyUI ending in `_ytautoshort`, which need a Load Audio node | Every other workflow saved in ComfyUI | Those saved in ComfyUI starting `image_` |
+| Workflows | Those saved in ComfyUI ending in `_shorts`, which need a Load Audio node | Every other workflow saved in ComfyUI | Those saved in ComfyUI starting `image_` |
 | Publishing | Uploads to YouTube | Download only | Download only |
 | Details | [docs/shorts.md](docs/shorts.md) | [docs/video.md](docs/video.md) | [docs/image.md](docs/image.md) |
 

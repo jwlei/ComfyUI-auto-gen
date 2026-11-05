@@ -150,6 +150,13 @@ any shot made again come out the same way. The MiniMax H3 workflows also offer *
 Attention** (with its video attention budget) under Advanced, when the [H3-Optimizations](https://github.com/Zironic/H3-Optimizations)
 custom node is installed.
 
+**`video_Minimax_H3_T2V_I2V_R2V`** is the Motion Director workflow, which makes text, image and reference clips of H3 in one
+workflow. The panel gives its Director one clip at a time: no image is text-to-video, one image is a start frame
+(image-to-video) and more are references. Its prompt and nine image boxes are wired in when it's listed, and the Director's own
+timeline and refine pass are left out. **Turbo (4-step LoRA)** switches the LoRA and the steps together. The saved workflow
+has Sage attention off (it isn't installed) and the DiffAid sparse patch off (it fails under ComfyUI's dynamic VRAM; H3 Sparse
+Attention above is the one to use). Reference clips (two or more images) currently fail inside the Director node itself, which
+calls ComfyUI's reference node with its arguments in an older order, until that node is updated.
 **Upscale a film.** Open a film in the Video tab and press **Upscale** to queue it through NVIDIA RTX Video Super Resolution
 (the [RTX VSR Long Video](https://github.com/tritant/ComfyUI_NVIDIA_RTX_VSR_Long_Video) custom node; needs an RTX GPU). Pick a
 scale (1.5 to 4×) and a mode. The result is saved beside it as `<name>_upscaled.mp4`, with the sound kept; ComfyUI's own copy of it
@@ -195,7 +202,7 @@ Ctrl+C cancels the clip in ComfyUI, and `--resume` continues. The plan is in `ru
 
 ## Using another workflow
 
-**Workflow**, at the top of the form, lists what you saved in ComfyUI, except those ending in `_ytautoshort`, which are tuned for yt-auto-shorts, and those starting `image_`, which are for [Image](image.md). The panel converts the one you pick into API
+**Workflow**, at the top of the form, lists what you saved in ComfyUI, except those ending in `_shorts`, which are tuned for yt-auto-shorts, and those starting `image_`, which are for [Image](image.md). The panel converts the one you pick into API
 format when it lists them, and finds its prompt, image, length and size inputs from the graph. **Built-in LTX**
 stays the default and works as before.
 

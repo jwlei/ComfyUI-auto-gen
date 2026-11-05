@@ -81,7 +81,7 @@ These follow [Kokon](https://github.com/GabrieleLozupone/kokon), a local image e
 the Qwen-Image 2.1 edit workflow. The form offers each only when the workflow chosen (or one Automatic can pick) can.
 
 **Edit**, in the header beside Image, opens the Image side with the Qwen-Image 2.1 edit workflow
-(`image_qwen21_turbo_edit_12gb`) chosen; **Edit**, under an image in the viewer, does the same with that image as image 1.
+(`image_Qwen21_edit_turbo`) chosen; **Edit**, under an image in the viewer, does the same with that image as image 1.
 
 **Images:** one box, and **+** opens the next, up to what the workflow takes: Qwen-Image 2.1 edits image 1 and takes up
 to 3 more, called `<image2>`, `<image3>` in the prompt. Each box takes a file, or one of your own images: the grid button

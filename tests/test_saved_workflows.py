@@ -24,35 +24,35 @@ def node_of(ui, node_id):
 
 class WhichPipelineTest(unittest.TestCase):
     def test_the_suffix_decides(self):
-        self.assertTrue(is_for_shorts("x_ytautoshort.json"))
+        self.assertTrue(is_for_shorts("x_shorts.json"))
         self.assertFalse(is_for_shorts("x.json"))
-        self.assertFalse(is_for_shorts("ytautoshort_x.json"))
+        self.assertFalse(is_for_shorts("shorts_x.json"))
 
     def test_the_prefix_makes_it_an_image_workflow(self):
         self.assertEqual(pipeline_of("image_krea2_turbo_t2i_int8.json"), "image")
         self.assertEqual(pipeline_of("mine/image_edit.json"), "image", "in a folder too")
         self.assertEqual(pipeline_of("video_image_to_video.json"), "video")
-        self.assertEqual(pipeline_of("image_x_ytautoshort.json"), "shorts", "tuned for Shorts is tuned for Shorts")
+        self.assertEqual(pipeline_of("image_x_shorts.json"), "shorts", "tuned for Shorts is tuned for Shorts")
         self.assertFalse(is_for_image("my_image_edit.json"))
 
     def test_one_that_saves_images_is_for_image_whatever_its_name(self):
         self.assertEqual(pipeline_of("Fibo2_turbo_edit_test.json", fibo2_workflow()), "image")
         self.assertEqual(pipeline_of("Fibo2_turbo_edit_test.json"), "video", "by name alone it would be a film")
         self.assertEqual(pipeline_of("film.json", saved_workflow()), "video", "it saves a video")
-        self.assertEqual(pipeline_of("x_ytautoshort.json", fibo2_workflow()), "shorts")
+        self.assertEqual(pipeline_of("x_shorts.json", fibo2_workflow()), "shorts")
 
     def test_shorts_needs_load_audio_and_video_does_not(self):
         import json
         import tempfile
 
         with tempfile.TemporaryDirectory() as folder:
-            for stem, fields in (("film", {"prompt": "1.text"}), ("silent_ytautoshort", {"prompt": "1.text"}),
-                                 ("talks_ytautoshort", {"prompt": "1.text", "audio": "2.audio"})):
+            for stem, fields in (("film", {"prompt": "1.text"}), ("silent_shorts", {"prompt": "1.text"}),
+                                 ("talks_shorts", {"prompt": "1.text", "audio": "2.audio"})):
                 with open(os.path.join(folder, stem + ".json"), "w", encoding="utf-8") as f:
                     json.dump({}, f)
                 with open(os.path.join(folder, stem + ".map.json"), "w", encoding="utf-8") as f:
                     json.dump({"_saved_as": stem + ".json", **fields}, f)
-            self.assertEqual(sorted(entry["label"] for entry in _from_earlier(folder)), ["film", "talks_ytautoshort"])
+            self.assertEqual(sorted(entry["label"] for entry in _from_earlier(folder)), ["film", "talks_shorts"])
 
 
 class ConvertTest(unittest.TestCase):
@@ -436,8 +436,8 @@ class ShorthandTest(unittest.TestCase):
         from core.saved_workflows import shorthand
         self.assertEqual(shorthand("logs/workflows/image_krea2_SFW_NSFW.json", "image"), "krea2_SFW_NSFW")
         self.assertEqual(shorthand("video_wan22.json", "ltx"), "wan22")
-        self.assertEqual(shorthand("minimax_h3_ytautoshort.json", "comfyui"), "minimax_h3")
-        self.assertEqual(shorthand("shorts_ltx_ytautoshort", "comfyui"), "ltx")
+        self.assertEqual(shorthand("minimax_h3_shorts.json", "comfyui"), "minimax_h3")
+        self.assertEqual(shorthand("shorts_ltx_shorts", "comfyui"), "ltx")
         self.assertEqual(shorthand("Fibo2 turbo edit.json", "image"), "Fibo2_turbo_edit")
         self.assertEqual(shorthand(None, "ltx"), "ltx", "the built-in one")
 

@@ -136,8 +136,10 @@ def _face_settings(instance, subgraph, info):
     with each by name: lora_name and lora_strength with enable_lora. A value that goes with no switch isn't offered.
     """
     widgets = sw._face_widgets(instance, subgraph)
+    # One a switch on the canvas feeds is that switch's to offer, not the face's own.
+    driven = {entry["name"] for entry in instance.get("inputs", []) if entry.get("link") is not None}
     faced = [(slot, entry, entry.get("label") or entry["name"]) for slot, entry in enumerate(subgraph.get("inputs", []))
-             if entry["name"] in widgets and not FACE_SKIP.search(entry.get("label") or entry["name"])]
+             if entry["name"] in widgets and entry["name"] not in driven and not FACE_SKIP.search(entry.get("label") or entry["name"])]
     switches = [{"id": f"face_{_slug(label)}", "kind": "switch", "label": _words(label), "default": ON if widgets[entry["name"]] else OFF,
                  "node": instance["id"], "input": entry["name"], **({"advanced": True} if TURBO_WORDS.search(label) else {})}
                 for _, entry, label in faced if entry["type"] == "BOOLEAN" and isinstance(widgets[entry["name"]], bool)]
@@ -328,7 +330,7 @@ SLOT = "lora_slot"
 NO_LORA = "None"
 DISTILLED = "The workflow sets its own steps with fixed sigmas, as a distilled one does."
 H3_MEMORY, H3_SPARSE = "H3MemoryOptimization", "H3SparseAttention"
-H3_SAMPLING = ("BasicGuider", "CFGGuider", "KSampler", "KSamplerAdvanced", "SamplerCustom")
+H3_SAMPLING = ("BasicGuider", "CFGGuider", "KSampler", "KSamplerAdvanced", "SamplerCustom", "MiniMaxH3MotionDirector")
 
 
 def _negatives(api):

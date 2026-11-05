@@ -1024,7 +1024,7 @@
       <div class="workflow-in" id="workflowBox">
         <label for="workflow">Workflow</label>
         <select id="workflow" name="workflow">
-          <option value="">LTX-2.3_-_I2V_T2V_Basic_GGUF_ytautoshort</option>
+          <option value="">LTX23_I2V_T2V_shorts</option>
         </select>
       </div>
 
@@ -1769,7 +1769,7 @@ async function loadWorkflows() {
   const wanted = select.dataset.key ? select.value : startingWorkflow('shorts', rememberedWorkflow);
   select.dataset.key = key;
   const none = !data.online && !data.workflows.length;
-  select.innerHTML = '<option value="">LTX-2.3_-_I2V_T2V_Basic_GGUF_ytautoshort</option>' + data.workflows.map(w =>
+  select.innerHTML = '<option value="">LTX23_I2V_T2V_shorts</option>' + data.workflows.map(w =>
     `<option value="${esc(w.name)}">${esc(w.label)}</option>`).join('')
     + (none ? '<option disabled>Yours appear once ComfyUI is on</option>' : '');
   if (data.workflows.some(w => w.name === wanted)) select.value = wanted;
@@ -2242,7 +2242,7 @@ $('addMedia').addEventListener('click', () => {
 });
 
 // --- Settings (the gear in the header) ---
-const SETTINGS_BUILTIN = { shorts: 'LTX-2.3_-_I2V_T2V_Basic_GGUF_ytautoshort', video: 'Built-in LTX', image: 'Automatic' };
+const SETTINGS_BUILTIN = { shorts: 'LTX23_I2V_T2V_shorts', video: 'Built-in LTX', image: 'Automatic' };
 const settingsDialog = $('settingsDialog');
 function settingsNote(text, bad) {
   $('settingsNote').hidden = !text;
@@ -3568,7 +3568,7 @@ $('viewerUpscaleBar').addEventListener('click', async e => {
   poll();
 });
 // --- Edit: the Image side with Qwen-Image 2.1's edit workflow, for changing painted parts, expanding, or editing an image ---
-const EDIT_WORKFLOW = 'image_qwen21_turbo_edit_12gb.json';
+const EDIT_WORKFLOW = 'image_Qwen21_edit_turbo.json';
 // That one, or else another saved with the same model.
 function editWorkflowName() {
   const names = Object.keys(imageWorkflows);

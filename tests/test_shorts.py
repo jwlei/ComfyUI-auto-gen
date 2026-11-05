@@ -707,8 +707,8 @@ class SwitchTest(unittest.TestCase):
 
     def test_a_shorts_workflow_options_go_with_its_run(self):
         steps = {"id": "steps", "kind": "number", "label": "Steps", "default": "20", "min": 1, "max": 150, "step": 1}
-        saved = [{"name": "a_ytautoshort.json", "label": "a_ytautoshort", "path": "x/a_ytautoshort.json", "takes": {"options": [steps]}}]
-        form = lambda **fields: MultiDict({"workflow": "a_ytautoshort.json", "avatar_source": "comfyui", **fields})
+        saved = [{"name": "a_shorts.json", "label": "a_shorts", "path": "x/a_shorts.json", "takes": {"options": [steps]}}]
+        form = lambda **fields: MultiDict({"workflow": "a_shorts.json", "avatar_source": "comfyui", **fields})
         with mock.patch.object(shorts_panel, "saved_workflows", lambda: saved), mock.patch.object(webapp, "saved_workflows", lambda: saved):
             _, env, error = shorts_panel.build_run(form(opt_steps="12"))
             self.assertIsNone(error)
@@ -718,11 +718,11 @@ class SwitchTest(unittest.TestCase):
             self.assertIn("1 to 150", shorts_panel.build_run(form(opt_steps="0"))[2])
 
     def test_workflows_are_kept_apart_by_their_name(self):
-        saved = [{"name": "a_ytautoshort.json", "label": "a_ytautoshort", "takes": {}}, {"name": "b.json", "label": "b", "takes": {}},
-                 {"name": "c.json", "label": "c", "problem": "No."}, {"name": "d_ytautoshort.json", "label": "d_ytautoshort", "problem": "No."}]
+        saved = [{"name": "a_shorts.json", "label": "a_shorts", "takes": {}}, {"name": "b.json", "label": "b", "takes": {}},
+                 {"name": "c.json", "label": "c", "problem": "No."}, {"name": "d_shorts.json", "label": "d_shorts", "problem": "No."}]
         with mock.patch.object(webapp, "saved_workflows", lambda: saved):
             names = lambda side: [w["name"] for w in self.client.get(f"/api/workflows?pipeline={side}").get_json()["workflows"]]
-            self.assertEqual(names("shorts"), ["a_ytautoshort.json"])
+            self.assertEqual(names("shorts"), ["a_shorts.json"])
             self.assertEqual(names("video"), ["b.json"])
 
 
