@@ -33,6 +33,7 @@ from dotenv import load_dotenv
 from flask import (Flask, abort, has_request_context, redirect, render_template, request,
                    send_file, session, url_for)
 
+from core import batch_stop
 from core.paths import LOGS_DIR, PROJECT_ROOT, SAVED_WORKFLOWS_DIR, comfyui_client_id
 from core.quota import quota_summary
 from core.saved_workflows import list_saved, pipeline_of
@@ -101,8 +102,10 @@ class Job:
     they get a Job of their own and can run during a render.
     """
 
-    def __init__(self):
+    def __init__(self, batches=False):
         self.lock = threading.Lock()
+        # The runs' job, not the uploads': a Stop after this one it was asked for goes with the job it was asked of.
+        self.batches = batches
         self.process = None
         # {"n": sequence number, "t": "HH:MM:SS", "text": ...}; the page appends by n.
         self.lines = []
@@ -131,6 +134,8 @@ class Job:
             if self.closed or not self.idle:
                 return False
             eta = ETAS[pipeline](argv, env)
+            if self.batches:
+                batch_stop.clear()
             process = subprocess.Popen(
                 argv,
                 cwd=PROJECT_ROOT,
@@ -300,7 +305,7 @@ class Job:
         }
 
 
-job = Job()
+job = Job(batches=True)
 uploads = Job()
 
 
@@ -1206,6 +1211,36 @@ def stop():
     return {"ok": stop_run(), "error": STOP_FAILED if job.running else None}
 
 
+# Held by Stop after this one, so taking it back lets the queue go on again; held before stays held.
+_held_for_stop_after = False
+
+
+@app.route("/stop-after", methods=["POST"])
+@password_required
+def stop_after():
+    """
+    Stop after this one: a batch ends once the video or image it's making now is done, and what is queued after it
+    waits for Resume, as with Stop. Asked again, it takes that back. A film is one video, so it has nothing to stop.
+    """
+    global _held_for_stop_after
+    if not job.running:
+        return {"ok": False, "error": "Nothing is running."}, 409
+    if job.pipeline == "video":
+        return {"ok": False, "error": "A film is one video, so there is no batch to stop after it: use Stop or Skip."}, 409
+    if batch_stop.requested():
+        batch_stop.clear()
+        job.log("▶️ The batch goes on: Stop after this one taken back.")
+        if _held_for_stop_after:
+            run_queue.resume()
+        _held_for_stop_after = False
+        return {"ok": True, "stop_after": False}
+    _held_for_stop_after = not run_queue.held and bool(run_queue.items)
+    batch_stop.request()
+    run_queue.hold()
+    job.log("⏸️ The batch stops once the one being made now is done.")
+    return {"ok": True, "stop_after": True}
+
+
 @app.route("/skip", methods=["POST"])
 @password_required
 def skip():
@@ -1295,6 +1330,7 @@ def launcher_refresh():
 def status():
     payload, queue = run_queue.snapshot_with_job()
     payload["server_started"] = STARTED_AT
+    payload["stop_after"] = payload["running"] and batch_stop.requested()
     payload["queue"] = queue
     payload["stopped_runs"] = stopped_runs()
     payload["made_now"] = made_in_this_run()

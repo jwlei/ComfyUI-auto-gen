@@ -610,8 +610,8 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(self.client.get("/api/workflows?pipeline=shorts").get_json()["workflows"], [], "none are tuned for Shorts")
         self.assertEqual(reply["workflows"], [
             {"name": "r2v.json", "label": "r2v", "takes": {"min_images": 0, "max_images": 20}, "clip_seconds": [5, 10, 8]},
-            {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0, "options": [{"id": "steps", "kind": "number", "label": "Steps", "default": "20", "min": 1, "max": 150, "step": 1}]}, "clip_seconds": [5, 10, 8]},
-            {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1, "options": [{"id": "steps", "kind": "number", "label": "Steps", "default": "20", "min": 1, "max": 150, "step": 1}]}, "clip_seconds": [5, 10, 8]}],
+            {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0, "options": [{"id": "steps", "kind": "number", "label": "Steps", "default": "20", "min": 1, "max": 150, "step": 1, "advanced": True}]}, "clip_seconds": [5, 10, 8]},
+            {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1, "options": [{"id": "steps", "kind": "number", "label": "Steps", "default": "20", "min": 1, "max": 150, "step": 1, "advanced": True}]}, "clip_seconds": [5, 10, 8]}],
             "each with the workflow's own options: a KSampler's steps here")
 
     def test_a_films_workflow_options_are_used_and_kept(self):
@@ -775,8 +775,8 @@ class PanelTest(unittest.TestCase):
             self.assertFalse(reply["online"])
             self.assertEqual(reply["workflows"], [
                 {"name": "r2v.json", "label": "r2v", "takes": {"min_images": 0, "max_images": 20}, "clip_seconds": [5, 10, 8]},
-                {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0, "options": [{"id": "steps", "kind": "number", "label": "Steps", "default": "20", "min": 1, "max": 150, "step": 1}]}, "clip_seconds": [5, 10, 8]},
-                {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1, "options": [{"id": "steps", "kind": "number", "label": "Steps", "default": "20", "min": 1, "max": 150, "step": 1}]}, "clip_seconds": [5, 10, 8]}])
+                {"name": "t2v.json", "label": "t2v", "takes": {"min_images": 0, "max_images": 0, "options": [{"id": "steps", "kind": "number", "label": "Steps", "default": "20", "min": 1, "max": 150, "step": 1, "advanced": True}]}, "clip_seconds": [5, 10, 8]},
+                {"name": "wan.json", "label": "wan", "takes": {"min_images": 0, "max_images": 1, "options": [{"id": "steps", "kind": "number", "label": "Steps", "default": "20", "min": 1, "max": 150, "step": 1, "advanced": True}]}, "clip_seconds": [5, 10, 8]}])
             self.assertEqual(os.path.basename(video_panel.chosen_workflow({"workflow": "wan.json"})[0]["COMFYUI_WORKFLOW"]), "wan.json")
         webapp._comfyui_cache.update(at=0.0)
 

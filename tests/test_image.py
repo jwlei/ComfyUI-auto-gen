@@ -310,6 +310,23 @@ class SizeFlagsTest(unittest.TestCase):
         self.assertEqual(media.pick_size(None, "image", "image", None), (1024, 1024), "the same as an image not given: square, one megapixel")
 
 
+class StopAfterTest(unittest.TestCase):
+    def test_the_set_stops_after_the_image_being_made_and_keeps_the_rest_to_continue(self):
+        from core import batch_stop
+        from pipelines.image import main as image_main
+        batch_stop.clear()
+        self.addCleanup(batch_stop.clear)
+        state = mock.Mock(shots=[{"title": f"Version {n}"} for n in range(1, 4)])
+
+        def render_image(state, comfy, shot, images):
+            batch_stop.request()  # Pressed while the first is being made
+            return f"{shot['title']}.png"
+
+        with mock.patch.object(image_main, "upload_images", return_value=[]), mock.patch.object(image_main, "render_image", render_image):
+            self.assertEqual(image_main.render_images(state, None), 0)
+        self.assertEqual([bool(shot.get("file")) for shot in state.shots], [True, False, False])
+
+
 class PanelTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.mkdtemp()
@@ -730,7 +747,7 @@ class PanelTest(unittest.TestCase):
                  "problem": "Needs krea2_darkbrush.safetensors, which isn't installed."},
                 {"id": "prompt_enhancer", "kind": "switch", "role": "llm", "label": "Prompt enhancer", "default": "0",
                  "takes": {"min_images": 0, "max_images": 0}},
-                {"id": "steps", "kind": "number", "label": "Steps", "default": "8", "min": 1, "max": 150, "step": 1}]}}])
+                {"id": "steps", "kind": "number", "label": "Steps", "default": "8", "min": 1, "max": 150, "step": 1, "advanced": True}]}}])
         self.assertEqual(self.client.get("/api/workflows?pipeline=video").get_json()["workflows"], [], "they don't turn up among the films")
         reply = self.generate(image=True)
         self.assertEqual(reply.status_code, 400)

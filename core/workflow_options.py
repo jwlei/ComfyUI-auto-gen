@@ -4,8 +4,10 @@ those changes. Community workflows such as LatentHeart's Krea2 SFW/NSFW one are 
 and off in ComfyUI's editor: groups that rgthree's Fast Groups Bypasser turns on and off (2nd pass, upscaler,
 grain, sharpen...), a choice on a group's subgraph (the upscaler's resolution), LoRAs in rgthree's Power Lora
 Loader, and the Krea2T Enhancer's prompt-adherence boost. ComfyUI's own templates put theirs on a subgraph's
-face instead: Krea-2's enable_lora with its LoRA and strength, Qwen-Image-Edit's enable_turbo_mode. And any
-workflow whose sampler's steps can be found gets Steps. Each becomes an option on the form.
+face instead: Krea-2's enable_lora with its LoRA and strength, Qwen-Image-Edit's enable_turbo_mode. MiniMax H3's
+template leaves a named Boolean on the canvas, Enable Lightning LoRA, that picks the turbo LoRA and its steps. And
+any workflow whose sampler's (or scheduler's) steps can be found gets Steps. Each becomes an option on the form;
+turbo and Steps are marked advanced, for the form's Advanced part, on every side.
 
 The editor bypasses a group by setting its nodes' mode, and that changes which nodes the API gets, so a run
 with options makes its workflow again from what was saved (core/saved_workflows.py keeps a copy for it).
@@ -52,6 +54,11 @@ ROLES = ("prompt_enhancer", "image_to_prompt")
 # Words a switch's name has that say nothing about what it switches.
 SWITCH_WORDS = {"enable", "enabled", "use", "mode", "on"}
 MOST_STEPS = 150
+# A switch left on the canvas as a named Boolean, as ComfyUI's MiniMax H3 template has "Boolean (Enable Lightning
+# LoRA)": it picks the turbo LoRA and its step count through If/Else switches. Offered under Advanced, with Steps.
+PRIMITIVE_SWITCH = "PrimitiveBoolean"
+TYPE_IN_TITLE = re.compile(r"\s*(?:boolean|bool)\s*\((.+)\)\s*", re.I)
+TURBO_WORDS = re.compile(r"lightning|lightx|turbo|\d+.?steps?\b", re.I)
 
 
 def _slug(text):
@@ -132,7 +139,7 @@ def _face_settings(instance, subgraph, info):
     faced = [(slot, entry, entry.get("label") or entry["name"]) for slot, entry in enumerate(subgraph.get("inputs", []))
              if entry["name"] in widgets and not FACE_SKIP.search(entry.get("label") or entry["name"])]
     switches = [{"id": f"face_{_slug(label)}", "kind": "switch", "label": _words(label), "default": ON if widgets[entry["name"]] else OFF,
-                 "node": instance["id"], "input": entry["name"]}
+                 "node": instance["id"], "input": entry["name"], **({"advanced": True} if TURBO_WORDS.search(label) else {})}
                 for _, entry, label in faced if entry["type"] == "BOOLEAN" and isinstance(widgets[entry["name"]], bool)]
     found = list(switches)
     for slot, entry, label in faced:
@@ -151,6 +158,33 @@ def _face_settings(instance, subgraph, info):
             choices = sw._options(spec) if spec else None
             if choices and len(choices) > 1:
                 found.append({**common, "kind": "choice", "choices": [str(choice) for choice in choices]})
+    return found
+
+
+def _primitive_label(title):
+    """'Boolean (Enable Lightning LoRA)' as 'Lightning LoRA (turbo)': what it switches, and that it's the fast way."""
+    match = TYPE_IN_TITLE.fullmatch(title)
+    words = (match.group(1) if match else title).split()
+    while len(words) > 1 and words[0].lower() in SWITCH_WORDS:
+        words = words[1:]
+    label = " ".join(words)
+    label = label[0].upper() + label[1:]
+    return f"{label} (turbo)" if TURBO_WORDS.search(label) and "turbo" not in label.lower() else label
+
+
+def _primitive_switches(ui):
+    """The named Booleans on the canvas that something reads: each a switch. One for the prompt is the pipeline's."""
+    used = {sw._link_row(link)[1] for link in ui.get("links", [])}
+    found = []
+    for node in ui["nodes"]:
+        title = (node.get("title") or "").strip()
+        values = node.get("widgets_values") or []
+        if (node["type"] != PRIMITIVE_SWITCH or node.get("mode") or not title or node["id"] not in used
+                or not values or not isinstance(values[0], bool) or REFINE_SWITCH.search(title) or FACE_SKIP.search(title)):
+            continue
+        label = _primitive_label(title)
+        found.append({"id": f"switch_{_slug(label.replace('(turbo)', ''))}", "kind": "switch", "label": label,
+                      "default": ON if values[0] else OFF, "node": node["id"], "primitive": True, "advanced": True})
     return found
 
 
@@ -194,6 +228,7 @@ def describe(ui, info=None, pipeline="image"):
             enabled, strength = (list(node.get("widgets_values") or []) + [True, 1.0])[:2]
             options.append({"id": "prompt_boost", "kind": "strength", "label": "Krea2T Enhancer (prompt adherence)", "node": node["id"],
                             "default": str(strength) if enabled else OFF, "min": 0, "max": 2, "step": 0.05, "usual": str(strength or 1)})
+    options += _primitive_switches(ui)
     every = list(ui["nodes"]) + [node for subgraph in subgraphs.values() for node in subgraph.get("nodes", [])]
     if pipeline == "image" and "prompt_enhancer" not in [option["id"] for option in options] and any(
             node["type"] == "PrimitiveBoolean" and REFINE_SWITCH.search(node.get("title") or "") for node in every):
@@ -228,6 +263,10 @@ def _before(ui, options, chosen):
     nodes = {node["id"]: node for node in ui["nodes"]}
     subgraphs = _subgraphs(ui)
     for option in options:
+        # A named Boolean on the canvas: set before the workflow is made, as the Image side settles switches then.
+        if option.get("primitive") and option["id"] in chosen and option["node"] in nodes:
+            nodes[option["node"]]["widgets_values"][0] = chosen[option["id"]] == ON
+            continue
         # A value on a subgraph's face: a choice, a switch or a number there.
         if "input" in option and option["id"] in chosen and option["node"] in nodes:
             node = nodes[option["node"]]
@@ -241,18 +280,40 @@ def _before(ui, options, chosen):
     return ui
 
 
+def _flag(api, value):
+    """A switch's on or off: as set, or from the Boolean it reads. None if that can't be told."""
+    if isinstance(value, list):
+        value = api.get(value[0], {}).get("inputs", {}).get("value")
+    return value if isinstance(value, bool) else None
+
+
+def _number_source(api, node_id, name, depth=0):
+    """Where the number an input takes is set: [node id, input], through a primitive or the side a switch takes. Or None."""
+    value = api.get(node_id, {}).get("inputs", {}).get(name)
+    if type(value) is int:
+        return [node_id, name]
+    if not isinstance(value, list) or depth > 4:
+        return None
+    source = api.get(value[0], {}).get("inputs", {})
+    if type(source.get("value")) is int:
+        return [value[0], "value"]
+    if api.get(value[0], {}).get("class_type") in sw.SWITCHES:
+        on = _flag(api, source.get("switch"))
+        return None if on is None else _number_source(api, value[0], "on_true" if on else "on_false", depth + 1)
+    return None
+
+
 def _steps(api):
-    """Where the sampler's steps are set, if just one sampler has them as a number: [node id, input], or None."""
-    found = []
-    for node_id, node in api.items():
-        steps = node["inputs"].get("steps")
-        if "positive" not in node["inputs"]:
-            continue
-        if isinstance(steps, int) and not isinstance(steps, bool):
-            found.append([node_id, "steps"])
-        elif isinstance(steps, list) and type(api.get(steps[0], {}).get("inputs", {}).get("value")) is int:
-            found.append([steps[0], "value"])
-    return found[0] if len(found) == 1 else None
+    """
+    Where the steps are set, if just one sampler has them as a number: [node id, input], or None. A sampler fed sigmas
+    (SamplerCustomAdvanced) has none of its own, so then its scheduler's (BasicScheduler) are the ones.
+    """
+    for takes in (lambda node: "positive" in node["inputs"], lambda node: node["class_type"].endswith("Scheduler")):
+        found = [source for node_id, node in api.items() if "steps" in node["inputs"] and takes(node)
+                 for source in [_number_source(api, node_id, "steps")] if source]
+        if found:
+            return found[0] if len(found) == 1 else None
+    return None
 
 
 def _after(api, options, chosen, info):
@@ -310,7 +371,8 @@ def convert(ui, info, chosen=None, pipeline="image"):
     steps = _steps(api)
     if steps:
         node_id, name = steps
-        options.append({"id": "steps", "kind": "number", "label": "Steps", "default": str(api[node_id]["inputs"][name]), "min": 1, "max": MOST_STEPS, "step": 1})
+        options.append({"id": "steps", "kind": "number", "label": "Steps", "default": str(api[node_id]["inputs"][name]), "min": 1, "max": MOST_STEPS, "step": 1,
+                        "advanced": True})
         if "steps" in chosen:
             api[node_id]["inputs"][name] = int(float(chosen["steps"]))
     if pipeline == "image":
@@ -336,6 +398,14 @@ def offered(ui, info, pipeline="image"):
                 problem = str(e)
         if problem:
             option["problem"] = problem
+    # A turbo switch picks its own step count: Steps shows the one that goes with the switch as it's set.
+    steps = next((option for option in options if option["id"] == "steps"), None)
+    for option in options:
+        if steps and option.get("primitive") and not option.get("problem") and "follows" not in steps:
+            flipped = ON if option["default"] == OFF else OFF
+            other = next((found["default"] for found in convert(ui, info, {option["id"]: flipped}, pipeline)[3] if found["id"] == "steps"), None)
+            if other and other != steps["default"]:
+                steps["follows"] = {"switch": option["id"], option["default"]: steps["default"], flipped: other}
     return options
 
 

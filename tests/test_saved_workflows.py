@@ -11,7 +11,7 @@ from fakes import (OBJECT_INFO, edit_image_workflow, fibo2_workflow, h3_workflow
                    text_only_workflow, text_to_image_workflow)
 
 from core import saved_workflows, workflow_options
-from fakes import _ui_node
+from fakes import _ui_node, turbo_workflow
 from core import seeds
 from core.saved_workflows import _installed_as
 from core.saved_workflows import (Unusable, _from_comfyui, _grow_references, _from_earlier, _prepare, find_fields, find_image_fields, frames_for,
@@ -264,6 +264,55 @@ class OptionsTest(unittest.TestCase):
         self.assertNotIn("problem", self.options(ui)["face_enable_lora"])
         api = workflow_options.convert(ui, OBJECT_INFO, {"face_enable_lora": "1"})[0]
         self.assertIn("LoraLoaderModelOnly", [node["class_type"] for node in api.values()], "its switch went the way chosen")
+
+
+class TurboTest(unittest.TestCase):
+    """MiniMax H3's Enable Lightning LoRA: a named Boolean choosing the turbo LoRA and its steps through switches."""
+
+    @staticmethod
+    def workflow(pipeline="video"):
+        ui = turbo_workflow()
+        if pipeline == "image":
+            # Saving its frames as images instead, for the Image side.
+            ui["nodes"] = [node for node in ui["nodes"] if node["id"] not in (7, 8)] + [_ui_node(7, "SaveImage", {"filename_prefix": "x"}, {"images": 32})]
+        return ui
+
+    def options(self, pipeline="video"):
+        return {option["id"]: option for option in workflow_options.offered(self.workflow(pipeline), OBJECT_INFO, pipeline)}
+
+    def test_the_turbo_switch_and_its_steps_are_advanced_options(self):
+        for pipeline in ("video", "image"):
+            options = self.options(pipeline)
+            turbo = options["switch_lightning_lora"]
+            self.assertEqual((turbo["label"], turbo["default"], turbo["advanced"]), ("Lightning LoRA (turbo)", "0", True), pipeline)
+            self.assertEqual(options["steps"]["default"], "20", "the scheduler's, through the switch as it's set")
+            self.assertTrue(options["steps"]["advanced"])
+            self.assertEqual(options["steps"]["follows"], {"switch": "switch_lightning_lora", "0": "20", "1": "4"})
+
+    def test_turbo_on_runs_the_lora_with_its_own_steps(self):
+        api = workflow_options.convert(turbo_workflow(), OBJECT_INFO, {"switch_lightning_lora": "1"}, "video")[0]
+        self.assertIs(api["22"]["inputs"]["value"], True)
+        self.assertEqual(api["24"]["inputs"]["value"], 4)
+
+    def test_steps_set_go_to_the_side_the_switch_takes(self):
+        api = workflow_options.convert(turbo_workflow(), OBJECT_INFO, {"switch_lightning_lora": "1", "steps": "6"}, "video")[0]
+        self.assertEqual((api["24"]["inputs"]["value"], api["23"]["inputs"]["value"]), (6, 20))
+        api = workflow_options.convert(turbo_workflow(), OBJECT_INFO, {"steps": "12"}, "video")[0]
+        self.assertEqual((api["23"]["inputs"]["value"], api["24"]["inputs"]["value"]), (12, 4))
+
+    def test_on_the_image_side_the_switch_is_settled_as_chosen(self):
+        api = workflow_options.convert(self.workflow("image"), OBJECT_INFO, {"switch_lightning_lora": "1"}, "image")[0]
+        self.assertNotIn("ComfySwitchNode", [node["class_type"] for node in api.values()])
+        scheduler = next(node for node in api.values() if node["class_type"] == "BasicScheduler")
+        self.assertEqual(scheduler["inputs"]["steps"], ["24", 0])
+        self.assertEqual(scheduler["inputs"]["model"], ["21", 0], "through the LoRA")
+
+    def test_an_unnamed_or_unused_boolean_is_no_option(self):
+        ui = turbo_workflow()
+        ui["nodes"].append(_ui_node(40, "PrimitiveBoolean", {"value": True}, title="Boolean (Spare)"))
+        next(node for node in ui["nodes"] if node["id"] == 22)["title"] = None
+        options = workflow_options.offered(ui, OBJECT_INFO, "video")
+        self.assertEqual([option["id"] for option in options if option["kind"] == "switch"], [])
 
 
 class ShorthandTest(unittest.TestCase):

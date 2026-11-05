@@ -134,6 +134,8 @@
   .preset-line .preset-delete { flex: none; width: 36px; height: 36px; margin: 0; padding: 0; }
   .preset-line .preset-delete[hidden] { display: none; }
   .section-title { font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin: 14px 0 0; font-weight: 700; }
+  .options-advanced { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .options-subtitle { font-size: .68rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 700; margin-bottom: 2px; }
   .check { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; cursor: pointer; text-transform: none; letter-spacing: 0; font-size: .95rem; color: var(--text); }
   .check input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
   /* Under what it explains, on a line of its own: a span inside the label otherwise ran on after it. */
@@ -829,6 +831,7 @@
     <div class="queue only-shorts" id="uploadQueue" data-lane="upload" data-title="Uploads" hidden></div>
   </div>
   <div class="run-actions" id="runActions" hidden>
+    <button type="button" id="stopAfter" title="Let the video or image being made now finish, then end the batch" hidden>Stop after this one</button>
     <button type="button" id="skip" title="Skip this run and resume it later">Skip</button>
     <button type="button" id="stop" title="Stop everything: the queue waits until you press Resume">Stop</button>
   </div>
@@ -2809,8 +2812,22 @@ function syncOptions(section, box, options, workflow = '') {
   if ($(box).dataset.key === key) return;
   $(box).dataset.key = key;
   $(box).dataset.workflow = `${section}|${workflow}`;
-  $(box).innerHTML = options.map(option => imageOptionHtml(option, options)).join('');
+  // Turbo and Steps, wherever the workflow has them, sit under Advanced at the bottom.
+  const draw = list => list.map(option => imageOptionHtml(option, options)).join('');
+  const advanced = options.filter(option => option.advanced);
+  $(box).innerHTML = draw(options.filter(option => !option.advanced))
+    + (advanced.length ? `<div class="options-advanced"><div class="options-subtitle">Advanced</div>${draw(advanced)}</div>` : '');
+  $(box).optionList = options;
   restoreOptions($(box));
+}
+// A turbo switch has its own step count, so Steps shows the one that goes with it once it's switched.
+function followSwitch(box, changed) {
+  if (!changed || changed.type !== 'checkbox') return;
+  for (const option of (box.optionList || []).filter(option => option.follows && changed.name === `opt_${option.follows.switch}`)) {
+    const field = box.querySelector(`[name="opt_${option.id}"]`);
+    const steps = option.follows[changed.checked ? '1' : '0'];
+    if (field && steps !== undefined) field.value = steps;
+  }
 }
 // --- Each workflow's options as you last set them (per browser) ---
 const OPTIONS_KEY = 'comfyui-auto-gen.workflow-options';
@@ -2835,7 +2852,7 @@ function restoreOptions(box) {
   }
 }
 for (const box of ['shortsOptionsBox', 'videoOptionsBox', 'imageOptionsBox']) {
-  $(box).addEventListener('change', () => rememberOptions($(box)));
+  $(box).addEventListener('change', e => { followSwitch($(box), e.target); rememberOptions($(box)); });
   $(box).addEventListener('input', () => rememberOptions($(box)));
 }
 function syncImageOptions() { syncOptions('imageOptions', 'imageOptionsBox', imageTakes().options || [], baseImageTakes().name); }
@@ -4269,6 +4286,11 @@ async function poll() {
   }
   if (data.stopped_runs.length !== stoppedCount) { stoppedCount = data.stopped_runs.length; refreshPlan(); }
   $('runActions').hidden = !running;
+  // A batch (Shorts' videos, Image's images) can end once the one being made is done; a film is one video.
+  $('stopAfter').hidden = !running || data.pipeline === 'video';
+  $('stopAfter').textContent = data.stop_after ? 'Keep going' : 'Stop after this one';
+  $('stopAfter').title = data.stop_after ? 'Stopping once the one being made now is done: press to let the batch go on'
+    : 'Let the video or image being made now finish, then end the batch';
 
   safely(() => renderNow(data));
   safely(() => renderEtaDetail(running ? (data.progress || {}).eta : null));
@@ -4444,6 +4466,7 @@ $('stop').addEventListener('click', async () => {
   if (!confirm(`Stop all? This kills the current run and its ffmpeg renders, and cancels its ComfyUI clips. You can continue it later under Stopped runs, without the clip being rendered now.${held}`)) return;
   await stopJob('/stop');
 });
+$('stopAfter').addEventListener('click', () => stopJob('/stop-after'));
 $('skip').addEventListener('click', async () => {
   const next = runsQueued ? 'The next in the queue starts now.' : 'Nothing else is queued, so nothing starts after it.';
   if (!confirm(`Skip this run and resume it later? ${next} Finished clips are kept, but the clip rendering now starts over when you continue. It waits under Stopped runs until you press Continue.`)) return;

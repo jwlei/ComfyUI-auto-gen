@@ -323,6 +323,52 @@ class GenerateContinuesTest(unittest.TestCase):
         self.assertEqual(RunState.load(state.id).avatar_prompts, {3: "kept"})
 
 
+class StopAfterTest(unittest.TestCase):
+    """The panel's Stop after this one: the video being made is finished, and the batch ends there."""
+
+    def setUp(self):
+        from core import batch_stop
+        self.batch_stop = batch_stop
+        batch_stop.clear()
+        self.addCleanup(batch_stop.clear)
+
+    def test_the_batch_ends_after_the_video_being_made(self):
+        made = []
+
+        async def generate_one(args, state):
+            made.append(state.number)
+            self.batch_stop.request()  # Pressed while the first is being made
+            return f"video_{state.number}.mp4"
+
+        args = pipeline.parse_args(["--runs", "3"])
+        with mock.patch.object(pipeline, "preflight", return_value=[]), mock.patch.object(pipeline, "generate_one", generate_one),                 mock.patch.object(RunState, "save"):
+            code = asyncio.run(pipeline.main_async(args))
+        self.assertEqual(made, [1], "the second and third are never started")
+        self.assertEqual(code, 0, "stopping as asked isn't a failure")
+
+    def test_without_it_the_batch_goes_on(self):
+        async def generate_one(args, state):
+            return f"video_{state.number}.mp4"
+
+        args = pipeline.parse_args(["--runs", "2"])
+        with mock.patch.object(pipeline, "preflight", return_value=[]), mock.patch.object(pipeline, "generate_one", generate_one),                 mock.patch.object(RunState, "save"), mock.patch("builtins.print") as said:
+            self.assertEqual(asyncio.run(pipeline.main_async(args)), 0)
+        self.assertIn("Produced 2/2", " ".join(str(call.args[0]) for call in said.call_args_list if call.args))
+
+    def test_the_panel_asks_and_takes_it_back(self):
+        client = webapp.app.test_client()
+        with client.session_transaction() as session:
+            session["authed"] = True
+        with mock.patch.object(webapp.Job, "running", new_callable=mock.PropertyMock, return_value=True),                 mock.patch.object(webapp.job, "pipeline", "shorts"), mock.patch.object(webapp.run_queue, "items", []):
+            self.assertEqual(client.post("/stop-after").get_json(), {"ok": True, "stop_after": True})
+            self.assertTrue(self.batch_stop.requested())
+            self.assertEqual(client.post("/stop-after").get_json(), {"ok": True, "stop_after": False})
+            self.assertFalse(self.batch_stop.requested())
+            with mock.patch.object(webapp.job, "pipeline", "video"):
+                self.assertEqual(client.post("/stop-after").status_code, 409, "a film is one video")
+        self.assertEqual(client.post("/stop-after").status_code, 409, "nothing running")
+
+
 class SeedTest(unittest.TestCase):
     def test_a_chosen_seed_reaches_the_avatar_clips(self):
         argv, _, error = shorts_panel.build_run({**BASE, "seed": "77"})

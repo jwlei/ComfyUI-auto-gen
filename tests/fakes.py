@@ -223,6 +223,9 @@ OBJECT_INFO = {kind: {"display_name": kind, "input": {"required": required}} for
     "EmptyLatentImage": {"width": ["INT", {}], "height": ["INT", {}], "batch_size": ["INT", {}]},
     "ConditioningZeroOut": {"conditioning": ["CONDITIONING"]},
     "PrimitiveBoolean": {"value": ["BOOLEAN", {}]},
+    "PrimitiveInt": {"value": ["INT", {}]},
+    "BasicScheduler": {"model": ["MODEL"], "steps": ["INT", {}]},
+    "SamplerCustomAdvanced": {"sigmas": ["SIGMAS"], "latent_image": ["LATENT"]},
     "ComfySwitchNode": {"switch": ["BOOLEAN", {}]},
     "TextGenerate": {"prompt": ["STRING", {}], "clip": ["CLIP"]},
     "TextEncodeQwenImageEditPlus": {"prompt": ["STRING", {}], "clip": ["CLIP"]},
@@ -303,6 +306,32 @@ def h3_workflow():
     """reference_workflow() on MiniMax H3's node, which also takes videos and audio clips that nothing is wired to."""
     ui = reference_workflow()
     next(node for node in ui["nodes"] if node["id"] == 6)["type"] = "MiniMaxH3ReferenceToVideo"
+    return ui
+
+
+def turbo_workflow():
+    """
+    h3_workflow() sampled as MiniMax H3's template is: SamplerCustomAdvanced on BasicScheduler's sigmas, and a named
+    Boolean, Enable Lightning LoRA, choosing through two If/Else switches the turbo LoRA and its 4 steps or the full 20.
+    """
+    ui = h3_workflow()
+    ui["nodes"] = [node for node in ui["nodes"] if node["id"] != 7] + [
+        _ui_node(20, "CheckpointLoader", {"ckpt_name": "model.safetensors"}, outputs=["MODEL"]),
+        _ui_node(21, "LoraLoaderModelOnly", {"lora_name": "lora.safetensors"}, {"model": 20}, ["MODEL"]),
+        _ui_node(22, "PrimitiveBoolean", {"value": False}, title="Boolean (Enable Lightning LoRA)"),
+        _ui_node(23, "PrimitiveInt", {"value": 20}, values=[20, "fixed"], title="Int (Full)"),
+        _ui_node(24, "PrimitiveInt", {"value": 4}, values=[4, "fixed"], title="Int (Lightning LoRA)"),
+        _ui_node(25, "ComfySwitchNode", links={"switch": 22, "on_false": 23, "on_true": 24}, values=[False], title="If/Else Switch (model)"),
+        _ui_node(26, "ComfySwitchNode", links={"switch": 25, "on_false": 26, "on_true": 27}, values=[False], title="If/Else Switch (Steps)"),
+        _ui_node(27, "BasicScheduler", links={"model": 28, "steps": 29}),
+        _ui_node(28, "SamplerCustomAdvanced", links={"sigmas": 30, "latent_image": 31}),
+        _ui_node(7, "CreateVideo", {"fps": 24}, {"images": 32}),
+    ]
+    ui["links"] = [link for link in ui["links"] if link[0] != 8] + [
+        [20, 20, 0, 21, 0, "MODEL"], [22, 22, 0, 25, 0, "BOOLEAN"], [23, 20, 0, 25, 1, "MODEL"], [24, 21, 0, 25, 2, "MODEL"],
+        [25, 22, 0, 26, 0, "BOOLEAN"], [26, 23, 0, 26, 1, "INT"], [27, 24, 0, 26, 2, "INT"],
+        [28, 25, 0, 27, 0, "MODEL"], [29, 26, 0, 27, 1, "INT"], [30, 27, 0, 28, 0, "SIGMAS"], [31, 6, 0, 28, 1, "LATENT"],
+        [32, 28, 0, 7, 0, "IMAGE"]]
     return ui
 
 

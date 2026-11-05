@@ -11,7 +11,7 @@ import time
 
 from dotenv import load_dotenv
 
-from core import seeds
+from core import batch_stop, seeds
 from core.saved_workflows import shorthand, title_words, unique_name
 from pipelines.image import media, models, paths, regions
 from pipelines.image import planner as image_planner
@@ -351,7 +351,7 @@ def render_images(state, comfy, most=None):
     """Returns how many it could not make. One that won't come out doesn't cost the rest of the set. most: stop after that many."""
     images = upload_images(state, comfy)
     failed = 0
-    time_spent = made = 0
+    time_spent = made = tried = 0
     total = len(state.shots)
     for position, shot in enumerate(state.shots, 1):
         if most is not None and made >= most:
@@ -359,6 +359,11 @@ def render_images(state, comfy, most=None):
         if shot.get("file") and not shot.get("redo"):
             print(f"   ♻️ Image {position}/{total} kept from earlier.")
             continue
+        # The panel's Stop after this one: the image before is done, so the rest wait to be continued.
+        if tried and batch_stop.requested():
+            print("   🛑 Stopping after this image, as asked.")
+            break
+        tried += 1
         started = time.time()
         print(f"   🖼️ Image {position}/{total} · {shot['title']}")
         path = render_image(state, comfy, shot, images)
@@ -427,6 +432,9 @@ def run(args):
     if failed:
         print(f"💾 {failed} of {len(state.shots)} failed, and the rest are kept. Continue with: python -m pipelines.image.main --resume {state.id}")
         return 1
+    if left and batch_stop.requested():
+        print(f"💾 Stopped as asked, with {left} still to make. Continue with: python -m pipelines.image.main --resume {state.id}")
+        return 0
     print(f"✅ {len(state.shots)} {'image' if len(state.shots) == 1 else 'images'} saved: {state.output_dir}")
     return 0
 

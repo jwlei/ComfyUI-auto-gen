@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 from pipelines.shorts.brain import ContentBrain
 from pipelines.shorts.asset_manager import AssetManager, PROVIDER_KEYS, get_provider
+from core import batch_stop
 from core.audio import AudioEngine, get_tts_provider
 from pipelines.shorts.avatar_generator import (AVATAR_LAYOUTS, AvatarGenerator, default_avatar_layout,
                                       get_avatar_source, pick_on_screen, plan_avatar_scenes)
@@ -378,7 +379,13 @@ async def main_async(args):
     total = state.number + state.videos_after if state else args.runs
 
     produced = []
+    tried = 0
     for run_index in range(first, total):
+        # The panel's Stop after this one: the video before is done, so the batch ends here.
+        if tried and batch_stop.requested():
+            print(f"🛑 Stopping the batch after this video, as asked: {total - run_index} not made.")
+            break
+        tried += 1
         if total > 1:
             print(f"\n===== RUN {run_index + 1}/{total} =====")
         print("🚀 STARTING AUTOMATION...")
@@ -405,12 +412,12 @@ async def main_async(args):
                 print(f"💾 Progress kept. Continue with: python -m pipelines.shorts.main --resume {state.id}")
         state = None
 
-    print(f"\n📦 Produced {len(produced)}/{total - first} video(s).")
+    print(f"\n📦 Produced {len(produced)}/{tried} video(s).")
     for path in produced:
         print(f"   • {path}")
 
-    # Non-zero exit tells cron/CI the run needs attention.
-    return 0 if len(produced) == total - first else 1
+    # Non-zero exit tells cron/CI the run needs attention. Those not made because it was asked to stop don't count.
+    return 0 if len(produced) == tried else 1
 
 
 def parse_args(argv=None):
