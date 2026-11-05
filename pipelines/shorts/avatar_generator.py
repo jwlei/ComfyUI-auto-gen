@@ -41,6 +41,7 @@ DEFAULT_REFERENCE_IMAGES = os.path.join("assets", "avatar", "avatar*.jpg")
 
 # How a workflow's nodes give away the video model it runs, for the label on its videos.
 VIDEO_MODELS = (("MiniMaxH3", "minimax-h3"), ("LTX", "ltx"), ("Wan", "wan"))
+BUILT_IN_LTX_NAME = "video_LTX-2.3_-_I2V_T2V_Basic_GGUF_ytautoshort"
 VIDEO_EXTENSIONS = (".mp4", ".webm", ".mov", ".mkv", ".gif")
 POLL_INTERVAL = 5
 
@@ -305,7 +306,9 @@ class AvatarGenerator:
         """A workflow saved in ComfyUI by its short name, the built-in ones by their model."""
         if os.path.abspath(os.path.dirname(self.workflow_path)) == os.path.abspath(SAVED_WORKFLOWS_DIR):
             return shorthand(self.workflow_path, "comfyui")
-        return video_model(self.workflow, self.workflow_path)
+        label = video_model(self.workflow, self.workflow_path)
+        # The built-in LTX is named as its saved counterpart would be, like any other workflow.
+        return shorthand(BUILT_IN_LTX_NAME, label) if label == "ltx" else label
 
     def can_render(self, scene):
         """With nothing to cut to, a lip-synced clip must cover the whole line; looping it would desync the mouth."""

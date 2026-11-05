@@ -895,6 +895,20 @@ class PanelTest(unittest.TestCase):
             self.assertEqual(self.client.post("/api/settings", data="no").status_code, 400)
             self.assertIn("disk", self.client.get("/api/settings").get_json())
 
+    def test_poweroff_is_per_session_and_cancellable(self):
+        calls = []
+        with mock.patch.object(webapp, "_run_shutdown", lambda cancel=False: calls.append(cancel)), \
+                mock.patch.object(webapp, "POWEROFF_IDLE", 0), mock.patch.object(webapp, "work_left", lambda: False), \
+                mock.patch.object(webapp, "POWEROFF_POLL", 0.01):
+            self.assertFalse(self.client.get("/api/poweroff").get_json()["armed"])
+            self.assertTrue(self.client.post("/api/poweroff", json={"armed": True}).get_json()["armed"])
+            self.wait_until(lambda: webapp.poweroff_state()["seconds_left"] is not None, "the countdown")
+            self.assertEqual(calls, [False])
+            self.assertIn("poweroff", self.client.get("/api/status").get_json())
+            self.assertFalse(self.client.post("/api/poweroff", json={"armed": False}).get_json()["armed"])
+            self.assertEqual(calls, [False, True], "turned off, so the shutdown is cancelled")
+            self.assertIsNone(webapp.poweroff_state()["seconds_left"])
+
     def test_restart_waits_for_work_to_end(self):
         self.comfy.script = ["hang"]
         self.assertTrue(self.generate().get_json()["ok"])

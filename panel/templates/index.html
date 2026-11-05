@@ -1438,6 +1438,7 @@
   <div class="hint settings-note" id="settingsNote" hidden></div>
   <div class="settings-row reserve-row"><label for="reserveRam">Reserve free RAM</label><b id="reserveRamValue"></b><button type="button" id="reserveSet">Set</button><input type="range" id="reserveRam" min="3" max="12" step="1"></div>
   <label class="settings-check"><input type="checkbox" id="lowPriority"><span>Run generation at lower priority<small>The pipeline and ComfyUI give way to your other programs, so the PC stays responsive while it renders.</small></span></label>
+  <label class="settings-check"><input type="checkbox" id="poweroff"><span>Shut down the PC when the queue is empty<small id="poweroffNote">This session only: it isn't saved. You get a minute to cancel it.</small></span></label>
   <div class="settings-group">Default workflow</div>
   <div class="settings-row"><label for="defaultShorts">Shorts</label><select id="defaultShorts" data-side="shorts"></select></div>
   <div class="settings-row"><label for="defaultVideo">Video</label><select id="defaultVideo" data-side="video"></select></div>
@@ -2285,6 +2286,19 @@ $('settingsClose').addEventListener('click', () => settingsDialog.close());
 settingsDialog.addEventListener('click', e => { if (e.target === settingsDialog) settingsDialog.close(); });
 $('lowPriority').addEventListener('change', () => saveSettings({ low_priority: $('lowPriority').checked }));
 const reserveSaved = () => SETTINGS.reserve_ram_gb || 3;
+// Shut down when the queue is empty: kept by the server for this session only.
+function renderPoweroff(p) {
+  if (!p) return;
+  $('poweroff').checked = p.armed;
+  $('poweroffNote').textContent = p.seconds_left != null
+    ? `Shutting down in ${p.seconds_left} s. Untick to cancel.`
+    : 'This session only: it isn\'t saved. You get a minute to cancel it.';
+}
+$('poweroff').addEventListener('change', async () => {
+  try {
+    renderPoweroff(await (await fetch('/api/poweroff', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ armed: $('poweroff').checked }) })).json());
+  } catch (e) { settingsNote('Could not reach the panel.', true); }
+});
 $('reserveRam').addEventListener('input', () => {
   $('reserveRamValue').textContent = $('reserveRam').value + ' GB';
   $('reserveSet').classList.toggle('changed', Number($('reserveRam').value) !== reserveSaved());
@@ -4869,6 +4883,7 @@ async function pollOnce() {
   if (c.online !== workflowsFor) { workflowsFor = c.online; loadWorkflows(); loadVideoWorkflows(); loadImageWorkflows(); }
   syncComfyButton(c);
   lastComfy = { ...c, gpu: data.gpu };
+  safely(() => renderPoweroff(data.poweroff));
   $('comfyDot').className = 'dot ' + (c.online ? 'ok' : c.starting || c.listening ? 'warn' : 'fail');
   $('comfyStatus').title = `ComfyUI: ${comfyState(c)}`;
   $('comfyStatus').setAttribute('aria-label', $('comfyStatus').title);

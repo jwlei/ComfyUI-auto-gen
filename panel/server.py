@@ -1569,6 +1569,73 @@ def disk_usage():
     return value
 
 
+POWEROFF_IDLE = 15   # Seconds with nothing to do before the PC is told to shut down: a gap between two jobs isn't the end.
+POWEROFF_POLL = 3
+POWEROFF_GRACE = 60  # Seconds Windows waits, in which turning the option off (or new work) cancels it.
+_poweroff = {"armed": False, "at": None, "idle_since": None}
+_poweroff_lock = threading.Lock()
+
+
+def _shutdown_command(cancel=False):
+    if os.name == "nt":
+        return ["shutdown", "/a"] if cancel else ["shutdown", "/s", "/t", str(POWEROFF_GRACE)]
+    return ["shutdown", "-c"] if cancel else ["shutdown", "-h", f"+{max(1, POWEROFF_GRACE // 60)}"]
+
+
+def _run_shutdown(cancel=False):
+    try:
+        subprocess.run(_shutdown_command(cancel), creationflags=NO_WINDOW, capture_output=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def poweroff_state():
+    with _poweroff_lock:
+        left = max(0, round(_poweroff["at"] - time.time())) if _poweroff["at"] else None
+        return {"armed": _poweroff["armed"], "seconds_left": left}
+
+
+def _poweroff_loop():
+    """While armed: once everything has been done for a moment, shuts the PC down. Not saved: a new server starts unarmed."""
+    while True:
+        time.sleep(POWEROFF_POLL)
+        with _poweroff_lock:
+            if not _poweroff["armed"]:
+                _poweroff["watching"] = False
+                return
+            busy = bool(work_left())
+            if busy:
+                _poweroff["idle_since"] = None
+                if _poweroff["at"]:
+                    _poweroff["at"] = None
+                    _run_shutdown(cancel=True)
+            elif _poweroff["at"] is None:
+                _poweroff["idle_since"] = _poweroff["idle_since"] or time.time()
+                if time.time() - _poweroff["idle_since"] >= POWEROFF_IDLE:
+                    _poweroff["at"] = time.time() + POWEROFF_GRACE
+                    _run_shutdown()
+
+
+@app.route("/api/poweroff", methods=["GET", "POST"])
+@password_required
+def api_poweroff():
+    """Shut the PC down once the queue is empty: for this session only, so it is never saved."""
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
+        arm = bool(body.get("armed"))
+        with _poweroff_lock:
+            was_counting = _poweroff["at"] is not None
+            _poweroff.update(armed=arm, idle_since=None, at=None if not arm else _poweroff["at"])
+            if arm and not _poweroff.get("watching"):
+                _poweroff["watching"] = True
+                threading.Thread(target=_poweroff_loop, daemon=True).start()
+            if not arm:
+                _poweroff["at"] = None
+        if not arm and was_counting:
+            _run_shutdown(cancel=True)
+    return {"ok": True, **poweroff_state()}
+
+
 def respawn_command():
     """What starts this server again as it was started: the helper waits for the port to be let go first."""
     code = ("import json,subprocess,sys,time;time.sleep(2);a=json.loads(sys.argv[1]);"
@@ -1675,6 +1742,7 @@ def status():
                           "starting": not online and time.time() - _comfyui_start_requested_at < COMFYUI_STARTUP_WAIT,
                           **(comfy_monitor.snapshot() if comfy_monitor else {})}
     payload["gpu"] = gpu_stats()
+    payload["poweroff"] = poweroff_state()
     payload["quota"] = cached_quota()
     return payload
 
