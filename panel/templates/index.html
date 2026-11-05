@@ -268,12 +268,26 @@
   .results .result:hover .result-label { text-decoration: underline; }
   .result-type { flex: none; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; font-size: .7rem; color: var(--text); }
   .result-label { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; text-align: left; }
-  .misc[hidden] { display: none; }
-  #statusHead { cursor: pointer; user-select: none; }
-  .status-chevron { display: inline-block; transition: transform .15s; }
-  #statusHead[aria-expanded="true"] .status-chevron { transform: rotate(90deg); }
   .finished .failed { color: var(--err); }
-  .phone code { color: var(--text); background: var(--panel-2); padding: 2px 6px; border-radius: 6px; user-select: all; }
+  .settings-actions { display: flex; gap: 8px; }
+  .settings-actions button { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 0; padding: 12px 6px; font-size: .75rem;
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+  .settings-actions button:disabled { opacity: .5; }
+  .settings-actions button.armed { border-color: var(--accent); color: var(--accent); }
+  .settings-note { margin: 0; }
+  .settings-group { margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--line); font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); font-weight: 600; }
+  .settings-check { display: flex; align-items: flex-start; gap: 10px; margin: 0; text-transform: none; letter-spacing: 0; font-size: .9rem; color: var(--text); cursor: pointer; }
+  .settings-check input { width: auto; margin: 3px 0 0; }
+  .settings-check small { display: block; margin-top: 2px; color: var(--muted); font-size: .78rem; }
+  .settings-row { display: flex; align-items: center; gap: 10px; }
+  .settings-row > label { flex: 0 0 64px; margin: 0; }
+  .settings-row select { margin: 0; }
+  .url-row .url-name { flex: 0 0 auto; font-size: .8rem; color: var(--muted); }
+  .url-row code { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; color: var(--text); background: var(--panel-2); padding: 4px 8px; border-radius: 6px; font-size: .8rem; user-select: all; }
+  .url-row button { width: auto; flex: none; margin: 0; padding: 4px 10px; font-size: .78rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+  .disk .bar { height: 6px; }
+  .disk-line { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; font-size: .84rem; }
+  .disk-line span:last-child { color: var(--muted); }
   .vhead { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
   .tabs { display: flex; gap: 6px; flex: 1 1 auto; }
   .tabs button, .vhead > button { margin: 0; padding: 8px 10px; font-size: .82rem; white-space: nowrap; }
@@ -856,8 +870,7 @@
     <button type="button" id="switchImage" data-pipeline="image" role="tab">Image<span class="dot on hidden"></span></button>
   </div>
   <div class="top-icons">
-    <a href="#" id="shutdown" aria-label="Shut down" title="Shut down: force-stops everything, then the panel's server. Start it again with start_webapp.pyw or the ComfyUI auto-gen shortcut."><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/></svg></a>
-    {% if protected %}<a href="{{ url_for('logout') }}" aria-label="Sign out" title="Sign out"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H5v16h4"/><path d="M15 8l4 4-4 4"/><path d="M19 12H9"/></svg></a>{% endif %}
+    <a href="#" id="settingsBtn" role="button" aria-haspopup="dialog" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></a>
   </div>
 </div>
 
@@ -894,8 +907,8 @@
 <div class="dashboard">
 <div class="card run-card" id="runCard" data-page="status">
   <div class="run-status">
-  <div class="status-head" id="statusHead" role="button" tabindex="0" aria-expanded="false" aria-controls="misc" title="Show how to open this on your phone">
-    <div class="section-title">Status <span class="status-chevron" aria-hidden="true">▸</span></div>
+  <div class="status-head" id="statusHead">
+    <div class="section-title">Status</div>
     <button type="button" class="comfy-status" id="comfyStatus" aria-haspopup="dialog" aria-label="ComfyUI: checking" title="ComfyUI: checking">
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
         <rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx=".5"/>
@@ -979,11 +992,6 @@
     <summary id="finishedTitle" hidden></summary>
     <div class="hint results" id="finishedList"></div>
   </details>
-  <div class="misc" id="misc" hidden>
-    <div class="phone">📱 Phone (same Wi-Fi): <code>{{ phone_url }}</code></div>
-    {% if tailscale_url %}<div class="phone">🌍 Phone (anywhere, with Tailscale on): <code>{{ tailscale_url }}</code></div>{% endif %}
-    {% if tailscale_problem %}<div class="phone">🌍 Phone (anywhere): {{ tailscale_problem }}</div>{% endif %}
-  </div>
   </div>
   <div class="run-quota" id="runQuota"></div>
   </div>
@@ -1408,6 +1416,27 @@
 </div>
 
 <dialog id="shotsDialog"><div id="shotsBody"></div></dialog>
+<dialog id="settingsDialog" class="panel-dialog settings-dialog" aria-labelledby="settingsTitle">
+  <div class="panel-dialog-title" id="settingsTitle">Settings</div>
+  <div class="settings-actions">
+    <button type="button" id="restartPanel" title="Start the panel again, to load new code. Not while a run or upload is going."><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span>Restart panel</span></button>
+    <button type="button" id="restartComfy" title="Close ComfyUI and start it again, which also frees its memory. Not while a run is going."><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx=".5"/><path d="M9 2.5v3M15 2.5v3M9 18.5v3M15 18.5v3M2.5 9h3M2.5 15h3M18.5 9h3M18.5 15h3"/></svg><span>Restart ComfyUI</span></button>
+    <button type="button" id="shutdown" title="Shut down: force-stops everything, then the panel's server. Start it again with start_webapp.pyw or the ComfyUI auto-gen shortcut."><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/></svg><span>Shut down</span></button>
+  </div>
+  <div class="hint settings-note" id="settingsNote" hidden></div>
+  <label class="settings-check"><input type="checkbox" id="lowPriority"><span>Run generation at lower priority<small>The pipeline and ComfyUI give way to your other programs, so the PC stays responsive while it renders.</small></span></label>
+  <div class="settings-group">Default workflow</div>
+  <div class="settings-row"><label for="defaultShorts">Shorts</label><select id="defaultShorts" data-side="shorts"></select></div>
+  <div class="settings-row"><label for="defaultVideo">Video</label><select id="defaultVideo" data-side="video"></select></div>
+  <div class="settings-row"><label for="defaultImage">Image</label><select id="defaultImage" data-side="image"></select></div>
+  <div class="settings-group">Open on your phone</div>
+  <div class="settings-row url-row"><span class="url-name">Same Wi-Fi</span><code>{{ phone_url }}</code><button type="button" class="copy-url" data-url="{{ phone_url }}">Copy</button></div>
+  {% if tailscale_url %}<div class="settings-row url-row"><span class="url-name">Anywhere (Tailscale)</span><code>{{ tailscale_url }}</code><button type="button" class="copy-url" data-url="{{ tailscale_url }}">Copy</button></div>{% endif %}
+  {% if tailscale_problem %}<div class="hint">Anywhere (Tailscale): {{ tailscale_problem }}</div>{% endif %}
+  <div class="settings-group">Storage</div>
+  <div class="disk" id="diskBox"><div class="hint">Checking…</div></div>
+  <button type="button" class="panel-close" id="settingsClose">Close</button>
+</dialog>
 <dialog id="panelDialog" class="panel-dialog" aria-labelledby="panelDialogTitle">
   <div class="panel-dialog-title" id="panelDialogTitle"></div>
   <div class="panel-dialog-body" id="panelDialogBody"></div>
@@ -1516,6 +1545,16 @@
 
 <script>
 const $ = id => document.getElementById(id);
+const SETTINGS = {{ settings|tojson }};
+// The workflow a side opens on: its default if one is set (built-in is '@builtin'), else null for the one last used.
+function defaultWorkflow(side) {
+  const chosen = (SETTINGS.default_workflow || {})[side];
+  return chosen ? (chosen === '@builtin' ? '' : chosen) : null;
+}
+function startingWorkflow(side, remembered) {
+  const chosen = defaultWorkflow(side);
+  return chosen === null ? remembered() : chosen;
+}
 const STORE_KEY = 'autoshorts.form.v3';  // v3: privacy became public by default; older saves kept the old default
 let autoScroll = true;
 let folder = 'output';
@@ -1622,7 +1661,7 @@ function applyDefaultPreset(side) {
   if (!presetsLoaded || !defaultsDue.has(side) || !$(WORKFLOW_PICKERS[side]).dataset.key) return;
   defaultsDue.delete(side);
   const preset = (presets[side] || []).find(p => p.default);
-  if (preset) applyPreset(side, preset.name);
+  if (preset) applyPreset(side, preset.name, true);
 }
 async function loadPresets() {
   try { presets = { ...presets, ...(await (await fetch('/api/presets')).json()).presets }; } catch (e) { return; }
@@ -1630,7 +1669,7 @@ async function loadPresets() {
   Object.keys(SIDE_FORMS).forEach(syncPresets);
   Object.keys(SIDE_FORMS).forEach(applyDefaultPreset);
 }
-function applyPreset(side, name) {
+function applyPreset(side, name, atStart = false) {
   const preset = (presets[side] || []).find(p => p.name === name);
   if (!preset) return;
   const form = $(SIDE_FORMS[side]), values = preset.values;
@@ -1639,10 +1678,11 @@ function applyPreset(side, name) {
     if (el.type === 'checkbox') el.checked = !!values[el.name];
     else if (!el.options || [...el.options].some(o => o.value === String(values[el.name]))) el.value = values[el.name];
   };
-  // The workflow first: what the rest offers follows from it.
-  if (form.elements.workflow) set(form.elements.workflow);
+  // The workflow first: what the rest offers follows from it. A default workflow in the settings beats the starred preset's.
+  const keepWorkflow = atStart && defaultWorkflow(side) !== null;
+  if (form.elements.workflow && !keepWorkflow) set(form.elements.workflow);
   SIDE_SYNC[side]();
-  [...form.elements].filter(el => !el.name.startsWith('opt_')).forEach(set);
+  [...form.elements].filter(el => !el.name.startsWith('opt_') && !(keepWorkflow && el.name === 'workflow')).forEach(set);
   SIDE_SYNC[side]();
   const box = $(OPTION_BOXES[side]);
   [...form.elements].filter(el => el.name.startsWith('opt_')).forEach(set);
@@ -1702,7 +1742,7 @@ async function loadWorkflows() {
   const key = JSON.stringify(data);
   // Writing the options closes the list, and this also runs as it opens.
   if (select.dataset.key === key) return;
-  const wanted = select.dataset.key ? select.value : rememberedWorkflow();
+  const wanted = select.dataset.key ? select.value : startingWorkflow('shorts', rememberedWorkflow);
   select.dataset.key = key;
   const none = !data.online && !data.workflows.length;
   select.innerHTML = '<option value="">LTX-2.3</option>' + data.workflows.map(w =>
@@ -1998,7 +2038,7 @@ async function loadVideoWorkflows() {
   const key = JSON.stringify(data);
   // Writing the options closes the list, and this also runs as it opens.
   if (select.dataset.key === key) return;
-  const wanted = select.dataset.key ? select.value : rememberedVideoWorkflow();
+  const wanted = select.dataset.key ? select.value : startingWorkflow('video', rememberedVideoWorkflow);
   select.dataset.key = key;
   select.innerHTML = '<option value="">Built-in LTX</option>' + data.workflows.map(w =>
     `<option value="${esc(w.name)}">${esc(w.label)}</option>`).join('');
@@ -2182,18 +2222,114 @@ $('addMedia').addEventListener('click', () => {
   syncMediaInput();
 });
 
-// The phone addresses stay out of the way until the Status header is clicked.
-function toggleMisc() {
-  const open = $('misc').hidden;
-  $('misc').hidden = !open;
-  $('statusHead').setAttribute('aria-expanded', String(open));
+// --- Settings (the gear in the header) ---
+const SETTINGS_BUILTIN = { shorts: 'Built-in LTX-2.3', video: 'Built-in LTX', image: 'Automatic' };
+const settingsDialog = $('settingsDialog');
+function settingsNote(text, bad) {
+  $('settingsNote').hidden = !text;
+  $('settingsNote').textContent = text || '';
+  $('settingsNote').style.color = bad ? 'var(--err)' : '';
 }
-$('statusHead').addEventListener('click', toggleMisc);
-$('statusHead').addEventListener('keydown', e => {
-  if (e.key !== 'Enter' && e.key !== ' ') return;
+async function saveSettings(changes) {
+  try {
+    const body = await (await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(changes) })).json();
+    if (!body.ok) { settingsNote(body.error || 'Could not save it.', true); return; }
+    Object.assign(SETTINGS, body.settings);
+    settingsNote('');
+  } catch (e) { settingsNote('Could not save it.', true); }
+}
+function formatBytes(n) {
+  const gb = n / 2 ** 30;
+  return gb >= 100 ? `${Math.round(gb)} GB` : gb >= 1 ? `${gb.toFixed(1)} GB` : `${Math.round(n / 2 ** 20)} MB`;
+}
+async function fillSettings() {
+  $('lowPriority').checked = !!SETTINGS.low_priority;
+  for (const side of ['shorts', 'video', 'image']) {
+    const select = document.getElementById('default' + side[0].toUpperCase() + side.slice(1));
+    const chosen = (SETTINGS.default_workflow || {})[side] || '';
+    select.innerHTML = `<option value="">Last one used</option><option value="@builtin">${SETTINGS_BUILTIN[side]}</option>`;
+    select.value = chosen;
+    fetch('/api/workflows?pipeline=' + side).then(r => r.json()).then(data => {
+      const usable = data.workflows.filter(w => !w.problem);
+      select.innerHTML += usable.map(w => `<option value="${esc(w.name)}">${esc(w.label)}</option>`).join('');
+      select.value = chosen;
+      if (select.value !== chosen) select.add(new Option(chosen, chosen, false, true));
+    }).catch(() => {});
+  }
+  try {
+    const { disk } = await (await fetch('/api/settings')).json();
+    $('diskBox').innerHTML = !disk ? '<div class="hint">The disk could not be read.</div>' : `
+      <div class="bar"><div style="width:${Math.round((1 - disk.free / disk.total) * 100)}%"></div></div>
+      <div class="disk-line"><span><b>${formatBytes(disk.free)}</b> free of ${formatBytes(disk.total)} (${esc(disk.drive)})</span><span>Outputs take ${formatBytes(disk.outputs)}</span></div>`;
+  } catch (e) { $('diskBox').innerHTML = '<div class="hint">The disk could not be read.</div>'; }
+}
+$('settingsBtn').addEventListener('click', e => {
   e.preventDefault();
-  toggleMisc();
+  settingsNote('');
+  fillSettings();
+  settingsDialog.showModal();
 });
+$('settingsClose').addEventListener('click', () => settingsDialog.close());
+settingsDialog.addEventListener('click', e => { if (e.target === settingsDialog) settingsDialog.close(); });
+$('lowPriority').addEventListener('change', () => saveSettings({ low_priority: $('lowPriority').checked }));
+settingsDialog.addEventListener('change', e => {
+  if (e.target.dataset && e.target.dataset.side) saveSettings({ default_workflow: { [e.target.dataset.side]: e.target.value } });
+});
+settingsDialog.addEventListener('click', async e => {
+  const copy = e.target.closest ? e.target.closest('.copy-url') : null;
+  if (!copy) return;
+  try { await navigator.clipboard.writeText(copy.dataset.url); }
+  catch (err) {
+    const box = document.createElement('textarea');
+    box.value = copy.dataset.url;
+    document.body.appendChild(box);
+    box.select();
+    document.execCommand('copy');
+    box.remove();
+  }
+  copy.textContent = 'Copied';
+  setTimeout(() => { copy.textContent = 'Copy'; }, 1500);
+});
+// After a restart, the page waits for the server to answer again, then reloads onto the new code.
+async function reloadWhenBack() {
+  settingsNote('Restarting…');
+  await new Promise(r => setTimeout(r, 3000));
+  for (let i = 0; i < 60; i++) {
+    try { await fetch('/api/status', { cache: 'no-store' }); location.reload(); return; } catch (e) {}
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  settingsNote('The panel did not come back. Start it with start_webapp.pyw.', true);
+}
+$('restartPanel').addEventListener('click', async () => {
+  if (!confirmTap('restartPanel', 'Restart panel')) return;
+  try {
+    const response = await fetch('/restart/panel', { method: 'POST' });
+    const body = await response.json();
+    if (!body.ok) { settingsNote(body.error || 'Could not restart.', true); return; }
+  } catch (e) { return; }
+  reloadWhenBack();
+});
+$('restartComfy').addEventListener('click', async () => {
+  if (!confirmTap('restartComfy', 'Restart ComfyUI')) return;
+  const body = await (await fetch('/restart/comfyui', { method: 'POST' })).json();
+  settingsNote(body.ok ? 'ComfyUI is restarting. It is back once the icon in Status turns green.' : body.error || 'Could not restart it.', !body.ok);
+});
+// The three buttons ask for a second tap within a few seconds instead of a box: the first arms it, the second does it.
+const armed = {};
+function confirmTap(id, label) {
+  const label_ = $(id).querySelector('span');
+  if (armed[id]) {
+    clearTimeout(armed[id]);
+    delete armed[id];
+    label_.textContent = label;
+    $(id).classList.remove('armed');
+    return true;
+  }
+  label_.textContent = 'Tap again to confirm';
+  $(id).classList.add('armed');
+  armed[id] = setTimeout(() => { delete armed[id]; label_.textContent = label; $(id).classList.remove('armed'); }, 4000);
+  return false;
+}
 
 function clipCount(n) { return `${n} ${n === 1 ? 'clip' : 'clips'}`; }
 // As the planner counts them: the shortest, longest and usual clip on the workflow's video model...
@@ -2310,7 +2446,7 @@ async function loadImageWorkflows() {
   const key = JSON.stringify(data);
   // Writing the options closes the list, and this also runs as it opens.
   if (select.dataset.key === key) return;
-  const wanted = select.dataset.key ? select.value : rememberedImageWorkflow();
+  const wanted = select.dataset.key ? select.value : startingWorkflow('image', rememberedImageWorkflow);
   select.dataset.key = key;
   const usable = data.workflows.filter(w => !w.problem), stuck = data.workflows.filter(w => w.problem);
   select.innerHTML = select.options[0].outerHTML + data.workflows.map(w =>
@@ -4912,10 +5048,7 @@ $('stopUpload').addEventListener('click', async () => {
 
 $('shutdown').addEventListener('click', async e => {
   e.preventDefault();
-  const queued = runsQueued + uploadsQueued;
-  const work = [wasRunning && 'force-stops the run in progress, which you can continue later', uploadRunning && 'force-stops the upload in progress',
-    queued && `keeps ${queued} queued ${queued === 1 ? 'job' : 'jobs'} on hold for next time`, 'closes ComfyUI if the panel started it'].filter(Boolean);
-  if (!confirm(`Shut down the control panel? This ${work.join(', ')}. Start it again with start_webapp.pyw or the ComfyUI auto-gen shortcut.`)) return;
+  if (!confirmTap('shutdown', 'Shut down')) return;
   const body = await (await fetch('/shutdown', { method: 'POST' })).json();
   if (!body.ok) { alert(body.error || 'Could not shut down.'); return; }
   document.body.innerHTML = '<div class="wrap"><h1>ComfyUI auto-gen</h1><p class="sub">The control panel has shut down. Start it again with <b>start_webapp.pyw</b> or the <b>ComfyUI auto-gen</b> shortcut.</p></div>';

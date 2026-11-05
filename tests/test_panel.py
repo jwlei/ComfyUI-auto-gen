@@ -858,7 +858,7 @@ class PanelTest(unittest.TestCase):
             self.assertEqual(reply.status_code, 302)
             self.assertNotIn("evil", reply.headers["Location"], "a link can't send you elsewhere after signing in")
             self.assertEqual(client.get("/").status_code, 200)
-            self.assertIn(b"Sign out", client.get("/").data)
+            self.assertIn(b'id="settingsBtn"', client.get("/").data)
 
     def test_queue_comes_back_on_hold_after_a_restart(self):
         path = os.path.join(self.temp, "queue.json")
@@ -871,6 +871,25 @@ class PanelTest(unittest.TestCase):
         with open(path, "w", encoding="utf-8") as f:
             f.write("{broken")
         self.assertEqual(webapp.JobQueue(webapp.Job(), lambda item: None, path=path).items, [])
+
+    def test_settings_are_saved_and_checked(self):
+        path = os.path.join(self.temp, "settings.json")
+        with mock.patch.object(webapp.settings, "PATH", path), mock.patch.object(webapp, "apply_comfyui_priority"):
+            self.assertFalse(self.client.get("/api/settings").get_json()["settings"]["low_priority"])
+            saved = self.client.post("/api/settings", json={"low_priority": True, "default_workflow": {"image": "image_x", "bogus": "y"}}).get_json()
+            self.assertTrue(saved["settings"]["low_priority"])
+            self.assertEqual(saved["settings"]["default_workflow"], {"shorts": "", "video": "", "image": "image_x"})
+            self.assertTrue(webapp.settings.load()["low_priority"], "kept in the file")
+            self.assertEqual(webapp.priority_flags(), webapp.BELOW_NORMAL)
+            self.assertEqual(self.client.post("/api/settings", data="no").status_code, 400)
+            self.assertIn("disk", self.client.get("/api/settings").get_json())
+
+    def test_restart_waits_for_work_to_end(self):
+        self.comfy.script = ["hang"]
+        self.assertTrue(self.generate().get_json()["ok"])
+        self.wait_until(lambda: self.comfy.hanging, "the clip to start")
+        self.assertEqual(self.client.post("/restart/panel").status_code, 409)
+        self.assertEqual(self.client.post("/restart/comfyui").status_code, 409)
 
     def test_shutdown_stops_everything_and_keeps_the_queue(self):
         self.comfy.script = ["hang"]

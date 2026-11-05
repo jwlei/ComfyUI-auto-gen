@@ -187,11 +187,11 @@ assert.strictEqual(els.etaDetail.hidden, true, 'on track: nothing to explain');
 run(`renderEtaDetail({ changes: [{ text: 'Clip <b>3</b> was slow', seconds: 120 }], original_total: 600, adjusted_total: 720 })`);
 assert(!els.etaDetail.hidden && els.etaDetail.innerHTML.includes('<details') && els.etaDetail.innerHTML.includes('+2 min') && !els.etaDetail.innerHTML.includes('<b>3'));
 
-// Shorts in YouTube red; the phone address is hidden at the bottom of Status until its header is clicked; no voice hint.
+// Shorts in YouTube red; the phone addresses are in the settings box, with copy buttons; no voice hint.
 assert(/body\.on-shorts \{ --accent: #ff0033; \}/.test(html));
-assert(/<div class="misc" id="misc" hidden>\s*<div class="phone">/.test(status0()));
+assert(!html.includes('id="misc"') && /class="settings-row url-row"[^>]*>\s*<span class="url-name">Same Wi-Fi<\/span><code>[^<]+<\/code><button type="button" class="copy-url"/.test(html));
 assert(!/<summary>More<\/summary>/.test(html), 'no More dropdown');
-assert(/id="statusHead"[^>]*aria-controls="misc"/.test(status0()));
+assert(!/id="statusHead"[^>]*aria-controls/.test(status0()));
 assert(!html.includes('If both Gemini voice models fail'));
 
 // Times.
@@ -936,9 +936,10 @@ run("setPipeline('shorts', false)");
 assert(buttons.switchShorts.active === true && buttons.switchVideo.active === false && buttons.switchShorts.selected === true);
 assert(/\.switch button\.active \{[^}]*color: var\(--accent\)/.test(html) && /body\.on-video \{ --accent:/.test(html));
 
-// The switch is the top of the page, with the title gone and two icons beside it.
+// The switch is the top of the page, with the title gone and the gear beside it; shut down is in the settings box.
 assert(html.indexOf('id="switchShorts"') < html.indexOf('id="stick"') && !/<h1>/.test(html.slice(0, html.indexOf('<script>'))));
-assert(/id="shutdown" aria-label="Shut down"[^>]*><svg/.test(html));
+assert(/id="settingsBtn"[^>]*aria-label="Settings"/.test(html) && !/Sign out/.test(html));
+assert(/<dialog id="settingsDialog"[\s\S]*id="restartPanel"[\s\S]*id="restartComfy"[\s\S]*id="shutdown"[\s\S]*id="lowPriority"[\s\S]*id="defaultShorts"[\s\S]*id="diskBox"/.test(html));
 // Queue and log live in Status, the queue first, and the footer no longer goes to them.
 const status = html.slice(html.indexOf('id="runCard"'), html.indexOf('id="optionsCard"'));
 assert(status.indexOf('id="runQueue"') > 0 && status.indexOf('id="runQueue"') < status.indexOf('id="logBox"') && status.indexOf('id="logBox"') < status.indexOf('id="log"'));

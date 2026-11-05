@@ -22,6 +22,7 @@ import secrets
 import signal
 import socket
 import subprocess
+import sys
 import threading
 import time
 from datetime import datetime
@@ -38,7 +39,7 @@ from core import batch_stop, eta_keys, workflow_options
 from core.paths import LOGS_DIR, PROJECT_ROOT, SAVED_WORKFLOWS_DIR, comfyui_client_id
 from core.quota import quota_summary
 from core.saved_workflows import list_saved, pipeline_of
-from panel import tailscale
+from panel import settings, tailscale
 from pipelines.image.paths import OUTPUT_DIR as IMAGE_OUTPUT
 from pipelines.image.run_eta import RunEta as ImageEta
 from pipelines.shorts.paths import OUTPUT_DIR as SHORTS_READY, UPLOADED_DIR as SHORTS_UPLOADED
@@ -67,6 +68,12 @@ MAX_UPLOAD_BYTES = 200 * 2 ** 20
 # Keeps the pipeline and nvidia-smi from flashing a console window when the
 # server itself runs windowless (start_webapp.pyw).
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+# The Run generation at lower priority setting: what the pipeline, and ComfyUI when this launches it, start with.
+BELOW_NORMAL = getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
+
+
+def priority_flags():
+    return BELOW_NORMAL if settings.load()["low_priority"] else 0
 # How long a killed process gets to disappear before it counts as surviving.
 STOP_WAIT = 10
 STOP_FAILED = "It could not be stopped. End it in Task Manager (python.exe)."
@@ -164,7 +171,7 @@ class Job:
                 bufsize=1,
                 # Unbuffered child output, otherwise the log only appears at the end.
                 env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8", **(env or {})},
-                creationflags=NO_WINDOW,
+                creationflags=NO_WINDOW | priority_flags(),
                 # Its own process group, so stop() can take ffmpeg down with it.
                 start_new_session=os.name != "nt",
             )
@@ -1032,9 +1039,40 @@ def launch_comfyui(launcher):
     _comfyui_process = subprocess.Popen(
         f"cmd /c {command}" if command else ["cmd", "/c", launcher],
         cwd=os.path.dirname(launcher),
-        creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NEW_PROCESS_GROUP,
+        creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NEW_PROCESS_GROUP | priority_flags(),
         startupinfo=startup,
     )
+
+
+def comfyui_processes():
+    """The ComfyUI processes running on this PC, started by this server or not."""
+    try:
+        import psutil
+    except ImportError:
+        return []
+    found = []
+    for process in psutil.process_iter(["cmdline"]):
+        line = " ".join(process.info.get("cmdline") or []).lower()
+        if "main.py" in line and "comfyui" in line and "python" in line and process.pid != os.getpid():
+            found.append(process)
+    return found
+
+
+def apply_comfyui_priority():
+    """Sets ComfyUI running now to the priority the setting asks for. One it starts itself starts at it."""
+    try:
+        import psutil
+        low = settings.load()["low_priority"]
+        for process in comfyui_processes():
+            try:
+                if os.name == "nt":
+                    process.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS if low else psutil.NORMAL_PRIORITY_CLASS)
+                else:
+                    process.nice(10 if low else 0)
+            except psutil.Error:
+                pass  # Gone already, or not ours to change
+    except Exception as e:
+        job.log(f"⚠️ Could not change ComfyUI's priority: {e}")
 
 
 def start_comfyui():
@@ -1366,6 +1404,7 @@ def index():
         phone_url=f"http://{lan_ip()}:{port}",
         tailscale_url=tailscale_url,
         tailscale_problem=tailscale_problem,
+        settings=settings.load(),
         can_open_folders=can_open_folders(),
         # The page you asked for by address, or else the one it last showed.
         initial_pipeline=request.path.strip("/"),
@@ -1477,6 +1516,101 @@ def queue_resume(lane):
     if lane not in QUEUES:
         abort(404)
     QUEUES[lane].resume()
+    return {"ok": True}
+
+
+@app.route("/api/settings", methods=["GET", "POST"])
+@password_required
+def api_settings():
+    if request.method == "POST":
+        changes = request.get_json(silent=True)
+        if not isinstance(changes, dict):
+            return {"ok": False, "error": "Settings are a JSON object."}, 400
+        try:
+            saved = settings.update(changes)
+        except OSError as e:
+            return {"ok": False, "error": f"Could not save it: {e}"}, 500
+        if "low_priority" in changes:
+            threading.Thread(target=apply_comfyui_priority, daemon=True).start()
+        return {"ok": True, "settings": saved}
+    return {"ok": True, "settings": settings.load(), "disk": disk_usage()}
+
+
+_disk_cache = {"at": 0.0, "value": None}
+
+
+def disk_usage():
+    """The disk the videos and images go to: what's free, and what the three output folders take."""
+    if _disk_cache["value"] and time.time() - _disk_cache["at"] < 30:
+        return _disk_cache["value"]
+    folder = FOLDERS["output"]
+    while folder and not os.path.exists(folder) and os.path.dirname(folder) != folder:
+        folder = os.path.dirname(folder)
+    try:
+        usage = shutil.disk_usage(folder)
+    except OSError:
+        return None
+    used = 0
+    for root in {os.path.abspath(path) for path in FOLDERS.values()}:
+        for where, _, names in os.walk(root):
+            for name in names:
+                try:
+                    used += os.path.getsize(os.path.join(where, name))
+                except OSError:
+                    pass
+    value = {"free": usage.free, "total": usage.total, "outputs": used,
+             "drive": os.path.splitdrive(os.path.abspath(folder))[0] or "/"}
+    _disk_cache.update(at=time.time(), value=value)
+    return value
+
+
+def respawn_command():
+    """What starts this server again as it was started: the helper waits for the port to be let go first."""
+    code = ("import json,subprocess,sys,time;time.sleep(2);a=json.loads(sys.argv[1]);"
+            "subprocess.Popen(a['argv'],cwd=a['cwd'],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,"
+            "stderr=subprocess.DEVNULL,creationflags=a['flags'])")
+    flags = NO_WINDOW | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    return [sys.executable, "-c", code, json.dumps({"argv": [sys.executable, *sys.argv], "cwd": PROJECT_ROOT, "flags": flags})], flags
+
+
+@app.route("/restart/panel", methods=["POST"])
+@password_required
+def restart_panel():
+    """Starts the panel again, to load new code. Only when nothing is running that it would cut short."""
+    if restart_blocked():
+        return {"ok": False, "error": "A run or upload is going, or a queue is about to start one. Stop it or let it finish first."}, 409
+    command, flags = respawn_command()
+    subprocess.Popen(command, cwd=PROJECT_ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, creationflags=flags)
+    threading.Timer(0.5, os._exit, args=(0,)).start()
+    return {"ok": True}
+
+
+def restart_comfyui_now():
+    for process in comfyui_processes():
+        kill_tree(process.pid)
+    close_comfyui()
+    for _ in range(20):
+        _comfyui_cache["at"] = 0.0
+        if not comfyui_online():
+            break
+        time.sleep(0.5)
+    global _comfyui_start_requested_at
+    _comfyui_start_requested_at = 0.0
+    try:
+        start_comfyui()
+    except RuntimeError as e:
+        job.log(f"⚠️ {e}")
+
+
+@app.route("/restart/comfyui", methods=["POST"])
+@password_required
+def restart_comfyui():
+    if job.running:
+        return {"ok": False, "error": "A run is going: it would lose what ComfyUI is making. Stop it first."}, 409
+    if not comfyui_launcher():
+        return {"ok": False, "error": "COMFYUI_LAUNCHER isn't set in .env, so the panel can't start ComfyUI again."}, 400
+    threading.Thread(target=restart_comfyui_now, daemon=True).start()
     return {"ok": True}
 
 
