@@ -469,9 +469,10 @@ assert.strictEqual(els.finishedToggle.disabled, false);
 assert(els.finishedToggle.innerHTML.startsWith('Finished (3)') && els.finishedToggle.innerHTML.includes('1 failed'));
 const order = ['>C<', '>B (exit 1)<', '>A &lt;b&gt;run<'].map(text => els.finishedList.innerHTML.indexOf(text));
 assert(order.every(i => i >= 0) && order[0] < order[1] && order[1] < order[2], 'newest first, escaped');
-assert(/data-goto="video"><span class="when">17:05<\/span><span class="result-mark">✔<\/span><span class="result-type">Video<\/span><span class="result-label">A &lt;b&gt;run/.test(els.finishedList.innerHTML), 'its type before its title');
-assert(/\.finished \.results \.result \{ display: flex; align-items: center;/.test(html) && /\.result \+ \.result \{ border-top: 1px solid/.test(html)
-  && /\.result-label \{[^}]*-webkit-line-clamp: 2/.test(html), 'centred beside a title of two lines at most, a rule between');
+assert(/data-goto="video"><span class="result-mark">✔<\/span><span class="result-type">Video<\/span><span class="result-label">A &lt;b&gt;run[^<]*<\/span><span class="when">17:05<\/span>/.test(els.finishedList.innerHTML), 'its type before its title, the time last');
+assert(/class="result done"/.test(els.finishedList.innerHTML) && /class="result failed"/.test(els.finishedList.innerHTML), 'each outlined by how it ended');
+assert(/\.finished \.results \.result \{ display: flex; align-items: center;/.test(html) && /\.result\.failed \{ border-color: var\(--err\)/.test(html) && /\.result \.when \{ margin-left: auto;/.test(html)
+  && /\.result-label \{[^}]*-webkit-line-clamp: 2/.test(html), 'outlined, text left, the time quietly at the right');
 assert(/id="skip"[^>]*>Skip<\/button>/.test(html) && /id="stop"[^>]*>Stop<\/button>/.test(html) && /\.run-actions \{ display: flex; justify-content: center;/.test(html), 'Skip and Stop, small and centred');
 assert(/data-goto="shorts" data-tab="uploaded">[\s\S]*?<span class="result-type">Upload</.test(els.finishedList.innerHTML), 'an upload goes to what was uploaded');
 // One tap takes you to that side's output.

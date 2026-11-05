@@ -250,14 +250,21 @@
   .viewer-head .viewer-title { padding: 0 72px; }
   .viewer-res { position: absolute; right: 0; top: 0; color: #999; font-size: .72rem; font-variant-numeric: tabular-nums; }
   .viewer-res:empty { display: none; }
-  /* One line each: when, how it ended and what it is, centred beside a title of at most two lines; a rule between them. */
-  .finished .results .result { display: flex; align-items: center; gap: 8px; width: 100%; margin: 0; padding: 7px 0; background: none; border: 0;
-    border-radius: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-  .finished .results .result + .result { border-top: 1px solid var(--line); }
+  /* Each result a box outlined in how it ended, no fill: mark, type and title at the left, when quietly at the right. */
+  .finished .results .result { display: flex; align-items: center; gap: 8px; width: 100%; margin: 0 0 6px; padding: 7px 10px; background: none;
+    border: 1px solid var(--line); border-radius: 10px; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .finished .results .result.done { border-color: var(--ok); }
+  .finished .results .result.failed { border-color: var(--err); }
+  .finished .results .result.stopped, .finished .results .result.skipped { border-color: var(--warn); }
   .result .when, .result-mark { flex: none; white-space: nowrap; }
+  .result .when { margin-left: auto; color: var(--muted); font-size: .7rem; opacity: .7; font-variant-numeric: tabular-nums; }
+  .result-mark { font-size: .8rem; }
+  .result.done .result-mark { color: var(--ok); }
+  .result.failed .result-mark { color: var(--err); }
+  .result.stopped .result-mark, .result.skipped .result-mark { color: var(--warn); }
   .finished .results .result:hover .result-label { text-decoration: underline; }
   .result-type { flex: none; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; font-size: .7rem; color: var(--text); }
-  .result-label { min-width: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+  .result-label { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; text-align: left; }
   .misc[hidden] { display: none; }
   #statusHead { cursor: pointer; user-select: none; }
   .status-chevron { display: inline-block; transition: transform .15s; }
@@ -4158,9 +4165,9 @@ function renderFinished(runs, uploads, madeNow = []) {
   }
   const failed = all.filter(r => r.outcome === 'failed').length;
   const title = `Finished (${all.length})${failed ? ` · <span class="failed">${failed} failed</span>` : ''}`;
-  const list = all.map(r => `<button type="button" class="result${r.outcome === 'failed' ? ' failed' : ''}" data-goto="${esc(r.side)}"${r.tab ? ` data-tab="${r.tab}"` : ''}>`
-    + `<span class="when">${r.at}</span><span class="result-mark">${RESULT_MARKS[r.outcome]}</span><span class="result-type">${r.type}</span>`
-    + `<span class="result-label">${esc(r.label)}${r.note ? ` (${esc(r.note)})` : ''}</span></button>`).join('');
+  const list = all.map(r => `<button type="button" class="result ${esc(r.outcome)}" data-goto="${esc(r.side)}"${r.tab ? ` data-tab="${r.tab}"` : ''}>`
+    + `<span class="result-mark">${RESULT_MARKS[r.outcome]}</span><span class="result-type">${r.type}</span>`
+    + `<span class="result-label">${esc(r.label)}${r.note ? ` (${esc(r.note)})` : ''}</span><span class="when">${r.at}</span></button>`).join('');
   if ($('finishedToggle').innerHTML !== title) $('finishedToggle').innerHTML = title;
   if ($('finishedList').dataset.html !== list) { $('finishedList').innerHTML = list; $('finishedList').dataset.html = list; }
 }
