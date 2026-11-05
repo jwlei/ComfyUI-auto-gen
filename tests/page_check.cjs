@@ -1006,7 +1006,7 @@ assert(queue.innerHTML.includes('data-grip="3"'), 'nothing is drawn over a job b
 
 // ComfyUI's status, a tap on its icon away: one that's up but doesn't answer, on a PC out of memory, says why.
 run(`renderComfy({ online: false, listening: true, can_start: true, ram: { free: 2.1, total: 31.9 }, gpu: { util: 7, mem_used: 5.8, mem_total: 12, power: 26, temp: 40 } })`);
-assert(els.comfyFacts.innerHTML.includes('not answering') && els.comfyFacts.innerHTML.includes('2.1 GB free of 31.9 GB'));
+assert(els.comfyFacts.innerHTML.includes('not answering') && els.comfyFacts.innerHTML.includes('29.8/31.9GB used · 2.1GB free'));
 assert(!els.comfyAdvice.hidden && els.comfyAdvice.textContent.includes('paging'));
 run(`renderComfy({ online: true, active: true, label: 'Generating the image', value: 3, max: 8, queue: 1, ram: { free: 20, total: 32 } })`);
 assert(els.comfyFacts.innerHTML.includes('Generating the image · 3/8') && els.comfyAdvice.hidden, 'nothing to advise when all is well');

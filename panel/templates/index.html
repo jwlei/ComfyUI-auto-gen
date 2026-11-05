@@ -4239,9 +4239,10 @@ function renderNow(data) {
   }
 
   const g = data.gpu;
+  const ram = c.ram ? ` · RAM ${+(c.ram.total - c.ram.free).toFixed(1)}/${c.ram.total}GB` : '';
   $('gpuLine').textContent = g
-    ? `GPU ${g.util}% · VRAM ${g.mem_used} / ${g.mem_total} GB · ${g.power} W · ${g.temp}°C`
-    : '';
+    ? `GPU ${g.util}% · VRAM ${g.mem_used}/${g.mem_total}GB${ram} · ${g.power}W · ${g.temp}°C`
+    : ram.slice(3);
 }
 
 // --- Quota ---
@@ -4583,8 +4584,8 @@ function renderComfy(c) {
     rows.push(['Now', step], ['In its queue', String(c.queue || 0)]);
   }
   const g = c.gpu;
-  if (g) rows.push(['GPU', `${g.util}% · VRAM ${g.mem_used} / ${g.mem_total} GB · ${g.power} W · ${g.temp}°C`]);
-  if (c.ram) rows.push(['RAM', `${c.ram.free} GB free of ${c.ram.total} GB`]);
+  if (g) rows.push(['GPU', `${g.util}% · VRAM ${g.mem_used}/${g.mem_total}GB · ${g.power}W · ${g.temp}°C`]);
+  if (c.ram) rows.push(['RAM', `${+(c.ram.total - c.ram.free).toFixed(1)}/${c.ram.total}GB used · ${c.ram.free}GB free`]);
   $('comfyFacts').innerHTML = rows.map(([name, value]) => `<dt>${name}</dt><dd>${esc(value)}</dd>`).join('');
   // What to do about it, when there's something to do.
   const low = c.ram && c.ram.free < c.ram.total * 0.1;
