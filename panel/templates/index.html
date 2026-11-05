@@ -60,7 +60,10 @@
   .queue-item .grip { transition: color .15s ease, transform .15s ease; }
   .queue-item .grip:hover { transform: scale(1.15); }
   .queue-item.dragging .grip { color: var(--accent); }
-  .stopped-fold > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; list-style: none; padding: 2px 0; }
+  .stopped-fold > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; list-style: none; padding: 2px 0; font-size: .84rem; }
+  .stopped-fold > summary b { font-weight: 600; }
+  .stopped-fold[open] > summary { padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  .run-status, .run-tabs { display: contents; }
   .stopped-fold > summary::-webkit-details-marker { display: none; }
   .stopped-fold .chev { width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
     transform: rotate(45deg); transition: transform .25s ease; margin-right: 4px; }
@@ -754,13 +757,14 @@
     /* Status stays in sight above the rest, half what's running and half its log. */
     .run-card {
       grid-column: 1 / -1; position: sticky; top: 0; z-index: 5; max-height: 50vh; overflow: auto;
-      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto auto auto 1fr; gap: 0 24px;
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto auto auto auto 1fr; gap: 0 24px;
     }
-    .run-card > .status-head { grid-column: 1 / -1; grid-row: 1; margin-bottom: 8px; }
-    .run-card > .status-main { grid-column: 1; grid-row: 2; }
-    .run-card > .status-toggles { grid-column: 1; grid-row: 3; }
-    .run-card > .status-foot { grid-column: 1; grid-row: 4; }
-    .run-card > .log-box { grid-column: 2; grid-row: 2 / 5; position: relative; min-height: 240px; margin-top: 0; }
+    .run-status > .status-head { grid-column: 1 / -1; grid-row: 1; margin-bottom: 8px; }
+    .run-status > .status-main { grid-column: 1; grid-row: 2; }
+    .run-tabs > .status-queue { grid-column: 1; grid-row: 3; }
+    .run-tabs > .status-toggles { grid-column: 1; grid-row: 4; }
+    .run-tabs > .status-foot { grid-column: 1; grid-row: 5; }
+    .run-tabs > .log-box { grid-column: 2; grid-row: 2 / 6; position: relative; min-height: 240px; margin-top: 0; }
     #logToggle, #quotaToggle { visibility: hidden; }
     .run-actions { margin-bottom: 0; }
     /* Always open here, and as tall as what's beside it: it scrolls rather than stretching the card. */
@@ -814,36 +818,34 @@
     #imageSets { flex: 1; min-height: 0; overflow: auto; }
     .vid { flex-basis: 100%; }
     .vid video { flex: 1 1 0; min-height: 0; aspect-ratio: auto; max-height: none; }
-    /* One screen, no scrolling: Generate | the run, one of Queue, Log, Finished or Quota at a time | Output. */
-    .dashboard { grid-template-columns: minmax(440px, 1.35fr) minmax(340px, 1fr) minmax(280px, .85fr); grid-template-rows: minmax(0, 1fr); min-height: 0; align-items: stretch; }
-    .dashboard > .options-col, .dashboard > .run-card, .dashboard > .videos-card { height: 100%; max-height: none; }
-    .run-card .status-toggle::after { content: none; }
+    /* One screen, no scrolling: Status with Queue/Log/Finished/Quota under it | Generate | Output. */
+    .dashboard { grid-template-columns: minmax(340px, .95fr) minmax(440px, 1.35fr) minmax(280px, .85fr); grid-template-rows: auto minmax(0, 1fr); min-height: 0; align-items: stretch; }
+    .run-card { display: contents; }
+    .run-status, .run-tabs { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+    .run-status { grid-column: 1; grid-row: 1; max-height: 42vh; overflow: auto; }
+    .run-tabs { grid-column: 1; grid-row: 2; overflow: hidden; }
+    .run-status > .status-main { display: block; }
+    .dashboard > .options-col { grid-column: 2; grid-row: 1 / 3; height: 100%; }
+    .dashboard > .videos-card { grid-column: 3; grid-row: 1 / 3; height: 100%; }
+    .run-tabs .status-toggle::after { content: none; }
     .side { display: none; }
-    .options-col { grid-column: 1; }
-    .run-card { grid-column: 2; grid-row: 1; display: flex; flex-direction: column; overflow: hidden !important; padding: 14px 16px; }
-    .run-card > .status-head { margin-bottom: 4px; flex: none; }
-    .run-card > .status-main { display: contents; }
-    .run-card .status-main > * { flex: none; }
-    .run-card .status-queue, .run-card > .log-box, .run-card > .status-foot, .run-card > .run-quota { display: none; }
-    body[data-runtab="queue"] .run-card .status-queue, body[data-runtab="log"] .run-card > .log-box,
-    body[data-runtab="finished"] .run-card > .status-foot, body[data-runtab="quota"] .run-card > .run-quota { display: block; }
-    .run-card .status-queue, .run-card > .log-box, .run-card > .status-foot, .run-card > .run-quota { flex: 1 1 0; min-height: 0; overflow: auto; margin-top: 8px; }
-    .run-card .status-queue:has(> :not([hidden])) { margin: 8px 0 0; padding: 2px 10px 10px; }
-    .run-card > .log-box { position: relative; }
-    .run-card .status-queue::after { content: "Nothing queued."; display: block; padding: 10px 2px; color: var(--muted); font-size: .85rem; }
-    .run-card .status-queue:has(> :not([hidden]))::after { content: none; }
+    .run-tabs > .status-queue, .run-tabs > .log-box, .run-tabs > .status-foot, .run-tabs > .run-quota { display: none; flex: 1 1 0; min-height: 0; overflow: auto; margin-top: 8px; order: 2; }
+    body[data-runtab="queue"] .run-tabs > .status-queue, body[data-runtab="log"] .run-tabs > .log-box,
+    body[data-runtab="finished"] .run-tabs > .status-foot, body[data-runtab="quota"] .run-tabs > .run-quota { display: block; }
+    .run-tabs > .status-queue:has(> :not([hidden])) { margin: 8px 0 0; padding: 2px 10px 10px; }
+    .run-tabs > .log-box { position: relative; }
+    .run-tabs > .status-queue::after { content: "Nothing queued."; display: block; padding: 10px 2px; color: var(--muted); font-size: .85rem; }
+    .run-tabs > .status-queue:has(> :not([hidden]))::after { content: none; }
     #finished[hidden] { display: block; }
     #runQuota .card { margin: 0; padding: 0; background: none; border: 0; box-shadow: none; }
     #runQuota .section-title { display: none; }
-    .run-card > .status-toggles { order: 5; flex: none; display: flex; gap: 4px; margin-top: 10px; padding: 3px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
-    .run-card > .status-foot, .run-card > .log-box, .run-card > .run-quota, .run-card .status-queue { order: 6; }
-    .run-card > .status-toggles .status-toggle { flex: 1 1 0; justify-self: auto; padding: 6px 4px; border-radius: 8px; visibility: visible; text-align: center; }
-    .run-card > .status-toggles .status-toggle.on { background: var(--panel-2); color: var(--text); }
-    .run-card > .status-toggles #queueToggle { display: block; }
+    .run-tabs > .status-toggles { order: 1; flex: none; display: flex; gap: 4px; margin-top: 0; padding: 3px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+    .run-tabs > .status-toggles .status-toggle { flex: 1 1 0; justify-self: auto; padding: 6px 4px; border-radius: 8px; visibility: visible; text-align: center; }
+    .run-tabs > .status-toggles .status-toggle.on { background: var(--panel-2); color: var(--text); }
+    .run-tabs > .status-toggles #queueToggle { display: block; }
     #logToggle, #quotaToggle { visibility: visible; }
-    .run-card .run-actions { margin-top: 8px; }
-    .run-card .status { margin: 0; }
-    .videos-card { grid-column: 3; grid-row: 1; }
+    .run-status .run-actions { margin-top: 8px; }
+    .run-status .status { margin: 0; }
   }
 </style>
 
@@ -891,6 +893,7 @@
 
 <div class="dashboard">
 <div class="card run-card" id="runCard" data-page="status">
+  <div class="run-status">
   <div class="status-head" id="statusHead" role="button" tabindex="0" aria-expanded="false" aria-controls="misc" title="Show how to open this on your phone">
     <div class="section-title">Status <span class="status-chevron" aria-hidden="true">▸</span></div>
     <button type="button" class="comfy-status" id="comfyStatus" aria-haspopup="dialog" aria-label="ComfyUI: checking" title="ComfyUI: checking">
@@ -934,6 +937,14 @@
       <div class="hint" id="uploadProgressHint"></div>
     </div>
   </div>
+  <div class="run-actions" id="runActions" hidden>
+    <button type="button" id="stopAfter" title="Let the video or image being made now finish, then end the batch" hidden>Stop after this one</button>
+    <button type="button" id="skip" title="Skip this run and resume it later">Skip</button>
+    <button type="button" id="stop" title="Stop everything: the queue waits until you press Resume">Stop</button>
+  </div>
+  </div>
+  </div>
+  <div class="run-tabs">
   <div class="status-queue" id="queueBox">
     <div class="queue-pending" id="queuePending" hidden>
       <div class="queue-pending-head"><b id="queuePendingText"></b><span id="queuePendingPct"></span></div>
@@ -942,12 +953,6 @@
     <div class="queue" id="runQueue" data-lane="run" data-title="Queue" hidden></div>
     <div class="queue" id="stoppedRuns" hidden></div>
     <div class="queue only-shorts" id="uploadQueue" data-lane="upload" data-title="Uploads" hidden></div>
-  </div>
-  <div class="run-actions" id="runActions" hidden>
-    <button type="button" id="stopAfter" title="Let the video or image being made now finish, then end the batch" hidden>Stop after this one</button>
-    <button type="button" id="skip" title="Skip this run and resume it later">Skip</button>
-    <button type="button" id="stop" title="Stop everything: the queue waits until you press Resume">Stop</button>
-  </div>
   </div>
   <div class="status-toggles" id="statusToggles">
     <button type="button" class="status-toggle" id="queueToggle">Queue</button>
@@ -981,6 +986,7 @@
   </div>
   </div>
   <div class="run-quota" id="runQuota"></div>
+  </div>
 </div>
 
 <div class="options-col" id="optionsCard" data-page="generate">
