@@ -137,10 +137,12 @@
   .check { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; cursor: pointer; text-transform: none; letter-spacing: 0; font-size: .95rem; color: var(--text); }
   .check input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
   .check .hint { margin-top: 2px; }
-  /* Red wherever it is: Output's own button colours would otherwise win. */
+  /* Red wherever it is: Output's own button colours would otherwise win. Held at the width it had (secondTap pins it):
+     only growing and shrinking were turned off before, and in the viewer, whose buttons start from nothing (flex: 1 1 0),
+     that left it at no width at all, so it vanished. */
   button.armed, dialog.viewer .viewer-actions > button.armed, .image-set-actions button.armed, .acts button.armed, .shot-actions button.armed {
     background: var(--err) !important; border-color: var(--err) !important; color: #fff !important;
-    flex-grow: 0; flex-shrink: 0; padding-left: 0; padding-right: 0; white-space: nowrap; overflow: hidden;
+    flex: 0 0 auto; padding-left: 0; padding-right: 0; white-space: nowrap; overflow: hidden;
     display: inline-flex; align-items: center; justify-content: center; }
   /* A tick the size of the small button it's in. */
   .queue .icon-btn svg, .stopped-actions .icon-btn svg { width: 14px; height: 14px; }
@@ -464,7 +466,15 @@
   .shots-title { width: auto; margin: 0; padding: 0; background: none; border: 0; color: var(--text); font-size: 1.05rem; font-weight: 700; text-align: left; }
   .shots-title::after { content: "\203A"; display: inline-block; margin-left: 6px; color: var(--muted); transform: rotate(90deg); }
   .shots-head-line .shots-count { flex: none; margin: 0; }
-  .brief-fold { top: calc(100% - 4px); bottom: auto; left: 16px; right: 16px; width: auto; transform-origin: top left; }
+  /* On a shade of its own: on the dialog's own colour it had no edge, and the shots showed through as if it had no background. */
+  .brief-fold { top: calc(100% - 4px); bottom: auto; left: 16px; right: 16px; width: auto; transform-origin: top left; background: var(--panel-2); }
+  .brief-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 5px; }
+  .brief-foot .hint { margin: 0; }
+  .copy-btn { flex: none; width: 28px; height: 26px; margin: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); }
+  .copy-btn:hover { color: var(--text); }
+  .copy-btn svg { width: 14px; height: 14px; }
+  .copy-btn.done { color: var(--ok); border-color: var(--ok); }
   .fold-text { margin-top: 2px; font-size: .85rem; white-space: pre-line; overflow-wrap: anywhere; }
   /* Each image's icons: make again, save and delete; on the right what the enhancer wrote, and its seed. */
   .shot-actions { justify-content: space-between; }
@@ -2922,6 +2932,7 @@ const ICONS = {
   prompts: ICON_SVG('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>'),
   trash: ICON_SVG('<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/>'),
   check: ICON_SVG('<path d="m5 12 5 5 9-10"/>'),
+  copy: ICON_SVG('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/>'),
   save: ICON_SVG('<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4"/><path d="M8 20v-6h8v6"/>'),
   seed: ICON_SVG('<path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/>'),
   enhanced: ICON_SVG('<path d="M12 3l1.8 4.6L18 9.4l-4.2 1.8L12 16l-1.8-4.8L6 9.4l4.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>'),
@@ -3487,8 +3498,11 @@ function imageShotsHtml(run) {
       ${run.shots.length > 1 ? `<span class="shots-count" id="shotsCount">1 of ${run.shots.length}</span>` : ''}
     </div>
     <div class="seed-fold brief-fold" id="briefFold" hidden>
-      <div class="fold-text">"${esc(run.brief)}"</div>
-      <div class="hint">${run.direct ? 'Your own prompt' : `Written by ${esc(run.llm)}`} · ${esc(run.size)}</div>
+      <div class="fold-text" id="briefText">"${esc(run.brief)}"</div>
+      <div class="brief-foot">
+        <div class="hint">${run.direct ? 'Your own prompt' : `Written by ${esc(run.llm)}`} · ${esc(run.size)}</div>
+        <button type="button" class="copy-btn" data-copy-brief="1" title="Copy the prompt" aria-label="Copy the prompt">${ICONS.copy}</button>
+      </div>
     </div>
     ${note}
   </div>
@@ -3619,6 +3633,30 @@ function closeSeedFolds() {
 $('shotsDialog').addEventListener('click', e => {
   if (e.target.closest && (e.target.closest('.seed-fold') || e.target.closest('[data-fold]'))) return;
   closeSeedFolds();
+});
+// The original prompt, copied as it was written. The clipboard API needs https or this PC; a phone on the
+// home network has neither, so the old way stands in.
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (e) {}
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  (document.querySelector('dialog[open]') || document.body).appendChild(area);
+  area.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) {}
+  area.remove();
+  return ok;
+}
+$('shotsBody').addEventListener('click', async e => {
+  const button = e.target.closest && e.target.closest('[data-copy-brief]');
+  if (!button) return;
+  if (!await copyText($('briefText').textContent.replace(/^"|"$/g, ''))) { alert('Could not copy it.'); return; }
+  button.classList.add('done');
+  button.innerHTML = ICONS.check;
+  setTimeout(() => { button.classList.remove('done'); button.innerHTML = ICONS.copy; }, 1500);
 });
 // Esc would otherwise close it without asking about unsaved changes.
 $('shotsDialog').addEventListener('cancel', e => { e.preventDefault(); closeShots(); });

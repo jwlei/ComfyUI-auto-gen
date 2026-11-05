@@ -308,7 +308,9 @@ assert(!imageDialog.includes('<script>'), 'prompts are escaped');
 assert(imageDialog.includes('data-redo="1"') && !imageDialog.includes('data-redo="2"') && imageDialog.includes('Make the 1 left') && imageDialog.includes('data-delete-image="2"'));
 // A set's prompts: a carousel, its count on the right of the title, the original prompt behind the title; small buttons under it.
 assert(/<div class="shots-list carousel" id="shotsCarousel">/.test(imageDialog) && /<button type="button" class="shots-title" data-fold="briefFold"[^>]*>T<\/button>\s*<span class="shots-count" id="shotsCount">1 of 2<\/span>/.test(imageDialog));
-assert(/<div class="seed-fold brief-fold" id="briefFold" hidden>\s*<div class="fold-text">"b"<\/div>/.test(imageDialog), 'the original prompt, a tap away');
+assert(/<div class="seed-fold brief-fold" id="briefFold" hidden>\s*<div class="fold-text" id="briefText">"b"<\/div>/.test(imageDialog), 'the original prompt, a tap away');
+assert(/<div class="brief-foot">[\s\S]*?<button type="button" class="copy-btn" data-copy-brief="1"/.test(imageDialog), 'with a quiet copy button beside what wrote it');
+assert(/\.brief-fold \{[^}]*background: var\(--panel-2\);/.test(html) && script.includes("document.execCommand('copy')"), 'on a shade of its own; copying works over plain http on a phone too');
 assert(!imageDialog.includes('Making an image again leaves') && imageDialog.includes('<div class="shots-foot centred small">') && !/shots-foot[^>]*>[^<]*<button[^>]*data-save/.test(imageDialog));
 assert(/\.shots-foot button \{ flex: 0 1 auto; min-width: 96px; padding: 6px 18px; font-size: \.82rem;/.test(html), 'small buttons, as Quota\'s Close');
 assert(imageDialog.includes('<span class="finished">finished</span>') && !imageDialog.includes('>made<') && /\.shot-title \.finished \{ color: var\(--ok\); \}/.test(html), 'finished, in green');
@@ -604,6 +606,7 @@ assert.strictEqual(run('secondTap(tapped)'), false, 'the first tap only asks');
 assert(context.tapped.classList.contains('armed') && context.tapped.textContent === 'Confirm');
 assert.strictEqual(context.tapped.style.width, '72px', 'at the size it was');
 assert(/button\.armed[^{]*\{[^}]*display: inline-flex; align-items: center; justify-content: center;/.test(html), 'its tick in the middle');
+assert(/button\.armed[^{]*\{[^}]*flex: 0 0 auto;/.test(html), 'Confirm keeps the width it had, even in the viewer, whose buttons grow from nothing');
 assert.strictEqual(run('secondTap(tapped)'), true, 'the second deletes');
 assert.strictEqual(context.tapped.innerHTML, 'Delete');
 run('secondTap(tapped)');
