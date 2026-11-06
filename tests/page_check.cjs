@@ -18,7 +18,7 @@ function element(id) {
   return {
     id, dataset: {}, style: {}, hidden: false, innerHTML: '', textContent: '', value: '', className: '', elements: [], options: [], selectedOptions: [{}],
     classList: { toggle() {}, add() {}, remove() {}, contains: () => false },
-    listeners: {}, addEventListener(name, fn) { this.listeners[name] = fn; }, querySelectorAll: selector => (selector === 'input' ? [element('low'), element('high')] : []), querySelector: () => element('part'), setAttribute() {},
+    listeners: {}, listenersAll: {}, addEventListener(name, fn) { this.listeners[name] = fn; (this.listenersAll[name] = this.listenersAll[name] || []).push(fn); }, querySelectorAll: selector => (selector === 'input' ? [element('low'), element('high')] : []), querySelector: () => element('part'), setAttribute() {},
     reportValidity() { return true; }, dispatchEvent() {},
     getBoundingClientRect: () => ({ top: 0, bottom: 100 }), appendChild() {}, offsetHeight: 90, insertAdjacentHTML() {}, showModal() { this.open = true; }, close() { this.open = false; }, scrollTo() {},
     pause() {}, play() { return Promise.resolve(); }, removeAttribute(name) { delete this[name]; },
@@ -298,6 +298,11 @@ const single = run("imageSetHtml({ id: 'image_9', label: 'One', total: 1, size: 
 assert(single.includes('class="album-cover"') && !single.includes('album-count') && !single.includes('album-strip'), 'one image: the same picture box, no count, no strip');
 assert(/class="icon-btn" data-download-set="image_9" title="Download" aria-label="Download"><svg/.test(single) && /class="icon-btn del" data-delete-set="image_9"[^>]*aria-label="Delete"><svg/.test(single), 'icons, named');
 assert(/data-download-set="image_9"[^>]*>[\s\S]*?<\/button><button type="button" class="icon-btn" data-again-set="image_9"[^>]*aria-label="The same again"><svg/.test(single), 'the same again, second');
+assert(single.includes(`aria-label="The same again">${run('ICONS.duplicate')}</button>`) && run('ICONS.duplicate !== ICONS.again'), 'same again is distinct from retry');
+for (const side of ['shorts', 'video', 'image']) {
+  assert(html.includes(`data-preset-delete="${side}" title="Delete this preset" aria-label="Delete this preset" hidden>${run('ICONS.trash')}</button>`), 'preset deletion uses the shared trash icon');
+}
+assert(html.includes(`id="paintClear" title="Clear all paint" aria-label="Clear all paint">${run('ICONS.trash')}</button>`), 'clear paint uses the shared trash icon');
 // It puts every option back as the set had it, the rest at the workflow's own default.
 {
   const fields = {};
@@ -343,10 +348,12 @@ assert(imageDialog.includes('<span class="finished">finished</span>') && !imageD
 // Each image: make again, save, delete as icons on the left; its seed on the right, in line with them.
 assert(/<div class="shot-actions-left"><button type="button" class="icon-btn" data-redo="1"[^>]*aria-label="Make again"><svg[\s\S]*?data-save="1"[^>]*aria-label="Save the prompts"><svg[\s\S]*?class="icon-btn del" data-delete-image="1"/.test(imageDialog));
 assert(/<div class="shot-actions-right">\s*<button type="button" class="icon-btn" data-fold="seedFold_1"[^>]*aria-label="Seed"><svg[\s\S]*?<div class="seed-fold" id="seedFold_1" hidden>\s*<div class="seed-line">/.test(imageDialog));
-assert(!imageDialog.includes('enhancedFold_'), 'nothing to show when no enhancer wrote it');
+assert(!imageDialog.includes('data-enhanced='), 'nothing to show when no enhancer wrote it');
 context.imageRun.shots[0].enhanced_prompt = 'A <b>bright</b> lighthouse';
 const withEnhanced = run('shotsHtml(imageRun)');
-assert(/<div class="shot-actions-right">\s*<button type="button" class="icon-btn" data-fold="enhancedFold_1"[\s\S]*?A &lt;b&gt;bright[\s\S]*?data-fold="seedFold_1"/.test(withEnhanced), 'what the enhancer wrote, left of the seed');
+assert(/<div class="shot-actions-right">\s*<button type="button" class="icon-btn" data-enhanced="1" aria-haspopup="dialog"[\s\S]*?data-fold="seedFold_1"/.test(withEnhanced), 'the detailed prompt button is left of the seed');
+assert(!withEnhanced.includes('A &lt;b&gt;bright') && /\.prompt-detail-text \{[^}]*overflow-y: auto/.test(html)
+  && /\.prompt-detail-actions \{ flex: none;/.test(html), 'the prompt opens separately with a fixed footer');
 delete context.imageRun.shots[0].enhanced_prompt;
 assert(/dialog\.viewer \.viewer-actions > \* \{[^}]*height: 32px;/.test(html), 'the viewer\'s buttons small too');
 assert(/\$\('shotsDialog'\)\.addEventListener\('click', e => \{\s*if \(e\.target\.closest && \(e\.target\.closest\('\.seed-fold'\) \|\| e\.target\.closest\('\[data-fold\]'\)\)\) return;\s*closeSeedFolds\(\);/.test(script),
@@ -816,6 +823,7 @@ assert(/xhr\.upload\.onprogress/.test(script) && /<div class="queue-pending" id=
 // A film has the same again too, beside Download, while its run is kept.
 // Films are laid out as image sets: the poster as the picture, which plays it, and the same icons, the same again second.
 const filmRow = run("filmHtml({ name: 'f.mp4', created: 'now', size_mb: 1, run: 'run_1', model: 'wan' })");
+assert(filmRow.includes(run('ICONS.duplicate')), 'film same-again uses the same duplicate icon');
 assert(/<div class="image-set film" data-name="f\.mp4">[\s\S]*?<div class="image-set-row album">\s*<a [^>]*class="album-cover film-cover" data-play-film="f\.mp4"/.test(filmRow));
 assert(/data-download-film="f\.mp4"[\s\S]*?<\/button><button type="button" class="icon-btn" data-again-film="run_1"[\s\S]*?data-shots="run_1"[\s\S]*?class="icon-btn del" data-del="f\.mp4"/.test(filmRow), 'download, the same again, shots, delete');
 assert(!run("filmHtml({ name: 'f.mp4', created: 'now', size_mb: 1 })").includes('data-again-film'), 'not once its run is gone');
@@ -1139,6 +1147,7 @@ assert(/class="queue-item run-card"[^>]*>[\s\S]*class="queue-item-top"[\s\S]*cla
 assert(/\.queue-item\.run-card \{[^}]*background: var\(--panel-2\); border: 1px solid var\(--line\); border-radius: 10px/.test(html) && /\.queue-item\.run-card \.queue-item-actions \{ display: flex; flex-wrap: wrap/.test(html), 'run cards match Pending and their controls can wrap');
 assert(/\.queue \.queue-item-actions button, \.queue \.stopped-actions button \{\s*flex: none; width: 34px; height: 28px; padding: 0;/.test(html), 'queue and pending action buttons use the same remove-button dimensions');
 assert(queue.innerHTML.includes('class="icon-btn" data-pause="4"') && queue.innerHTML.includes('class="icon-btn" data-remove="4"'), 'queue pause feedback and delete confirmation fit the fixed-size buttons');
+assert(queue.innerHTML.includes(`data-remove="4" aria-label="Remove from the queue" title="Remove from the queue (tap twice)">${run('ICONS.trash')}</button>`), 'queue removal uses the shared trash icon');
 run(`renderQueue(queue, { items: [{ id: 1, label: 'new', detail: '', pipeline: 'image', continuation: false },
   { id: 2, label: 'continue', detail: '', pipeline: 'image', resume: 'image_1', continuation: true }], held: true }, 0, false, true)`);
 assert(queue.innerHTML.includes('class="run-item" data-run="1"') && queue.innerHTML.includes('class="run-item continue-item" data-run="2"'), 'only the continued queued job has a green play control');
@@ -1172,6 +1181,43 @@ assert(els.comfyFacts.innerHTML.includes('Generating the image · 3/8') && els.c
 
 // The status recovers by itself.
 (async () => {
+  {
+    const savedNavigator = context.navigator, savedCreateElement = context.document.createElement;
+    const savedExec = context.document.execCommand, savedAlert = context.alert;
+    context.imageRun.shots[0].enhanced_prompt = 'A <b>bright</b> lighthouse\nSecond line';
+    run('shotsRun = imageRun; shotsDirty = true');
+    els.shotsDialog.open = true;
+    const target = { dataset: { enhanced: '1' }, closest: () => null };
+    await els.shotsBody.listenersAll.click[0]({ target });
+    assert(els.promptDetail.open && els.promptDetailText.textContent === context.imageRun.shots[0].enhanced_prompt, 'the detailed text opens safely without disturbing the editor');
+    assert(run('shotsDirty') && els.shotsDialog.open, 'opening preserves unsaved edits and the editor');
+    let copied = '';
+    context.navigator = { clipboard: { writeText: async text => { copied = text; } } };
+    await els.promptDetailCopy.listeners.click();
+    assert.strictEqual(copied, context.imageRun.shots[0].enhanced_prompt, 'copy retains exact text');
+    assert.strictEqual(els.promptDetailCopy.innerHTML, run('ICONS.check'), 'copy shows feedback');
+    els.promptDetailClose.listeners.click();
+    assert(!els.promptDetail.open && els.shotsDialog.open && run('shotsDirty'), 'closing returns to the same editor');
+    await els.shotsBody.listenersAll.click[0]({ target });
+    assert.strictEqual(els.promptDetailCopy.innerHTML, run('ICONS.copy'), 'reopening resets copy feedback');
+    let appended, message = '';
+    context.navigator = {};
+    context.document.createElement = () => ({ style: {}, setAttribute() {}, select() {}, remove() {} });
+    els.promptDetail.appendChild = el => { appended = el; };
+    context.document.execCommand = () => true;
+    await els.promptDetailCopy.listeners.click();
+    assert.strictEqual(appended.value, context.imageRun.shots[0].enhanced_prompt, 'HTTP fallback copies from the topmost dialog');
+    context.document.execCommand = () => false;
+    context.alert = text => { message = text; };
+    await els.promptDetailCopy.listeners.click();
+    assert.strictEqual(message, 'Could not copy it.', 'copy errors are surfaced');
+    els.promptDetailClose.listeners.click();
+    delete context.imageRun.shots[0].enhanced_prompt;
+    context.navigator = savedNavigator; context.document.createElement = savedCreateElement;
+    context.document.execCommand = savedExec; context.alert = savedAlert;
+    run('shotsDirty = false');
+    els.shotsDialog.open = false;
+  }
   run("imageSets = []; lastVideos = {output: [], uploaded: [], video: []}; pipeline = 'image'; outputFilter = NSFW_FILTER; document.body.dataset.page = 'status'; showPage('output')");
   assert.strictEqual(run('outputFilter'), '', 'entering Output resets even the NSFW filter');
   run("outputFilter = NSFW_FILTER; showPage('output')");

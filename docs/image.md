@@ -85,7 +85,8 @@ and the run stops there. Continue makes them as written, with the enhancer off (
 ✕ goes back to random. With a seed, image 1 uses it and each image after it the next number, so the set can be made
 again.
 
-**Prompts** on a set shows each image with its prompt and the seed it was made with. **Make again** makes one again
+**Prompts** on a set shows each image with its prompt and the seed it was made with. When the workflow's enhancer wrote a
+detailed prompt, the sparkle button opens it over the image with Copy and Close at the bottom. **Make again** makes one again
 using the prompt in the box, on that seed unless you change it or press shuffle. An empty seed is new each time. **Delete** takes one image and its prompt out of the set. **Delete** on the set removes all its images and prompts.
 
 ## What else it does with images

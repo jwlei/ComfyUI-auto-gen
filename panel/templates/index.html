@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block body %}
+{% macro trash_icon() %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/></svg>{% endmacro %}
 <style>
   .status { display: flex; align-items: center; gap: 9px; font-size: .9rem; margin-bottom: 12px; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
@@ -606,7 +607,13 @@
   .copy-btn:hover { color: var(--text); }
   .copy-btn svg { width: 14px; height: 14px; }
   .copy-btn.done { color: var(--ok); border-color: var(--ok); }
+  #paintClear svg { width: 18px; height: 18px; }
   .fold-text { margin-top: 2px; font-size: .85rem; white-space: pre-line; overflow-wrap: anywhere; }
+  dialog.prompt-detail { width: min(520px, calc(100vw - 24px)); max-height: min(75dvh, 640px); padding: 0; gap: 0; overflow: hidden; }
+  .prompt-detail .panel-dialog-title { flex: none; padding: 14px 16px 0; }
+  .prompt-detail-text { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .prompt-detail-actions { flex: none; display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line); background: var(--panel); }
+  .prompt-detail-actions .panel-close { width: auto; margin: 0; }
   /* Each image's icons: make again, save and delete; on the right what the enhancer wrote, and its seed. */
   .shot-actions { justify-content: space-between; }
   .shot-actions-left, .shot-actions-right { display: flex; gap: 6px; align-items: center; }
@@ -1057,7 +1064,7 @@
     <div class="preset-head"><label for="shortsPreset">Preset</label><span class="preset-head-actions"><button type="button" class="preset-default" data-preset-default="shorts" aria-pressed="false" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L2.5 9.4l6.6-.9z"/></svg></button><button type="button" class="preset-save" data-preset-save="shorts" hidden>Save as preset</button></span></div>
     <div class="preset-line">
       <select id="shortsPreset" data-preset-side="shorts" aria-label="Preset"><option value="">None</option></select>
-      <button type="button" class="ghost icon-btn preset-delete" data-preset-delete="shorts" title="Delete this preset" aria-label="Delete this preset" hidden>✕</button>
+      <button type="button" class="ghost icon-btn preset-delete" data-preset-delete="shorts" title="Delete this preset" aria-label="Delete this preset" hidden>{{ trash_icon() }}</button>
     </div>
   </div>
   <div class="form-col">
@@ -1163,7 +1170,7 @@
     <div class="preset-head"><label for="videoPreset">Preset</label><span class="preset-head-actions"><button type="button" class="preset-default" data-preset-default="video" aria-pressed="false" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L2.5 9.4l6.6-.9z"/></svg></button><button type="button" class="preset-save" data-preset-save="video" hidden>Save as preset</button></span></div>
     <div class="preset-line">
       <select id="videoPreset" data-preset-side="video" aria-label="Preset"><option value="">None</option></select>
-      <button type="button" class="ghost icon-btn preset-delete" data-preset-delete="video" title="Delete this preset" aria-label="Delete this preset" hidden>✕</button>
+      <button type="button" class="ghost icon-btn preset-delete" data-preset-delete="video" title="Delete this preset" aria-label="Delete this preset" hidden>{{ trash_icon() }}</button>
     </div>
   </div>
   <details class="section" id="videoGeneration">
@@ -1286,7 +1293,7 @@
     <div class="preset-head"><label for="imagePreset">Preset</label><span class="preset-head-actions"><button type="button" class="preset-default" data-preset-default="image" aria-pressed="false" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L2.5 9.4l6.6-.9z"/></svg></button><button type="button" class="preset-save" data-preset-save="image" hidden>Save as preset</button></span></div>
     <div class="preset-line">
       <select id="imagePreset" data-preset-side="image" aria-label="Preset"><option value="">None</option></select>
-      <button type="button" class="ghost icon-btn preset-delete" data-preset-delete="image" title="Delete this preset" aria-label="Delete this preset" hidden>✕</button>
+      <button type="button" class="ghost icon-btn preset-delete" data-preset-delete="image" title="Delete this preset" aria-label="Delete this preset" hidden>{{ trash_icon() }}</button>
     </div>
   </div>
   <details class="section" id="imageGeneration">
@@ -1470,6 +1477,14 @@
 </div>
 
 <dialog id="shotsDialog"><div id="shotsBody"></div></dialog>
+<dialog id="promptDetail" class="panel-dialog prompt-detail" aria-labelledby="promptDetailTitle">
+  <div class="panel-dialog-title" id="promptDetailTitle">Detailed prompt</div>
+  <div class="prompt-detail-text" id="promptDetailText" tabindex="0"></div>
+  <div class="prompt-detail-actions">
+    <button type="button" class="copy-btn" id="promptDetailCopy" aria-label="Copy detailed prompt" title="Copy detailed prompt"></button>
+    <button type="button" class="panel-close" id="promptDetailClose" autofocus>Close</button>
+  </div>
+</dialog>
 <dialog id="settingsDialog" class="panel-dialog settings-dialog" aria-labelledby="settingsTitle">
   <div class="panel-dialog-title" id="settingsTitle">Settings</div>
   <div class="panel-dialog-body settings-body">
@@ -1551,7 +1566,7 @@
     </div>
     <div class="paint-group">
       <button type="button" class="paint-icon" id="paintUndo" title="Undo" aria-label="Undo"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></svg></button>
-      <button type="button" class="paint-icon" id="paintClear" title="Clear all paint" aria-label="Clear all paint"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+      <button type="button" class="paint-icon" id="paintClear" title="Clear all paint" aria-label="Clear all paint">{{ trash_icon() }}</button>
     </div>
   </div>
   <div class="paint-actions">
@@ -3520,9 +3535,10 @@ const ICON_SVG = path => `<svg viewBox="0 0 24 24" fill="none" stroke="currentCo
 const ICONS = {
   download: ICON_SVG('<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>'),
   prompts: ICON_SVG('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>'),
-  trash: ICON_SVG('<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/>'),
+  trash: {{ trash_icon() | tojson }},
   check: ICON_SVG('<path d="m5 12 5 5 9-10"/>'),
   copy: ICON_SVG('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/>'),
+  duplicate: ICON_SVG('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/><path d="M14.5 12v5M12 14.5h5"/>'),
   save: ICON_SVG('<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4"/><path d="M8 20v-6h8v6"/>'),
   seed: ICON_SVG('<path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/>'),
   enhanced: ICON_SVG('<path d="M12 3l1.8 4.6L18 9.4l-4.2 1.8L12 16l-1.8-4.8L6 9.4l4.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>'),
@@ -3557,7 +3573,7 @@ function imageSetHtml(set) {
   const all = set.images.length > 1 ? `Download all ${set.images.length}` : 'Download';
   const actions = `<div class="image-set-actions">`
     + `<button type="button" class="icon-btn" data-download-set="${esc(set.id)}" title="${all}" aria-label="${all}">${ICONS.download}</button>`
-    + `<button type="button" class="icon-btn" data-again-set="${esc(set.id)}" title="The same again: its settings in Generate, to change first" aria-label="The same again">${ICONS.again}</button>`
+    + `<button type="button" class="icon-btn" data-again-set="${esc(set.id)}" title="The same again: its settings in Generate, to change first" aria-label="The same again">${ICONS.duplicate}</button>`
     + `<button type="button" class="icon-btn" data-shots="${esc(set.id)}" title="Prompts" aria-label="Prompts">${ICONS.prompts}</button>`
     + `<button type="button" class="icon-btn del" data-delete-set="${esc(set.id)}" title="Delete" aria-label="Delete">${ICONS.trash}</button></div>`;
   // Every set alike: its picture (an album's cover, with how many), and beside it the strip of the rest above its icons.
@@ -4134,7 +4150,7 @@ function filmHtml(v, filmFolder = folder) {
   const actions = '<div class="image-set-actions">'
     + (filmFolder === 'output' ? icon(`data-up="${name}" data-topic="${esc(v.topic || '')}"`, 'Upload to YouTube', ICONS.upload) : '')
     + icon(`data-download-film="${name}"`, 'Download', ICONS.download)
-    + (v.run ? icon(`data-again-film="${esc(v.run)}"`, 'The same again: its settings in Generate, to change first', ICONS.again) : '')
+    + (v.run ? icon(`data-again-film="${esc(v.run)}"`, 'The same again: its settings in Generate, to change first', ICONS.duplicate) : '')
     + (v.run ? icon(`data-shots="${esc(v.run)}"`, 'Shots', ICONS.prompts) : '')
     + icon(`data-del="${name}"`, 'Delete', ICONS.trash, ' del') + '</div>';
   return `
@@ -4207,8 +4223,7 @@ function imageShotHtml(run, shot, i) {
   const icon = (data, label, svg, extra = '') => `<button type="button" class="icon-btn${extra}" ${data} title="${label}" aria-label="${label}">${svg}</button>`;
   const left = run.busy ? '' : (shot.rendered && !run.pending ? icon(`data-redo="${number}"`, 'Make again', ICONS.again) : '')
     + icon('data-save="1"', 'Save the prompts', ICONS.save) + (run.pending ? '' : icon(`data-delete-image="${number}"`, 'Delete', ICONS.trash, ' del'));
-  const enhanced = shot.enhanced_prompt ? icon(`data-fold="enhancedFold_${number}" aria-expanded="false"`, 'What the prompt enhancer wrote', ICONS.enhanced)
-    + `<div class="seed-fold" id="enhancedFold_${number}" hidden><div class="hint">What the prompt enhancer wrote</div><div class="fold-text">${esc(shot.enhanced_prompt)}</div></div>` : '';
+  const enhanced = shot.enhanced_prompt ? icon(`data-enhanced="${number}" aria-haspopup="dialog"`, 'What the prompt enhancer wrote', ICONS.enhanced) : '';
   return `
   <div class="shot">
     <div class="shot-title"><b>${number}. ${esc(shot.title)}</b>${shot.rendered ? '<span class="finished">finished</span>' : '<span>not made yet</span>'}</div>
@@ -4325,6 +4340,18 @@ $('shotsBody').addEventListener('input', () => { shotsDirty = true; });
 $('shotsBody').addEventListener('click', async e => {
   const d = e.target.dataset || {};
   const seedInput = e.target.closest('.seed-line')?.querySelector('[data-seed]');
+  if (d.enhanced) {
+    const shot = shotsRun.shots[Number(d.enhanced) - 1];
+    if (!shot || !shot.enhanced_prompt) { alert('Could not open the detailed prompt.'); return; }
+    closeSeedFolds();
+    $('promptDetailText').textContent = shot.enhanced_prompt;
+    $('promptDetailText').scrollTop = 0;
+    clearTimeout(promptCopyTimer);
+    $('promptDetailCopy').classList.remove('done');
+    $('promptDetailCopy').innerHTML = ICONS.copy;
+    $('promptDetail').showModal();
+    return;
+  }
   const toggle = e.target.closest && e.target.closest('[data-fold]');
   if (toggle) {
     const fold = $(toggle.dataset.fold), open = fold.hidden;
@@ -4377,24 +4404,34 @@ $('shotsDialog').addEventListener('click', e => {
 });
 // The original prompt, copied as it was written. The clipboard API needs https or this PC; a phone on the
 // home network has neither, so the old way stands in.
-async function copyText(text) {
+async function copyText(text, parent) {
   try { await navigator.clipboard.writeText(text); return true; } catch (e) {}
   const area = document.createElement('textarea');
   area.value = text;
   area.setAttribute('readonly', '');
   area.style.position = 'fixed';
   area.style.opacity = '0';
-  (document.querySelector('dialog[open]') || document.body).appendChild(area);
+  parent.appendChild(area);
   area.select();
   let ok = false;
   try { ok = document.execCommand('copy'); } catch (e) {}
   area.remove();
   return ok;
 }
+let promptCopyTimer;
+$('promptDetailCopy').addEventListener('click', async () => {
+  const button = $('promptDetailCopy');
+  if (!await copyText($('promptDetailText').textContent, $('promptDetail'))) { alert('Could not copy it.'); return; }
+  button.classList.add('done');
+  button.innerHTML = ICONS.check;
+  clearTimeout(promptCopyTimer);
+  promptCopyTimer = setTimeout(() => { button.classList.remove('done'); button.innerHTML = ICONS.copy; }, 1500);
+});
+$('promptDetailClose').addEventListener('click', () => $('promptDetail').close());
 $('shotsBody').addEventListener('click', async e => {
   const button = e.target.closest && e.target.closest('[data-copy-brief]');
   if (!button) return;
-  if (!await copyText($('briefText').textContent.replace(/^"|"$/g, ''))) { alert('Could not copy it.'); return; }
+  if (!await copyText($('briefText').textContent.replace(/^"|"$/g, ''), $('shotsDialog'))) { alert('Could not copy it.'); return; }
   button.classList.add('done');
   button.innerHTML = ICONS.check;
   setTimeout(() => { button.classList.remove('done'); button.innerHTML = ICONS.copy; }, 1500);
@@ -4686,7 +4723,7 @@ function renderQueue(el, q, doneIn, moving = false, idle = false) {
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.8a.8.8 0 0 1 1.2-.7l8 5a1 1 0 0 1 0 1.7l-8 5A.8.8 0 0 1 4 13.1z" fill="currentColor"/></svg></button>` : ''}
       ${el.dataset.lane === 'run' ? `<button type="button" class="icon-btn" data-edit="${item.id}" aria-label="Go to setup" title="Edit this queued job">${ICONS.config}</button>` : ''}
       ${el.dataset.lane === 'run' ? `<button type="button" class="icon-btn" data-pause="${item.id}" aria-label="Pause: move to Pending" title="Pause: take it out of the queue and make it pending">❚❚</button>` : ''}
-      <button type="button"${el.dataset.lane === 'run' ? ' class="icon-btn"' : ''} data-remove="${item.id}" aria-label="Remove from the queue" title="Remove from the queue (tap twice)">✕</button>
+      <button type="button"${el.dataset.lane === 'run' ? ' class="icon-btn"' : ''} data-remove="${item.id}" aria-label="Remove from the queue" title="Remove from the queue (tap twice)">${el.dataset.lane === 'run' ? ICONS.trash : '✕'}</button>
       ${el.dataset.lane === 'run' ? '</div>' : ''}
     </div>`).join('');
   // Resume under what it lets go, where a thumb ends up after reading the list.
