@@ -982,7 +982,7 @@
     <button type="button" id="switchVideo" data-pipeline="video" role="tab">Video<span class="dot on hidden"></span></button>
     <button type="button" id="switchImage" data-pipeline="image" role="tab">Image<span class="dot on hidden"></span></button>
   </div>
-  <div class="top-icons">
+  <div class="top-icons" id="topIcons">
     <a href="#" id="settingsBtn" role="button" aria-haspopup="dialog" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></a>
   </div>
 </div>
@@ -1147,6 +1147,22 @@
       <label for="topic">Topic</label>
       <input id="topic" name="topic" placeholder="e.g. Why the Sahara was once green" autocomplete="off">
       <div class="hint">Leave empty for an AI pick. Topics already made aren't repeated.</div>
+      <div id="shortsH3Box" hidden>
+        <label for="shortsH3Mode">OpenH3-IR</label>
+        <select id="shortsH3Mode" name="h3_enhance">
+          <option value="off">Off</option>
+          <option value="render">Enhance before each clip</option>
+        </select>
+        <div id="shortsH3CreativityBox" hidden>
+          <label for="shortsH3Creativity">Creativity</label>
+          <select id="shortsH3Creativity" name="h3_creativity">
+            <option value="restrained">Restrained</option>
+            <option value="balanced" selected>Balanced</option>
+            <option value="bold">Bold</option>
+            <option value="extreme">Extreme</option>
+          </select>
+        </div>
+      </div>
     </details>
     <details class="section" id="shortsOptions" hidden>
       <summary class="section-title">Workflow options</summary>
@@ -1313,6 +1329,24 @@
     <select id="llm" name="llm">
       {% for llm in llms %}<option value="{{ llm.name }}" {% if not llm.ready %}disabled{% endif %}>{{ llm.label }}{% if not llm.ready %} (no key in .env){% endif %}</option>{% endfor %}
     </select>
+    </div>
+    <div id="videoH3Box" hidden>
+      <label for="videoH3Mode">OpenH3-IR</label>
+      <select id="videoH3Mode" name="h3_enhance">
+        <option value="off">Off</option>
+        <option value="review">Enhance before review</option>
+        <option value="render">Enhance before each clip</option>
+      </select>
+      <div id="videoH3CreativityBox" hidden>
+        <label for="videoH3Creativity">Creativity</label>
+        <select id="videoH3Creativity" name="h3_creativity">
+          <option value="restrained">Restrained</option>
+          <option value="balanced" selected>Balanced</option>
+          <option value="bold">Bold</option>
+          <option value="extreme">Extreme</option>
+        </select>
+        <div class="hint">Before review uses the original images; before each clip uses its actual start frame. Local enhancement can take several minutes per clip.</div>
+      </div>
     </div>
     <label class="check">
       <input type="checkbox" name="review" id="review">
@@ -1907,7 +1941,7 @@ function wirePresets() {
 }
 
 // --- Workflows saved in ComfyUI ---
-let workflowsFor = null, shortsTakes = {};
+let workflowsFor = null, shortsTakes = {}, shortsH3 = {};
 function rememberedWorkflow() {
   try { return (JSON.parse(localStorage.getItem(STORE_KEY)) || {}).workflow || ''; } catch (e) { return ''; }
 }
@@ -1926,6 +1960,7 @@ async function loadWorkflows() {
     + (none ? '<option disabled>Yours appear once ComfyUI is on</option>' : '');
   if (data.workflows.some(w => w.name === wanted)) select.value = wanted;
   shortsTakes = Object.fromEntries(data.workflows.map(w => [w.name, w.takes]));
+  shortsH3 = Object.fromEntries(data.workflows.map(w => [w.name, !!w.openh3]));
   syncForm();
   applyDefaultPreset('shorts');
 }
@@ -1937,6 +1972,7 @@ function syncForm() {
   $('clipsSlider').classList.toggle('hidden', $('avatar_clips').value !== 'auto');
   $('avatar_style').disabled = !!$('workflow').value;
   const avatars = $('avatar_clips').value !== '0';
+  syncH3Controls('shorts', avatars && !!shortsH3[$('workflow').value]);
   syncOptions('shortsOptions', 'shortsOptionsBox', avatars ? (shortsTakes[$('workflow').value] || {}).options || [] : [], $('workflow').value);
   syncSliders();
 }
@@ -2245,7 +2281,7 @@ const BUILT_IN_TAKES = { min_images: 1, max_images: 1, max_videos: 0, max_audios
 const BUILT_IN_SAVED = 'video_LTX23_I2V_T2V.json';
 // How long the built-in workflow's video model makes a clip: [shortest, longest, usual] seconds.
 const BUILT_IN_CLIPS = {{ clip_seconds | tojson }};
-let workflowTakes = {}, workflowClips = {}, workflowMost = {};
+let workflowTakes = {}, workflowClips = {}, workflowMost = {}, workflowH3 = {};
 function rememberedVideoWorkflow() {
   try { return (JSON.parse(localStorage.getItem(VIDEO_STORE_KEY)) || {}).workflow || ''; } catch (e) { return ''; }
 }
@@ -2268,6 +2304,7 @@ async function loadVideoWorkflows() {
   workflowTakes = Object.fromEntries(data.workflows.map(w => [w.name, w.takes]));
   workflowClips = Object.fromEntries(data.workflows.map(w => [w.name, w.clip_seconds || BUILT_IN_CLIPS]));
   workflowMost = Object.fromEntries(data.workflows.map(w => [w.name, w.most_pixels || 0]));
+  workflowH3 = Object.fromEntries(data.workflows.map(w => [w.name, !!w.openh3]));
   syncVideoForm();
   $('videoWorkflowOff').hidden = !!data.online;
   applyDefaultPreset('video');
@@ -2649,10 +2686,19 @@ function syncAudio() {
   // The audio sets the length, so the slider has nothing to say.
   $('durationBox').classList.toggle('hidden', mode !== 'none');
 }
+function syncH3Controls(side, available) {
+  const box = $(side + 'H3Box'), mode = $(side + 'H3Mode'), creativity = $(side + 'H3Creativity');
+  box.hidden = !available;
+  mode.disabled = !available;
+  const enabled = available && mode.value !== 'off';
+  $(side + 'H3CreativityBox').hidden = !enabled;
+  creativity.disabled = !enabled;
+}
 function syncVideoForm() {
   syncVideoClips();
   // Your prompt as it is, for every clip, or the LLM writing one per clip from it.
   const direct = $('videoPromptMode').value === 'direct';
+  syncH3Controls('video', !!workflowH3[$('videoWorkflow').value]);
   $('videoLlmBox').classList.toggle('hidden', direct);
   $('videoPromptLabel').textContent = direct ? 'The prompt' : 'What should happen';
   $('videoPromptHint').textContent = direct ? 'Every clip gets it as you wrote it, each on its own seed.' : 'A sentence or two is enough.';
@@ -3728,6 +3774,8 @@ async function sameAgainFilm(id) {
   syncVideoForm();
   $('prompt').value = s.prompt || '';
   $('start').value = s.start;
+  $('videoH3Mode').value = s.h3_enhance || 'off';
+  $('videoH3Creativity').value = s.h3_creativity || 'balanced';
   if ([...$('llm').options].some(o => o.value === s.llm)) $('llm').value = s.llm;
   $('sizePreset').value = 'custom';
   $('size').value = s.size;
@@ -3743,6 +3791,7 @@ async function sameAgainFilm(id) {
       putFile(box.querySelector('input[type="file"]'), await runFile(`${base}/image/${number}`, `image_${number}.png`));
       showImage(box);
       syncImageInput();
+      if (number > 1 && s.image_roles?.[number - 2]) box.querySelector('select').value = s.image_roles[number - 2];
     }
     // Its own audio track, as a file: a voiced film's voice isn't paid for again.
     $('audioMode').value = s.track ? 'file' : 'none';
@@ -5134,7 +5183,7 @@ function placePanelControls() {
   if (DESK.matches) {
     for (const id of ['logToggle', 'finishedToggle', 'quotaToggle']) $('statusToggles').appendChild($(id));
   } else {
-    $('settingsHead').appendChild($('logToggle'));
+    $('topIcons').insertBefore($('logToggle'), $('settingsBtn'));
     $('settingsHead').appendChild($('quotaToggle'));
     $('runActions').appendChild($('finishedToggle'));
   }

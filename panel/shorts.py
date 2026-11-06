@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 from flask import request
 
-from core import seeds
+from core import h3_refiner, seeds
 from core.paths import PROJECT_ROOT, WORKFLOWS_DIR
 from core.saved_workflows import display_label
 from panel.server import (read_outcome, form_options, PIPELINES, SHORTS_TIMINGS, _runs_cache, app, busy_runs, job, list_videos, password_required, saved_at,
@@ -17,6 +17,7 @@ from pipelines.shorts.paths import avatar_still_path, thumbnail_path
 from pipelines.shorts.run_eta import RunEta
 from pipelines.shorts.run_state import RunState, folder_size, list_runs, option
 from pipelines.shorts.topic_history import forget_video, read_history
+from pipelines.video.comfy import workflow_model
 
 COMMAND = [sys.executable, "-m", "pipelines.shorts.main"]
 
@@ -153,6 +154,15 @@ def build_run(form):
         if chosen:
             # Kept with each video's run (run_state.RUN_ENV), for continuing it.
             env["COMFYUI_OPTIONS"] = json.dumps(chosen)
+
+    try:
+        mode, creativity = h3_refiner.settings(form.get("h3_enhance"), form.get("h3_creativity"))
+    except ValueError as e:
+        return None, None, str(e)
+    if mode != "off":
+        if mode != "render" or clips == "0" or workflow_model(env["COMFYUI_WORKFLOW"]) != "minimax_h3":
+            return None, None, "OpenH3-IR requires a MiniMax H3 avatar workflow and before-render mode."
+        env["H3IR_ENHANCE"], env["H3IR_CREATIVITY"] = mode, creativity
 
     for field, low_name, high_name, lowest, highest in AVATAR_SLIDERS:
         try:
@@ -296,6 +306,8 @@ def form_of(state):
             "avatar_clips": option(argv, "--avatar-clips", "auto"), "seed": option(argv, "--seed", ""),
             "avatar_size": env.get("AVATAR_SIZE", ""), "avatar_style": style, "workflow": workflow,
             "upload": "--upload" in argv, "privacy": option(argv, "--privacy", "private"), "output": option(argv, "--output", "")}
+    form["h3_enhance"] = env.get("H3IR_ENHANCE", "off")
+    form["h3_creativity"] = env.get("H3IR_CREATIVITY", "balanced")
     for field, low_name, high_name, _, _ in AVATAR_SLIDERS:
         if env.get(low_name) and env.get(high_name):
             form[f"{field}_min"], form[f"{field}_max"] = int(env[low_name]), int(env[high_name])

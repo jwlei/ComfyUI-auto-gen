@@ -18,6 +18,9 @@ from urllib.parse import parse_qs, unquote, urlparse
 import ffmpeg
 from PIL import Image
 
+if "core.paths" in sys.modules:
+    raise RuntimeError("Tests must import fakes before application modules so live data cannot be modified.")
+
 # main.py does this for a real run. The pipeline's emoji don't fit a Windows console's default.
 sys.stdout.reconfigure(encoding="utf-8")
 

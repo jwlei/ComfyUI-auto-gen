@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -11,7 +12,7 @@ import ffmpeg
 import requests
 from dotenv import load_dotenv
 
-from core import seeds
+from core import h3_refiner, seeds
 from core import workflow_options
 from core.audio import AudioEngine
 from core.paths import LOGS_DIR
@@ -88,6 +89,10 @@ def parse_args(argv=None):
                                                        "can be made again. Default: a random seed for every clip.")
     parser.add_argument("--plan-only", action="store_true", help="Write the prompts and stop before rendering.")
     parser.add_argument("--direct", action="store_true", help="Every clip gets the prompt as it is: no LLM writes them.")
+    parser.add_argument("--h3-enhance", choices=h3_refiner.TIMINGS, default="off",
+                        help="Use OpenH3-IR before prompt review or before each render.")
+    parser.add_argument("--h3-creativity", choices=h3_refiner.CREATIVITY, default="balanced",
+                        help="OpenH3-IR creativity (default: balanced).")
     parser.add_argument("--clip-seconds", type=parse_clip_seconds, default=None, metavar="MIN-MAX",
                         help="How long each clip is, such as 5-8, within what the video model makes (its own range otherwise).")
     parser.add_argument("--first-only", action="store_true", help="Render the first clip and stop, to see it before rendering the rest.")
@@ -229,6 +234,8 @@ def plan_run(args, stages):
         raise RuntimeError(f"This workflow takes {takes['min_images']}-{takes['max_images']} images, not {len(images)}.")
     check_references(takes, len(images), videos, audios)
     video_model = comfy.video_model()
+    if args.h3_enhance != "off" and not h3_refiner.supports(comfy.workflow):
+        raise RuntimeError("OpenH3-IR requires a supported MiniMax H3 workflow.")
     # A clip can only start on the last one's final frame if an image is all it takes.
     start = args.start if takes["max_images"] == 1 else "image"
     if args.size and media.size_problem(video_model, *args.size):
@@ -242,6 +249,7 @@ def plan_run(args, stages):
                          os.getenv("COMFYUI_WORKFLOW") or None, len(images))
     state.inputs = inputs
     state.options = workflow_options.chosen_in_env() or None
+    state.h3_mode, state.h3_creativity, state.image_roles = args.h3_enhance, args.h3_creativity, args.image_roles
     print_stage("Plan", stages)
     keep_references(state, videos, audios)
     audio = args.audio or (voiced_narration(args) if args.narration else None)
@@ -295,6 +303,42 @@ def clip_images(state, index):
     return state.image_paths
 
 
+def refine_shot(refiner, state, shot, images, workflow):
+    videos = [{"path": state.reference_path(v), "role": v["role"], "sound": v.get("sound"),
+               "seconds": media.duration(state.reference_path(v))} for v in state.ref_videos]
+    audios = [{"path": state.reference_path(a), "role": a["role"],
+               "seconds": media.duration(state.reference_path(a))} for a in state.ref_audios]
+    return refiner.compile(shot["prompt"], shot["seconds"], state.width, state.height, state.h3_creativity,
+                           images, state.image_roles, videos, audios, shot.get("seed"),
+                           first_frame=h3_refiner.first_frame(workflow, images))
+
+
+def refinement_key(state, shot, images):
+    refs = [state.reference_path(ref) for ref in state.ref_videos + state.ref_audios]
+    data = {"prompt": shot["prompt"], "seconds": shot["seconds"], "seed": shot.get("seed"),
+            "size": [state.width, state.height], "creativity": state.h3_creativity,
+            "image_roles": state.image_roles, "videos": state.ref_videos, "audios": state.ref_audios,
+            "files": [h3_refiner.digest(path) for path in [*images, *refs]]}
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def refine_review(state):
+    pending = [shot for shot in state.shots if not shot.get("h3_reviewed")]
+    if not pending:
+        return
+    url = (os.getenv("COMFYUI_URL") or "http://127.0.0.1:8188").rstrip("/")
+    try:
+        online = requests.get(f"{url}/system_stats", timeout=5).ok
+    except requests.RequestException:
+        online = False
+    with h3_refiner.Refiner(url if online else None) as refiner:
+        workflow = ComfyClient().workflow
+        for shot in pending:
+            shot["prompt"] = refine_shot(refiner, state, shot, state.image_paths, workflow)
+            shot["h3_reviewed"] = True
+            state.save()
+
+
 def clip_audio(state, comfy, index):
     """This shot's stretch of the film's audio, uploaded, if the workflow can use it."""
     if not state.has_audio or not comfy.takes_audio():
@@ -318,7 +362,8 @@ def render_shot(state, comfy, index, images, audio=None, references=((), ())):
         seed = seeds.pick(shot.get("seed"), attempt)
         print(f"      🌱 Seed {seed}")
         try:
-            clip = comfy.render(shot["prompt"], images, shot["seconds"], state.width, state.height, save_as, audio, *references, seed=seed)
+            kwargs = {"h3_refined": True} if state.h3_mode != "off" else {}
+            clip = comfy.render(shot["prompt"], images, shot["seconds"], state.width, state.height, save_as, audio, *references, seed=seed, **kwargs)
         except (RuntimeError, OSError, ValueError) as e:
             print(f"      ❌ {e} (attempt {attempt}/{CLIP_ATTEMPTS}).")
             continue
@@ -346,15 +391,35 @@ def render_clips(state, comfy, most=None):
 
         started = time.time()
         print(f"   🎬 Clip {index + 1}/{total} · {shot['title']} · {shot['seconds']}s")
+        image_paths = clip_images(state, index)
+        if state.h3_mode == "render":
+            key = refinement_key(state, shot, image_paths)
+            if shot.get("h3_key") == key and shot.get("enhanced_prompt"):
+                enhanced = shot["enhanced_prompt"]
+                print("   ♻️ Keeping the OpenH3-IR prompt already written.")
+            else:
+                with h3_refiner.Refiner(comfy.url) as refiner:
+                    enhanced = refine_shot(refiner, state, shot, image_paths, comfy.workflow)
+                shot["enhanced_prompt"], shot["h3_key"] = enhanced, key
+                state.save()
+            print(f"   ✍️ OpenH3-IR prompt:\n{enhanced}")
+        else:
+            enhanced = None
         try:
             images = [comfy.upload(path, f"autocomfyui_{state.id}{'' if number == 1 else f'_{number}'}.png")
-                      for number, path in enumerate(clip_images(state, index), 1)]
+                      for number, path in enumerate(image_paths, 1)]
             # Once a run: they're the same for every clip.
             references = references or upload_references(state, comfy)
         except (OSError, ffmpeg.Error, requests.RequestException) as e:
             print(f"   ❌ Could not give ComfyUI the start frame or references: {e}")
             return False
-        clip = render_shot(state, comfy, index, images, clip_audio(state, comfy, index), references)
+        original = shot["prompt"]
+        if enhanced is not None:
+            shot["prompt"] = enhanced
+        try:
+            clip = render_shot(state, comfy, index, images, clip_audio(state, comfy, index), references)
+        finally:
+            shot["prompt"] = original
         if not clip:
             print(f"   ❌ Clip {index + 1} failed.")
             return False
@@ -415,10 +480,14 @@ def run(args):
         preflight(needs_comfy=not args.plan_only)
         stages = STAGES[:1] if args.plan_only else STAGES
         state = plan_run(args, stages)
+        if state.h3_mode == "review":
+            refine_review(state)
         if args.plan_only:
             print(f"📝 Change any prompt in the panel or {state.path}, then: python -m pipelines.video.main --resume {state.id}")
             return 0
 
+    if args.resume and state.h3_mode == "review":
+        refine_review(state)
     print_stage("Clips", stages)
     if state.next_stage() == "Clips":
         comfy = ComfyClient()

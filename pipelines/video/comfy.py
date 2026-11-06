@@ -158,7 +158,8 @@ class ComfyClient:
     def takes_audio(self):
         return "audio" in self.fields
 
-    def render(self, prompt, images, seconds, width, height, save_as, audio=None, ref_videos=(), ref_audios=(), seed=None):
+    def render(self, prompt, images, seconds, width, height, save_as, audio=None, ref_videos=(), ref_audios=(), seed=None,
+               h3_refined=False):
         """
         Renders one clip from these uploaded images, and reference videos and audio clips, and saves it as
         save_as plus its extension. Returns the path, or raises.
@@ -171,7 +172,10 @@ class ComfyClient:
         self._set(workflow, "seconds", seconds)
         if "frames" in self.fields:
             node_id, input_name = self.fields["fps"]
-            self._set(workflow, "frames", frames_for(seconds, workflow[node_id]["inputs"][input_name]))
+            fps = workflow[node_id]["inputs"][input_name]
+            if h3_refined and fps != 24:
+                raise RuntimeError("OpenH3-IR needs an H3 workflow running at 24 fps.")
+            self._set(workflow, "frames", h3_prompt.clip_frames(seconds) if h3_refined else frames_for(seconds, fps))
         self._set(workflow, "width", width)
         self._set(workflow, "height", height)
         director.shape(workflow)

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 from flask import abort, request, send_file
 
-from core import seeds, workflow_options
+from core import h3_refiner, seeds, workflow_options
 from panel.server import (read_outcome, form_options, PIPELINES, VIDEO_TIMINGS, _runs_cache, active_runs, app, busy_runs, item_images, job,
                           password_required, safe_video_path, saved_at, run_queue, saved_runs, saved_workflows, queue_form_snapshot)
 from panel.shorts import VOICES
@@ -142,6 +142,12 @@ def build_options(form):
         flags.append("--plan-only")
     if form.get("try_first"):
         flags.append("--first-only")
+    try:
+        mode, creativity = h3_refiner.settings(form.get("h3_enhance"), form.get("h3_creativity"))
+    except ValueError as e:
+        return None, str(e)
+    if mode != "off":
+        flags += ["--h3-enhance", mode, "--h3-creativity", creativity]
     return flags, None
 
 
@@ -228,6 +234,8 @@ def generate():
     env, takes, error = chosen_workflow(request.form)
     if error:
         return {"ok": False, "error": error}, 400
+    if option(flags, "--h3-enhance", "off") != "off" and not h3_refiner.supports_path(env.get("COMFYUI_WORKFLOW")):
+        return {"ok": False, "error": "OpenH3-IR requires a supported MiniMax H3 workflow."}, 400
     size = option(flags, "--size")
     if size and env.get("COMFYUI_WORKFLOW"):
         problem = media.size_problem(workflow_model(env["COMFYUI_WORKFLOW"]), *map(int, size.split("x")))
@@ -312,7 +320,9 @@ def generate():
     plan_only = "--plan-only" in flags
     seconds = int(flags[flags.index("--duration") + 1])
     length = f"{seconds}s" if seconds < 60 else f"{seconds // 60}:{seconds % 60:02d}"
-    detail = ["film as long as its audio" if audio else f"{length} film", llm or "your prompt, every clip", *(["review the prompts first"] if plan_only else [])]
+    detail = ["film as long as its audio" if audio else f"{length} film", llm or "your prompt, every clip",
+              *(["OpenH3-IR " + option(flags, "--h3-creativity", "balanced")] if "--h3-enhance" in flags else []),
+              *(["review the prompts first"] if plan_only else [])]
     if env:
         detail.append(request.form["workflow"].removesuffix(".json"))
     chosen_size = size or "x".join(str(side) for side in media.render_size(
@@ -340,6 +350,8 @@ def run_to_continue(prompt, flags, env, takes, images, audio=None, references=()
     for state in reversed(list_runs()):
         if (state.id not in busy and state.shots and not state.final and state.inputs == inputs and state.brief == prompt
                 and (audio or state.seconds == seconds) and state.workflow == env.get("COMFYUI_WORKFLOW")
+                and state.h3_mode == option(flags, "--h3-enhance", "off")
+                and state.h3_creativity == option(flags, "--h3-creativity", "balanced")
                 and (state.start == start or takes["max_images"] != 1)):
             return state
     return None
@@ -380,6 +392,7 @@ def run_detail(run_id):
     return {"ok": True, "id": state.id, "title": state.title, "brief": state.brief, "start": state.start,
             "llm": state.llm, "busy": busy, "pending": pending, "finished": bool(state.final), "settings": settings_of(state),
             "shots": [{"title": shot["title"], "seconds": shot["seconds"], "prompt": shot["prompt"],
+                       "enhanced_prompt": shot.get("enhanced_prompt"),
                        "seed": shot.get("seed"), "used_seed": shot.get("used_seed"),
                        "rendered": i in state.clips} for i, shot in enumerate(state.shots)]}
 
@@ -398,6 +411,7 @@ def settings_of(state):
     files = run_inputs(state)
     return {"prompt": state.brief, "seconds": state.seconds, "start": state.start, "llm": state.llm, "workflow": workflow,
             "size": f"{state.width}x{state.height}", "options": state.options or {}, "images": len(files["image"]),
+            "h3_enhance": state.h3_mode, "h3_creativity": state.h3_creativity, "image_roles": state.image_roles,
             "references": [{"kind": "video", "role": video["role"]} for video in state.ref_videos]
                           + [{"kind": "audio", "role": audio["role"]} for audio in state.ref_audios],
             "track": bool(files["track"])}
@@ -448,6 +462,9 @@ def save_shots(run_id):
         if error:
             return {"ok": False, "error": error}, 400
         for shot, prompt, seed in zip(state.shots, prompts, chosen):
+            if shot["prompt"] != prompt.strip():
+                shot.pop("enhanced_prompt", None)
+                shot.pop("h3_key", None)
             shot["prompt"] = prompt.strip()
             shot["seed"] = seed
         state.save()

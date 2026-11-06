@@ -53,6 +53,28 @@ python webapp.py
 the prompts are written and opens them for you. Change any of them, then press **Render the film**. Untick
 "Let me read the prompts" to go straight through.
 
+**OpenH3-IR (MiniMax H3).** The Prompt section offers this optional compiler on supported H3 workflows. It is off
+by default. Choose **before review** to compile each planned prompt before editing it (using the original reference
+images), or **before each clip** to compile with the actual start frame, including a frame from the previous clip.
+The latter happens after prompt review; its resulting brief is saved with the shot. Pick **Restrained**, **Balanced**
+(default), **Bold**, or **Extreme** for how much the compiler may introduce. Your written constraints still apply.
+
+The compiler runs locally through the installed [ComfyUI-OpenH3-IR](https://github.com/ruashots/ComfyUI-OpenH3-IR)
+pack and its `open-h3-ir` dependency in ComfyUI's Python. It starts llama.cpp for the compile and stops it before
+rendering to release GPU memory; it refuses to unload ComfyUI's models if another ComfyUI job is running or queued.
+Compiling can take several minutes per clip and uses substantial RAM. The original renderer, model, and settings stay
+in place; H3 director workflows use H3's 24-fps frame grid for enhanced clips. Reference bindings are checked before
+rendering, and duplicate reference files are refused rather than ambiguously assigned.
+Motion Director is supported when the panel has adapted its inputs; manually wired Director timelines are not.
+
+For the portable Windows ComfyUI layout, the defaults locate `python_embeded/python.exe` and
+`ComfyUI/custom_nodes/ComfyUI-OpenH3-IR` beside `COMFYUI_LAUNCHER`, and expect the Vulkan llama.cpp
+`b12177-vulkan/llama-server.exe` and the Qwen model and `mmproj.gguf` in sibling `llama.cpp` and `models`
+directories. Other layouts can set `H3IR_COMFY_ROOT`, `H3IR_PYTHON`, `H3IR_LLAMA_SERVER`, `H3IR_MODEL_FILE`,
+and `H3IR_PROJECTOR_FILE` in `.env`; `H3IR_GPU_LAYERS` defaults to 16. The selected GGUF needs vision support.
+From the command line use `--h3-enhance review` or `--h3-enhance render`, and optionally
+`--h3-creativity restrained|balanced|bold|extreme`.
+
 **Every image has a box.** Image 1 is the first frame, or the main character in a reference workflow such as
 MiniMax H3, which starts no clip on it. Each image after it is optional, and you say what it is:
 

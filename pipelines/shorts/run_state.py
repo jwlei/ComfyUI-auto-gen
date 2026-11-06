@@ -12,11 +12,11 @@ from pipelines.shorts.paths import RUNS_DIR
 STAGES = ("Topic & script", "Voice", "Stock footage", "Avatar clips", "Rendering scenes", "Stitching", "Upload")
 # What the panel sets per run rather than on the command line. A continued run keeps them.
 RUN_ENV = ("AVATAR_SOURCE", "AVATAR_SIZE", "COMFYUI_WORKFLOW", "COMFYUI_OPTIONS", "AVATAR_CLIPS_MIN", "AVATAR_CLIPS_MAX",
-           "AVATAR_MIN_SECONDS", "AVATAR_MAX_SECONDS")
+           "AVATAR_MIN_SECONDS", "AVATAR_MAX_SECONDS", "H3IR_ENHANCE", "H3IR_CREATIVITY")
 RUN_ID = re.compile(r"run_\d{8}_\d{6}_\d+")
 SAVE_ATTEMPTS = 5
 # What changes the clips, and of those, what also changes which scenes she appears in.
-RENDER_ENV = ("AVATAR_SOURCE", "COMFYUI_WORKFLOW", "AVATAR_MIN_SECONDS", "AVATAR_MAX_SECONDS")
+RENDER_ENV = ("AVATAR_SOURCE", "COMFYUI_WORKFLOW", "AVATAR_MIN_SECONDS", "AVATAR_MAX_SECONDS", "H3IR_ENHANCE", "H3IR_CREATIVITY")
 SCENE_ENV = ("AVATAR_CLIPS_MIN", "AVATAR_CLIPS_MAX", "AVATAR_MIN_SECONDS", "AVATAR_MAX_SECONDS")
 
 

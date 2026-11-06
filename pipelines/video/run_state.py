@@ -45,6 +45,9 @@ class RunState:
     # Reference videos and audio clips every clip gets, in the run's folder: [{file, role, sound}] and [{file, role}]
     ref_videos: list = field(default_factory=list)
     ref_audios: list = field(default_factory=list)
+    h3_mode: str = "off"
+    h3_creativity: str = "balanced"
+    image_roles: list = field(default_factory=list)
 
     @classmethod
     def new(cls, brief, seconds, start, width, height, llm="gemini", workflow=None, image_count=1):

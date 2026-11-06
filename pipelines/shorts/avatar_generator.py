@@ -12,10 +12,11 @@ import ffmpeg
 import requests
 from dotenv import load_dotenv
 
-from core import seeds
+from core import h3_refiner, seeds
 from core.paths import SAVED_WORKFLOWS_DIR, comfyui_client_id
 from core import workflow_options
 from core.saved_workflows import frames_for, image_slots, shorthand
+from pipelines.video import h3_prompt
 
 # Where avatar scenes come from, chosen with AVATAR_SOURCE in .env:
 # 'static' loops assets/avatar/avatars.mp4; 'comfyui' renders a fresh clip per scene.
@@ -264,6 +265,10 @@ class AvatarGenerator:
         if chosen:
             self.workflow, self.fields = workflow_options.remake(self.workflow_path, chosen, "shorts")
         self.lipsync = "audio" in self.fields
+        self.h3_mode, self.h3_creativity = h3_refiner.settings(os.getenv("H3IR_ENHANCE"), os.getenv("H3IR_CREATIVITY"))
+        if self.h3_mode != "off" and (self.h3_mode != "render" or not any(
+                node.get("class_type") == "MiniMaxH3ReferenceToVideo" for node in self.workflow.values())):
+            raise RuntimeError("OpenH3-IR requires a MiniMax H3 reference-to-video avatar workflow.")
 
         if self.reference_image and "image" not in self.fields:
             print("⚠️ AVATAR_REFERENCE_IMAGE is set but the workflow map has no 'image' field — ignoring it.")
@@ -357,6 +362,7 @@ class AvatarGenerator:
               f"{', persona ' + os.path.basename(self.reference_image) if self.reference_image else ''}...")
         clips = dict(kept or {})
         reference = None
+        reference_path = None
         self.expected_eye_color = None
 
         if not self.wait_until_reachable():
@@ -378,6 +384,7 @@ class AvatarGenerator:
                         self._clip_problem(clips[i], on_screen)
                     if reference is None and "image" in self.fields:
                         reference = self._reference_from_clip(clips[i], scene)
+                        reference_path = os.path.join(self.clips_dir, "avatar_ref.png") if reference else None
                 continue
             needed = math.ceil(on_screen + 0.5)
             if self.lipsync and on_screen > self.max_seconds:
@@ -391,6 +398,7 @@ class AvatarGenerator:
                     crop = self._portrait_crop(self.reference_image, next(framings))
                     self._read_reference_eyes(crop)
                     reference = self._upload(crop, "aishorts_avatar_ref.png")
+                    reference_path = crop
             except Exception as e:
                 print(f"   ❌ Could not upload the reference image: {e}")
                 return clips
@@ -408,6 +416,11 @@ class AvatarGenerator:
             print(f"   🎬 Clip {number}/{len(indices)} · scene {scene['id']}: {seconds}s {mode}")
             try:
                 seed = seeds.nth(self.seed, number - 1)
+                if self.h3_mode == "render":
+                    with h3_refiner.Refiner(self.url) as refiner:
+                        prompt = refiner.compile(prompt, seconds, self.width, self.height, self.h3_creativity,
+                                                 [reference_path] if reference_path else [], seed=seed)
+                    print(f"   ✍️ OpenH3-IR prompt:\n{prompt}")
                 if self.lipsync:
                     clip = self._render_speaking(scene, prompt, reference, seconds, on_screen, seed)
                 else:
@@ -424,6 +437,7 @@ class AvatarGenerator:
                 on_clip(i, clip)
             if reference is None and "image" in self.fields:
                 reference = self._reference_from_clip(clip, scene)
+                reference_path = os.path.join(self.clips_dir, "avatar_ref.png") if reference else None
 
         return clips
 
@@ -498,18 +512,26 @@ class AvatarGenerator:
             self._set(workflow, "seconds", seconds)
         if "frames" in self.fields:
             node_id, input_name = self.fields["fps"]
-            self._set(workflow, "frames", frames_for(seconds, workflow[node_id]["inputs"][input_name]))
+            fps = workflow[node_id]["inputs"][input_name]
+            if self.h3_mode != "off" and fps != 24:
+                raise RuntimeError("OpenH3-IR needs an H3 workflow running at 24 fps.")
+            self._set(workflow, "frames", h3_prompt.clip_frames(seconds) if self.h3_mode != "off" else frames_for(seconds, fps))
         if "width" in self.fields and "height" in self.fields:
             self._set(workflow, "width", self.width)
             self._set(workflow, "height", self.height)
         if "text_to_video" in self.fields:
             self._set(workflow, "text_to_video", reference is None)
         for slot in image_slots(self.fields):
-            if reference:
+            if reference and (self.h3_mode == "off" or slot == "image"):
                 self._set(workflow, slot, reference)
             elif f"{slot}_link" in self.fields:
-                node_id, input_name = self.fields[f"{slot}_link"]
-                del workflow[node_id]["inputs"][input_name]
+                links = [self.fields[f"{slot}_link"]]
+                if self.h3_mode != "off":
+                    links.extend(self.fields.get(f"{slot}_also", []))
+                for node_id, input_name in links:
+                    workflow[node_id]["inputs"].pop(input_name, None)
+                if self.h3_mode != "off":
+                    workflow.pop(self.fields[slot][0], None)
         if audio:
             self._set(workflow, "audio", audio)
 

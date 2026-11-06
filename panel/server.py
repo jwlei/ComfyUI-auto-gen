@@ -1810,6 +1810,7 @@ def legacy_queue_form(item):
     files = {}
     if pipeline == "video":
         form.update(duration=flag("--duration", "120"), clip_seconds=flag("--clip-seconds"), start=flag("--start", "chain"),
+                    h3_enhance=flag("--h3-enhance", "off"), h3_creativity=flag("--h3-creativity", "balanced"),
                     audio_mode="file" if "--audio" in argv else "text" if "--narration" in argv else "none",
                     narration=flag("--narration"), voice=flag("--voice"))
         images = ([item["image"]] if item.get("image") else []) + [
@@ -2416,8 +2417,14 @@ def workflows():
         for w in found:
             model = workflow_model(paths.get(w["name"]))
             w["clip_seconds"] = video_planner.clip_seconds(model)
+            from core import h3_refiner
+            w["openh3"] = h3_refiner.supports_path(paths.get(w["name"]))
             if video_media.most_pixels(model):
                 w["most_pixels"] = video_media.most_pixels(model)
+    elif pipeline == "shorts":
+        paths = {w["name"]: w.get("path") for w in saved_workflows()}
+        for w in found:
+            w["openh3"] = workflow_model(paths.get(w["name"])) == "minimax_h3"
     return {"online": comfyui_online(), "workflows": found}
 
 

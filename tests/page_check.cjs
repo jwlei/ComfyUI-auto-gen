@@ -20,7 +20,7 @@ function element(id) {
     classList: { toggle() {}, add() {}, remove() {}, contains: () => false },
     listeners: {}, listenersAll: {}, addEventListener(name, fn) { this.listeners[name] = fn; (this.listenersAll[name] = this.listenersAll[name] || []).push(fn); }, querySelectorAll: selector => (selector === 'input' ? [element('low'), element('high')] : []), querySelector: () => element('part'), setAttribute() {},
     reportValidity() { return true; }, dispatchEvent() {},
-    getBoundingClientRect: () => ({ top: 0, bottom: 100 }), appendChild() {}, offsetHeight: 90, insertAdjacentHTML() {}, showModal() { this.open = true; }, close() { this.open = false; }, scrollTo() {},
+    getBoundingClientRect: () => ({ top: 0, bottom: 100 }), appendChild() {}, insertBefore() {}, offsetHeight: 90, insertAdjacentHTML() {}, showModal() { this.open = true; }, close() { this.open = false; }, scrollTo() {},
     pause() {}, play() { return Promise.resolve(); }, removeAttribute(name) { delete this[name]; },
   };
 }
@@ -40,6 +40,13 @@ const context = {
 vm.createContext(context);
 vm.runInContext(script, context);
 const run = code => vm.runInContext(code, context);
+
+for (const side of ['video', 'shorts']) {
+  const section = html.slice(html.indexOf(`id="${side}H3Creativity"`), html.indexOf('</select>', html.indexOf(`id="${side}H3Creativity"`)));
+  for (const choice of ['restrained', 'balanced', 'bold', 'extreme']) assert(section.includes(`value="${choice}"`));
+  assert(section.includes('value="balanced" selected'), `${side} defaults to balanced`);
+}
+assert(html.includes('value="review">Enhance before review') && html.includes('value="render">Enhance before each clip'));
 
 // Remembered options never touch a file input, which throws if you set its value.
 for (const name of ['image', 'image_2', 'image_3']) assert(!run(`remembered({ name: '${name}', type: 'file' })`), name);
@@ -525,7 +532,7 @@ run("goToOutput('image')");
 assert.strictEqual(run('pipeline'), 'image');
 assert.strictEqual(context.document.body.dataset.page, 'output');
 run("setPipeline('shorts', false)");
-// On phones the icons move to Settings and beside the run controls; desktop keeps the tabs.
+// On phones Log is beside Settings, Quota is inside Settings, and Finished is beside the run controls.
 assert(/<div class="status-toggles" id="statusToggles">[\s\S]*?id="queueToggle"[\s\S]*?id="logToggle"[\s\S]*?id="finishedToggle"[\s\S]*?id="quotaToggle"/.test(html), 'desktop tabs');
 assert(/#logToggle \{ grid-column: 1;/.test(html) && /#finishedToggle \{ grid-column: 2;/.test(html));
 for (const id of ['logToggle', 'finishedToggle', 'quotaToggle']) {
@@ -534,9 +541,10 @@ for (const id of ['logToggle', 'finishedToggle', 'quotaToggle']) {
 {
   const moved = [];
   for (const id of ['settingsHead', 'runActions', 'statusToggles']) context.document.getElementById(id).appendChild = el => moved.push(`${id}:${el.id}`);
+  els.topIcons.insertBefore = (el, before) => moved.push(`topIcons:${el.id}:before:${before.id}`);
   wide.matches = false;
   run('placePanelControls()');
-  assert.deepStrictEqual(moved.splice(0), ['settingsHead:logToggle', 'settingsHead:quotaToggle', 'runActions:finishedToggle']);
+  assert.deepStrictEqual(moved.splice(0), ['topIcons:logToggle:before:settingsBtn', 'settingsHead:quotaToggle', 'runActions:finishedToggle']);
   assert(!els.runActions.hidden && els.skip.hidden && els.stop.hidden, 'Finished stays available when idle');
   run('lastStatus = { running: true }; placePanelControls()');
   assert(!els.skip.hidden && !els.stop.hidden, 'run controls appear during generation');
