@@ -416,6 +416,7 @@ class AvatarGenerator:
                 print(f"   ❌ Scene {scene['id']} avatar failed: {e}")
                 clip = None
             if not clip:
+                print(f"   ❌ Scene {scene['id']} avatar clip not made; using stock footage.")
                 continue
 
             clips[i] = clip

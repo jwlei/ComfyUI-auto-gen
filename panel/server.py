@@ -229,6 +229,7 @@ class Job:
             ("scenes", re.compile(r"narration for (\d+) scenes|Generation for (\d+) scenes")),
             ("clip", re.compile(r"Clip (\d+)/(\d+) \u00b7 scene (\d+): (\d+)s ([\w-]+)")),
             ("rejected", re.compile(r"Rejected: (.*) \(attempt (\d+)/(\d+)\)")),
+            ("clip_failed", re.compile(r"Scene .+ avatar clip not made; using stock footage\.")),
             ("render", re.compile(r"Processing Scene (\d+)")),
             ("upload", re.compile(r"\U0001f4fc (\d+)/(\d+): (.+)")),
         ],
@@ -273,6 +274,8 @@ class Job:
                 self.eta.clip(int(m.group(1)), int(m.group(2)), int(m.group(4)))
             elif kind == "rejected":
                 self.eta.clip_rejected(int(m.group(2)), int(m.group(3)), m.group(1))
+            elif kind == "clip_failed":
+                self.eta.clip_failed()
             elif kind == "render":
                 total = p.get("scenes")
                 p["detail"] = f"Scene {m.group(1)}" + (f" of {total}" if total else "")

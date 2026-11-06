@@ -48,7 +48,12 @@
   .queue-head b { font-weight: 600; }
   .queue-foot { display: flex; justify-content: flex-end; margin-top: 8px; }
   .queue-head .when { color: var(--muted); font-size: .78rem; }
-  .queue-head .queue-fold-toggle { flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 0; border: 0; background: transparent; text-align: left; }
+  .queue-head.run-queue-head { display: grid; grid-template-columns: minmax(0, 1fr) auto 30px 20px; }
+  .run-queue-head .when { grid-column: 2; min-width: 0; }
+  .run-queue-head [data-queue-toggle] { grid-column: 3; }
+  .queue-head .queue-fold-toggle { padding: 2px 0; border: 0; background: transparent; text-align: left; }
+  .queue-head .queue-fold-title { grid-column: 1; min-width: 0; }
+  .queue-head .queue-fold-arrow { grid-column: 4; width: 20px; height: 30px; display: flex; align-items: center; justify-content: center; }
   .queue-fold-toggle .chev { width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); margin-right: 4px; }
   .queue-fold-toggle[aria-expanded="true"] .chev { transform: rotate(-135deg); }
   .queue-list, .stopped-body { position: relative; max-height: min(var(--three-rows, 55dvh), 55dvh); overflow-y: auto; overscroll-behavior: contain; }
@@ -4707,10 +4712,11 @@ function renderQueue(el, q, doneIn, moving = false, idle = false) {
     return;
   }
   const heading = `<b>${el.dataset.title} (${waiting.length})</b>`;
-  const head = (el.dataset.lane === 'run' ? `<button type="button" class="queue-fold-toggle" data-fold-queue="1" aria-expanded="${el._open !== false}">${heading}<span class="chev" aria-hidden="true"></span></button>` : heading) + (q.held
+  const expanded = el._open !== false;
+  const head = (el.dataset.lane === 'run' ? `<button type="button" class="queue-fold-toggle queue-fold-title" data-fold-queue="1" aria-expanded="${expanded}">${heading}</button>` : heading) + (q.held
     ? `<span class="when">On hold until you press play</span>`
     : doneIn ? `<span class="when">All done around ${clockIn(doneIn)}</span>` : '')
-    + (el.dataset.lane === 'run' ? `<button type="button" class="icon-btn" data-queue-toggle="1" aria-label="${q.held || q.stopAfter ? 'Resume queue' : 'Pause after current'}" title="${q.held || q.stopAfter ? 'Resume queue' : 'Stop after the current image or video'}">${q.held || q.stopAfter ? ICONS.play : '❚❚'}</button>` : '');
+    + (el.dataset.lane === 'run' ? `<button type="button" class="icon-btn" data-queue-toggle="1" aria-label="${q.held || q.stopAfter ? 'Resume queue' : 'Pause after current'}" title="${q.held || q.stopAfter ? 'Resume queue' : 'Stop after the current image or video'}">${q.held || q.stopAfter ? ICONS.play : '❚❚'}</button><button type="button" class="queue-fold-toggle queue-fold-arrow" data-fold-queue="1" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse queue' : 'Expand queue'}"><span class="chev" aria-hidden="true"></span></button>` : '');
   const canRunNow = el.dataset.lane === 'run' && q.held && idle;
   const grip = item => waiting.length < 2 ? '' : `<button type="button" class="grip" data-grip="${item.id}"${String(item.id) === el._selected ? '' : ' hidden disabled'} aria-label="Move ${esc(item.label)}: drag, or use the arrow keys" title="Drag to move">
         <svg viewBox="0 0 12 18" width="12" height="18" aria-hidden="true" fill="currentColor">${[3, 9, 15].map(y => `<circle cx="3" cy="${y}" r="1.6"/><circle cx="9" cy="${y}" r="1.6"/>`).join('')}</svg></button>`;
@@ -4728,7 +4734,7 @@ function renderQueue(el, q, doneIn, moving = false, idle = false) {
     </div>`).join('');
   // Resume under what it lets go, where a thumb ends up after reading the list.
   const foot = q.held && el.dataset.lane !== 'run' ? `<div class="queue-foot"><button type="button" data-resume="1">Resume</button></div>` : '';
-  const html = `<div class="queue-head">${head}</div>` + (el.dataset.lane === 'run'
+  const html = `<div class="queue-head${el.dataset.lane === 'run' ? ' run-queue-head' : ''}">${head}</div>` + (el.dataset.lane === 'run'
     ? `<div class="queue-list" tabindex="0"${el._open === false ? ' hidden' : ''}>${items}</div>` : items) + foot;
   // Only when it changed, so a poll can't swallow a click on a button it just replaced; nor one waiting for its second tap.
   if (el.dataset.html !== html && !el.querySelectorAll('.armed, .queue-request, .queue-request-done').length) {

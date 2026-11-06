@@ -253,7 +253,7 @@ check and renders again, more or fewer clips than expected, or steps running slo
 faster than estimated. Finished steps are timed and saved to `logs/stage_timings_shorts.json`, so
 the estimates start rough and get better with each run. Renders are timed per second of clip
 under the model, the workflow and the workflow options chosen (`core/eta_keys.py`, the same on
-every side): a model, workflow or setting not timed yet starts from its nearest relative that
+every side); failed or rejected render attempts are not included in the learned render time. A model, workflow or setting not timed yet starts from its nearest relative that
 was, and the panel says so, until its first clip is done. Delete that file to start over.
 
 The Quota section lists today's quota per model: Gemini text and voice models, the stock

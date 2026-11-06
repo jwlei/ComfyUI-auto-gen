@@ -143,7 +143,6 @@ class RunEta:
     def clip_rejected(self, attempt, attempts, problem):
         """The lip-sync check failed: another render starts now, unless that was the last try."""
         now = time.time()
-        self._finish_attempt(now)
         clip = f"Clip {self.clip_number} of {self.clip_count}"
         problem = problem.split(",")[0]  # The measurement after the comma only means something in the log
         if attempt < attempts:
@@ -152,6 +151,9 @@ class RunEta:
         else:
             self.attempt_started = None
             self._note(f"{clip} rejected on all {attempts} tries ({problem}), using stock footage", 0)
+
+    def clip_failed(self):
+        self.attempt_started = None
 
     def scene(self):
         self.scenes_started += 1

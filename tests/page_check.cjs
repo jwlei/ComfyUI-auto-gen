@@ -1158,9 +1158,12 @@ assert(!/id="stopAfter"/.test(html), 'pause moved out of the run actions');
 assert(!script.includes('ComfyUI is making each image.'), 'the redundant image stage hint is not shown');
 assert(/\.queue \.queue-head button\[data-queue-toggle\] \{ width: 30px; height: 30px;/.test(html), 'the queue header control is smaller');
 assert(queue.innerHTML.includes('data-fold-queue="1" aria-expanded="true"') && queue.innerHTML.includes('class="queue-list" tabindex="0"'), 'run queue has a separate collapsible scrollable list');
+assert(/class="queue-head run-queue-head"[\s\S]*class="queue-fold-toggle queue-fold-title"[\s\S]*data-queue-toggle="1"[\s\S]*class="queue-fold-toggle queue-fold-arrow" data-fold-queue="1" aria-expanded="true" aria-label="Collapse queue"/.test(queue.innerHTML), 'queue controls precede the rightmost collapse button');
+assert(/\.queue-head\.run-queue-head \{ display: grid; grid-template-columns: minmax\(0, 1fr\) auto 30px 20px; \}/.test(html), 'queue header keeps the chevron in the last column');
 queue._open = false;
 run(`renderQueue(queue, { items: [{ id: 1, label: 'new', detail: '', pipeline: 'image' }] }, 0)`);
 assert(queue.innerHTML.includes('aria-expanded="false"') && queue.innerHTML.includes('class="queue-list" tabindex="0" hidden'), 'collapsed queue stays collapsed through redraws');
+assert(queue.innerHTML.includes('aria-label="Expand queue"'), 'the chevron reflects the collapsed state');
 {
   const rows = [0, 60, 170, 265].map((top, index) => ({ offsetTop: top, offsetHeight: [54, 104, 89, 80][index], getClientRects: () => [1] }));
   const properties = {};

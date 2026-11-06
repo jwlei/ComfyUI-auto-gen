@@ -461,6 +461,104 @@ class SeedTest(unittest.TestCase):
         self.assertEqual(len(sent), 2, "then, rejected, a new one")
 
 
+class RenderEtaTest(unittest.TestCase):
+    def test_failed_and_rejected_avatar_renders_do_not_teach_the_eta(self):
+        from pipelines.shorts.run_eta import RunEta
+
+        with tempfile.TemporaryDirectory() as folder, mock.patch("time.time") as clock:
+            clock.return_value = 100
+            path = os.path.join(folder, "timings.json")
+            eta = RunEta([], {}, path)
+            job = webapp.Job()
+            job.eta = eta
+            job._track("▶ Stage 1/2: Avatar clips")
+            job._track("🎬 Clip 1/3 · scene 1: 5s text-to-video")
+            clock.return_value = 200
+            job._track("⚠️ Rejected: face check (attempt 1/2).")
+            self.assertFalse(eta.timings.renders, "a rejected attempt is not learned")
+            clock.return_value = 225
+            job._track("🎬 Clip 2/3 · scene 2: 5s text-to-video")
+            self.assertEqual(eta.timings.render(eta.render_keys, None), 5, "only the successful retry is timed")
+            clock.return_value = 305
+            job._track("❌ Scene 2 avatar failed: render error")
+            job._track("❌ Scene 2 avatar clip not made; using stock footage.")
+            clock.return_value = 315
+            job._track("🎬 Clip 3/3 · scene 3: 5s text-to-video")
+            self.assertEqual(eta.timings.render(eta.render_keys, None), 5, "a failed clip before another is not timed")
+            clock.return_value = 335
+            job._track("❌ Scene 3 avatar clip not made; using stock footage.")
+            job._track("▶ Stage 2/2: Rendering scenes")
+            with open(path, encoding="utf-8") as f:
+                self.assertEqual(json.load(f)["renders"][eta.render_keys[0]], 5, "a failed last clip is not saved")
+
+    def test_video_and_image_retries_only_learn_the_successful_attempt(self):
+        from pipelines.image.run_eta import RunEta as ImageEta
+        from pipelines.video.run_eta import RunEta as VideoEta
+
+        with tempfile.TemporaryDirectory() as folder, mock.patch("time.time") as clock:
+            for pipeline in ("image", "video"):
+                with self.subTest(pipeline=pipeline):
+                    clock.return_value = 100
+                    path = os.path.join(folder, pipeline + ".json")
+                    eta = (ImageEta(["--direct", "--count", "2", "--megapixels", "1"], {}, path)
+                           if pipeline == "image" else VideoEta(["--duration", "10"], path))
+                    job = webapp.Job()
+                    job.pipeline, job.eta = pipeline, eta
+                    if pipeline == "image":
+                        job._track("▶ Stage 1/2: Images")
+                        job._track("🖼️ Image 1/2 · First")
+                    else:
+                        job._track("▶ Stage 1/2: Clips")
+                        job._track("🎬 Clip 1/2 · First · 5s")
+                    clock.return_value = 200
+                    job._track("❌ Render error (attempt 1/2).")
+                    clock.return_value = 225
+                    if pipeline == "image":
+                        job._track("🖼️ Image 2/2 · Second")
+                    else:
+                        job._track("🎬 Clip 2/2 · Second · 5s")
+                    self.assertAlmostEqual(eta.timings.render(eta.render_keys, None),
+                                           25 if pipeline == "image" else 5)
+                    clock.return_value = 305
+                    job._track("⚠️ Rejected: broken output (attempt 2/2).")
+                    job._track("▶ Stage 2/2: Stitching" if pipeline == "video" else "▶ Stage 2/2: Images")
+                    with open(path, encoding="utf-8") as f:
+                        self.assertAlmostEqual(json.load(f)["renders"][eta.render_keys[0]],
+                                               25 if pipeline == "image" else 5)
+
+    def test_avatar_failure_is_reported_for_the_eta(self):
+        from pipelines.shorts.avatar_generator import AvatarGenerator
+
+        generator = AvatarGenerator.__new__(AvatarGenerator)
+        generator.url, generator.lipsync, generator.reference_image = "test", False, None
+        generator.persona, generator.max_seconds, generator.seed, generator.fields = "test", 10, None, {}
+        generator.wait_until_reachable = lambda: True
+        generator._render = mock.Mock(return_value=None)
+        with mock.patch("builtins.print") as printed:
+            self.assertEqual(generator.generate([{"id": 1, "duration": 3}], [0], None, prompts={0: "test"}), {})
+        self.assertTrue(any("Scene 1 avatar clip not made; using stock footage." in str(call) for call in printed.call_args_list))
+
+    def test_video_frame_extraction_failure_does_not_save_unfinished_clip_time(self):
+        from pipelines.video.run_eta import RunEta
+
+        with tempfile.TemporaryDirectory() as folder, mock.patch("time.time") as clock:
+            clock.return_value = 100
+            path = os.path.join(folder, "video.json")
+            job = webapp.Job()
+            job.pipeline = "video"
+            job.eta = RunEta(["--duration", "10"], path)
+            job._track("▶ Stage 1/2: Clips")
+            job._track("🎬 Clip 1/2 · First · 5s")
+            clock.return_value = 125
+            job._track("🎬 Clip 2/2 · Second · 5s")
+            clock.return_value = 225
+            job.process = mock.Mock(stdout=["❌ Could not give ComfyUI the start frame or references: ffmpeg error\n"],
+                                    returncode=1)
+            job._drain()
+            with open(path, encoding="utf-8") as f:
+                self.assertEqual(json.load(f)["renders"][job.eta.render_keys[0]], 5)
+
+
 class VoiceKeptTest(unittest.TestCase):
     def setUp(self):
         self.folder = os.path.join(DATA, "voice_kept")
