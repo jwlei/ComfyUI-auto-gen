@@ -880,7 +880,7 @@ class BusyComfyTest(unittest.TestCase):
 
     def client(self):
         client = object.__new__(comfy.ComfyClient)
-        client.url, client.timeout = "http://comfy", 3600
+        client.url, client.timeout = "http://comfy", comfy.DEFAULT_TIMEOUT
         return client
 
     def test_a_slow_reply_is_waited_out(self):
@@ -910,9 +910,9 @@ class BusyComfyTest(unittest.TestCase):
         with mock.patch.object(comfy.requests, "get", get), mock.patch.object(comfy.ComfyClient, "cancel") as cancel, \
                 mock.patch.object(comfy.time, "time", lambda: now[0]), \
                 mock.patch.object(comfy.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds)):
-            with self.assertRaisesRegex(RuntimeError, "Timed out after 3600s"):
+            with self.assertRaisesRegex(RuntimeError, "Timed out after 7200s"):
                 self.client()._wait_for("p1")
-        self.assertGreaterEqual(now[0], 7200 + 3600, "two hours queued behind another did not count")
+        self.assertGreaterEqual(now[0], 7200 + 7200, "two hours queued behind another did not count")
         cancel.assert_called_once()
 
 

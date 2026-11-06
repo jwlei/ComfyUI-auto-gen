@@ -15,7 +15,7 @@ from core.saved_workflows import MOST_REFERENCES_FIELD, frames_for, image_slots,
 DEFAULT_COMFYUI_URL = "http://127.0.0.1:8188"
 DEFAULT_WORKFLOW = os.path.join(WORKFLOWS_DIR, "video_workflow.json")
 # Counts time spent waiting in ComfyUI's queue too, which other work may be ahead in.
-DEFAULT_TIMEOUT = 3600
+DEFAULT_TIMEOUT = 7200
 VIDEO_EXTENSIONS = (".mp4", ".webm", ".mov", ".mkv", ".gif")
 POLL_INTERVAL = 5
 # ComfyUI can stop answering for minutes while it works, with no harm to the render: loading SeedVR2's 7B model to

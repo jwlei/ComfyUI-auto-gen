@@ -242,7 +242,7 @@ class AvatarGenerator:
         self.seed = seed
         self.url = (os.getenv("COMFYUI_URL") or DEFAULT_COMFYUI_URL).rstrip("/")
         self.workflow_path = os.getenv("COMFYUI_WORKFLOW") or os.path.join(os.getcwd(), DEFAULT_WORKFLOW)
-        self.timeout = int(os.getenv("COMFYUI_TIMEOUT") or 3600)
+        self.timeout = int(os.getenv("COMFYUI_TIMEOUT") or 7200)
         self.max_seconds = max(RENDER_CAP, on_screen_range()[1])
         self.lipsync_attempts = max(1, int(os.getenv("AVATAR_LIPSYNC_ATTEMPTS") or DEFAULT_LIPSYNC_ATTEMPTS))
         self.persona = os.getenv("AVATAR_PERSONA") or DEFAULT_PERSONA

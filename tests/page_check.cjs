@@ -160,6 +160,14 @@ for (const size of ['640x352', '864x480', '960x544', '1280x736', '352x640', '480
 }
 const filmSizes = html.slice(html.indexOf('id="sizePreset"'), html.indexOf('id="size"'));
 assert.strictEqual([...filmSizes.matchAll(/<option value="(\d+)x(\d+)">/g)].filter(m => +m[1] * +m[2] > 1280 * 736).length, 0);
+for (const selectId of ['sizePreset', 'avatarSize', 'imageAspect']) {
+  const select = html.slice(html.indexOf(`id="${selectId}"`), html.indexOf('</select>', html.indexOf(`id="${selectId}"`)));
+  const dimensions = [...select.matchAll(/<option value="(\d+)x(\d+)"[^>]*>([^<]*)<\/option>/g)];
+  assert(dimensions.length, `${selectId} has resolution options`);
+  for (const [, width, height, label] of dimensions) {
+    assert(label.endsWith(` · ${(width * height / 1000000).toFixed(3)} MP`), `${selectId} ${width}x${height}: ${label}`);
+  }
+}
 els.sizePreset = element('sizePreset');
 els.sizePreset.options = [{ value: '' }, { value: '960x544' }, { value: '1280x736' }, { value: 'custom' }];
 Object.defineProperty(els.sizePreset, 'selectedOptions', { get() { return [els.sizePreset.options.find(o => o.value === els.sizePreset.value) || {}]; } });

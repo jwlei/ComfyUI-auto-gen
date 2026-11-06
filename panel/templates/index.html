@@ -1041,7 +1041,7 @@
       <input id="runs" name="runs" type="number" min="1" max="10" value="1" inputmode="numeric">
       <label for="avatarSize">Resolution</label>
       <select id="avatarSize" name="avatar_size">
-        {% for value, label in avatar_sizes %}<option value="{{ value }}"{% if value == default_avatar_size %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        {% for value, label in avatar_sizes %}{% set sides = value.split('x') %}<option value="{{ value }}"{% if value == default_avatar_size %} selected{% endif %}>{{ label }} · {{ "%.3f"|format(sides[0]|int * sides[1]|int / 1000000) }} MP</option>{% endfor %}
       </select>
     </details>
 
@@ -1190,10 +1190,10 @@
     <select id="sizePreset">
       <option value="">Highest (720p), in the shape of image 1</option>
       <optgroup label="Landscape 16:9">
-        {% for name, width, height in size_presets %}<option value="{{ width }}x{{ height }}">{{ name }} ({{ width }}x{{ height }})</option>{% endfor %}
+        {% for name, width, height in size_presets %}<option value="{{ width }}x{{ height }}">{{ name }} ({{ width }}x{{ height }}) · {{ "%.3f"|format(width * height / 1000000) }} MP</option>{% endfor %}
       </optgroup>
       <optgroup label="Portrait 9:16">
-        {% for name, width, height in size_presets %}<option value="{{ height }}x{{ width }}">{{ name }} ({{ height }}x{{ width }})</option>{% endfor %}
+        {% for name, width, height in size_presets %}<option value="{{ height }}x{{ width }}">{{ name }} ({{ height }}x{{ width }}) · {{ "%.3f"|format(width * height / 1000000) }} MP</option>{% endfor %}
       </optgroup>
       <option value="custom">Custom size</option>
     </select>
@@ -1318,10 +1318,10 @@
               {% for value, label in image_aspects %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
             </optgroup>
             <optgroup label="Desktop">
-              {% for name, width, height in image_desktop_sizes %}<option value="{{ width }}x{{ height }}">{{ name }} ({{ width }}x{{ height }})</option>{% endfor %}
+              {% for name, width, height in image_desktop_sizes %}<option value="{{ width }}x{{ height }}">{{ name }} ({{ width }}x{{ height }}) · {{ "%.3f"|format(width * height / 1000000) }} MP</option>{% endfor %}
             </optgroup>
             <optgroup label="Phone">
-              {% for name, width, height in image_phone_sizes %}<option value="{{ width }}x{{ height }}">{{ name }} ({{ width }}x{{ height }})</option>{% endfor %}
+              {% for name, width, height in image_phone_sizes %}<option value="{{ width }}x{{ height }}">{{ name }} ({{ width }}x{{ height }}) · {{ "%.3f"|format(width * height / 1000000) }} MP</option>{% endfor %}
             </optgroup>
             <option value="custom">Exact size</option>
           </select>
