@@ -494,6 +494,39 @@ class PanelTest(unittest.TestCase):
         self.wait_idle()
         self.assertEqual(self.status()["queue"]["items"], [], "started, it ran")
 
+    def test_a_paused_queue_can_run_one_generation_without_resuming_the_rest(self):
+        self.comfy.script = ["ok"] * 16
+        self.assertTrue(self.generate(prompt="leave waiting", start_later="1").get_json()["queued"])
+        first = self.status()["queue"]["items"][0]
+        self.assertEqual(self.client.post(f"/queue/run/run-now/{first['id']}").status_code, 409, "Run this is only available while paused")
+        webapp.run_queue.hold()
+        self.assertTrue(self.generate(prompt="run this one", start_later="1").get_json()["queued"])
+        waiting = self.status()["queue"]["items"]
+        self.assertEqual(len(waiting), 2)
+
+        reply = self.client.post(f"/queue/run/run-now/{waiting[1]['id']}")
+        self.assertEqual(reply.get_json(), {"ok": True})
+        self.wait_idle()
+
+        status = self.status()["queue"]
+        self.assertTrue(status["held"], "the remaining generation stays paused")
+        self.assertEqual([item["id"] for item in status["items"]], [waiting[0]["id"]])
+        self.assertEqual(status["results"][-1]["outcome"], "done")
+
+    def test_generate_on_a_paused_idle_queue_starts_at_once_and_leaves_the_rest_paused(self):
+        self.comfy.script = ["ok"] * 16
+        self.assertTrue(self.generate(prompt="leave waiting", start_later="1").get_json()["queued"])
+        webapp.run_queue.hold()
+        waiting = self.status()["queue"]["items"]
+
+        self.assertFalse(self.generate(prompt="straight away").get_json()["queued"])
+        self.wait_idle()
+
+        status = self.status()["queue"]
+        self.assertTrue(status["held"], "what was waiting stays paused")
+        self.assertEqual([item["id"] for item in status["items"]], [waiting[0]["id"]])
+        self.assertEqual(status["results"][-1]["outcome"], "done")
+
     def test_your_phone_is_told_when_a_job_ends_if_ntfy_is_set(self):
         sent = []
         with mock.patch.dict(os.environ, {"NTFY_TOPIC": "my-topic"}), \

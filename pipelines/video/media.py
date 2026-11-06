@@ -15,6 +15,9 @@ SIZE_STEP = 32
 # What the panel offers, landscape as (name, width, height), and portrait the other way round. On the
 # grid, so as near 16:9 as it gets. The last is RENDER_AREA, which is as far as the panel's presets go.
 SIZE_PRESETS = (("360p", 640, 352), ("480p", 864, 480), ("540p", 960, 544), ("720p", 1280, 736))
+# The most pixels a model makes a clip of in a sensible time on this card: 960x544 (0.52 megapixels). A model left out
+# takes any size up to RENDER_AREA.
+MOST_PIXELS = {"minimax_h3": 960 * 544}
 MAX_INPUT_EDGE = 2048
 # Enough for the planner to see what's there, and small enough to send inline.
 PREVIEW_EDGE = 1280
@@ -88,10 +91,28 @@ def on_grid(value):
     return max(SIZE_STEP, round(value / SIZE_STEP) * SIZE_STEP)
 
 
-def render_size(width, height):
-    """The image's shape at the workflow's pixel count, so its centre crop takes next to nothing off."""
-    scale = math.sqrt(RENDER_AREA / (width * height))
-    return on_grid(width * scale), on_grid(height * scale)
+def most_pixels(model):
+    return MOST_PIXELS.get(model)
+
+
+def size_problem(model, width, height):
+    """Why a model won't make clips this size, or None."""
+    most = most_pixels(model)
+    if not most or width * height <= most:
+        return None
+    return (f"This workflow makes clips up to {most / 1e6:.2f} megapixels ({math.isqrt(most * 16 // 9) // SIZE_STEP * SIZE_STEP}"
+            f"x{math.isqrt(most * 9 // 16) // SIZE_STEP * SIZE_STEP} at 16:9), and {width}x{height} is {width * height / 1e6:.2f}. "
+            "Choose a smaller size.")
+
+
+def render_size(width, height, most=RENDER_AREA):
+    """The image's shape at the workflow's pixel count (or fewer, up to `most`), so its centre crop takes next to nothing off."""
+    scale = math.sqrt(min(most, RENDER_AREA) / (width * height))
+    size = on_grid(width * scale), on_grid(height * scale)
+    if most < RENDER_AREA and size[0] * size[1] > most:
+        # Rounded down, so the limit holds for any shape.
+        size = tuple(max(SIZE_STEP, int(side * scale) // SIZE_STEP * SIZE_STEP) for side in (width, height))
+    return size
 
 
 def _probe(path):

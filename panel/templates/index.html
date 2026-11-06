@@ -78,6 +78,8 @@
   .queue .results { margin-top: 6px; }
   /* A stopped run in a box of its own: what it is, how far it got, then what you can do with it. */
   .queue .start-item { flex: none; color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+  .queue .run-item { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 5px; color: var(--accent); }
+  .queue .run-item svg { width: 16px; height: 16px; }
   .queue-item.leaving { overflow: hidden; animation: queue-leave .38s ease forwards; pointer-events: none; }
   @keyframes queue-leave {
     45% { opacity: 0; transform: translateY(-10px); }
@@ -2062,7 +2064,7 @@ const BUILT_IN_TAKES = { min_images: 1, max_images: 1, max_videos: 0, max_audios
 const BUILT_IN_SAVED = 'video_LTX23_I2V_T2V.json';
 // How long the built-in workflow's video model makes a clip: [shortest, longest, usual] seconds.
 const BUILT_IN_CLIPS = {{ clip_seconds | tojson }};
-let workflowTakes = {}, workflowClips = {};
+let workflowTakes = {}, workflowClips = {}, workflowMost = {};
 function rememberedVideoWorkflow() {
   try { return (JSON.parse(localStorage.getItem(VIDEO_STORE_KEY)) || {}).workflow || ''; } catch (e) { return ''; }
 }
@@ -2084,6 +2086,7 @@ async function loadVideoWorkflows() {
   if (data.workflows.some(w => w.name === target)) select.value = target;
   workflowTakes = Object.fromEntries(data.workflows.map(w => [w.name, w.takes]));
   workflowClips = Object.fromEntries(data.workflows.map(w => [w.name, w.clip_seconds || BUILT_IN_CLIPS]));
+  workflowMost = Object.fromEntries(data.workflows.map(w => [w.name, w.most_pixels || 0]));
   syncVideoForm();
   $('videoWorkflowOff').hidden = !!data.online;
   applyDefaultPreset('video');
@@ -2442,6 +2445,13 @@ function shotCount(seconds) {
   return seconds >= shortest ? Math.max(1, Math.min(count, Math.floor(seconds / shortest))) : 1;
 }
 function syncSize() {
+  const most = workflowMost[$('videoWorkflow').value] || 0;
+  [...$('sizePreset').options].forEach(o => {
+    const sides = o.value.split('x').map(Number);
+    o.disabled = !!most && sides.length === 2 && sides[0] * sides[1] > most;
+  });
+  if ($('sizePreset').selectedOptions[0].disabled) $('sizePreset').value = '';
+  $('size').placeholder = most ? `Up to ${(most / 1e6).toFixed(2)} megapixels, such as 960x544` : 'Such as 1280x736, rounded to multiples of 32';
   const preset = $('sizePreset').value;
   $('size').hidden = preset !== 'custom';
   if (preset !== 'custom') $('size').value = preset;
@@ -4428,9 +4438,9 @@ function renderUpload(up) {
 // --- Queues ---
 const RESULT_MARKS = { done: '✔', failed: '✖ failed', stopped: '■ stopped', skipped: '– skipped' };
 const LEAVE_MS = 380;
-function renderQueue(el, q, doneIn, moving = false) {
+function renderQueue(el, q, doneIn, moving = false, idle = false) {
   // What has finished is under Finished: this is what's waiting. The one moving to start has left it already.
-  el._last = [q, doneIn, moving];
+  el._last = [q, doneIn, moving, idle];
   if (el._leaving || el._dragging) return;  // Drawn once it has gone, or been dropped
   const waiting = moving ? q.items.slice(1) : q.items;
   // What left since: it slides up out of the queue, towards Status, and the rest close up behind it.
@@ -4454,12 +4464,15 @@ function renderQueue(el, q, doneIn, moving = false) {
   const head = `<b>${el.dataset.title} (${waiting.length})</b>` + (q.held
     ? `<span class="when">On hold until you press Resume</span>`
     : doneIn ? `<span class="when">All done around ${clockIn(doneIn)}</span>` : '');
+  const canRunNow = el.dataset.lane === 'run' && q.held && idle;
   const grip = item => waiting.length < 2 ? '' : `<button type="button" class="grip" data-grip="${item.id}" aria-label="Move ${esc(item.label)}: drag, or use the arrow keys" title="Drag to move">
         <svg viewBox="0 0 12 18" width="12" height="18" aria-hidden="true" fill="currentColor">${[3, 9, 15].map(y => `<circle cx="3" cy="${y}" r="1.6"/><circle cx="9" cy="${y}" r="1.6"/>`).join('')}</svg></button>`;
   const items = waiting.map((item, i) => `
     <div class="queue-item" data-id="${esc(String(item.id))}">
       ${grip(item)}<div class="what">${i + 1}. ${esc(item.label)}<div class="hint">${el.dataset.lane === 'run' ? `${SIDE_NAMES[item.pipeline] || 'Shorts'} · ` : ''}${esc(item.detail)}</div></div>
-      ${item.later ? `<button type="button" class="start-item" data-start="${item.id}" title="Start it: it goes next">Start</button>`
+      ${canRunNow ? `<button type="button" class="run-item" data-run="${item.id}" aria-label="Run this generation now" title="Run this now">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.8a.8.8 0 0 1 1.2-.7l8 5a1 1 0 0 1 0 1.7l-8 5A.8.8 0 0 1 4 13.1z" fill="currentColor"/></svg></button>`
+        : item.later ? `<button type="button" class="start-item" data-start="${item.id}" title="Start it: it goes next">Start</button>`
         : item.estimate ? `<span class="when">${fmtEta(item.estimate)}</span>` : ''}
       <button type="button" data-remove="${item.id}" aria-label="Remove from the queue" title="Remove from the queue">✕</button>
     </div>`).join('');
@@ -4665,8 +4678,14 @@ function dragQueue(el) {
 for (const id of ['runQueue', 'uploadQueue']) {
   dragQueue($(id));
   $(id).addEventListener('click', async e => {
-    const d = e.target.dataset || {}, lane = $(id).dataset.lane;
-    if (d.start) await fetch(`/queue/${lane}/start/${d.start}`, { method: 'POST' });
+    const button = e.target.closest && e.target.closest('button[data-run], button[data-start], button[data-remove], button[data-resume]');
+    const d = button ? button.dataset : {}, lane = $(id).dataset.lane;
+    if (d.run) {
+      const response = await fetch(`/queue/${lane}/run-now/${d.run}`, { method: 'POST' });
+      const body = await response.json();
+      if (!response.ok || !body.ok) alert(body.error || 'Could not run that queued generation.');
+    }
+    else if (d.start) await fetch(`/queue/${lane}/start/${d.start}`, { method: 'POST' });
     else if (d.remove) await fetch(`/queue/${lane}/remove/${d.remove}`, { method: 'POST' });
     else if (d.resume) {
       // Shown at once; the next status confirms it.
@@ -4831,7 +4850,9 @@ function renderStrips(data) {
 }
 
 // --- Status polling ---
-let stoppedCount = 0, wasRunning = false, uploadRunning = false, runsQueued = 0, uploadsQueued = 0, submitting = false;
+let stoppedCount = 0, wasRunning = false, uploadRunning = false, runsQueued = 0, queueHeld = false, uploadsQueued = 0, submitting = false;
+// A paused queue with nothing running starts what is pressed straight away; otherwise it joins the queue.
+const goLabel = running => running || (runsQueued && !queueHeld) ? 'Add to queue' : 'Generate';
 // Longer than a status takes, shorter than anyone would wait for one.
 const POLL_TIMEOUT = 8000;
 let serverStarted = null;
@@ -4892,6 +4913,7 @@ async function pollOnce() {
   wasRunning = running;
   const queue = data.queue, upq = data.upload.queue;
   runsQueued = queue.items.length;
+  queueHeld = !!queue.held;
   uploadsQueued = upq.items.length;
   // Waiting to be started, they don't start by themselves: not next, and not part of when this all ends.
   const ready = queue.items.filter(item => !item.later);
@@ -4909,14 +4931,14 @@ async function pollOnce() {
   uploadRunning = data.upload.running;
   busy = uploadRunning || uploadsQueued > 0 || (running && (data.progress.stage || [])[2] === 'Upload');
   safely(() => renderUpload(data.upload));
-  safely(() => renderQueue($('runQueue'), queue, queue.held ? 0 : queueAhead, nextUp));
+  safely(() => renderQueue($('runQueue'), queue, queue.held ? 0 : queueAhead, nextUp, !running && !queue.current));
   safely(() => renderStopped(data.stopped_runs));
   safely(() => renderFinished(queue.results, upq.results, data.made_now || []));
   $('dot').className = 'dot' + (running || nextUp ? ' on' : '');
   $('jumpDot').className = $('dot').className;
   safely(() => renderStrips(data));
   $('go').disabled = $('goStick').disabled = submitting;
-  if (!submitting) $('go').textContent = $('goStick').textContent = running || runsQueued ? 'Add to queue' : 'Generate';
+  if (!submitting) $('go').textContent = $('goStick').textContent = goLabel(running);
   workItem = running ? queue.current : nextUp ? queue.items[0] : null;
   lastStatus = data;
   showWork(running ? `${SIDE_NAMES[data.pipeline] || 'Shorts'}: ${(queue.current || {}).label || 'Starting'}`
@@ -5075,7 +5097,7 @@ async function startJob(url, later = false) {
   const body = await postForm(url, form, showSending);
   submitting = false;
   $('queuePending').hidden = true;
-  $('go').textContent = $('goStick').textContent = wasRunning || runsQueued ? 'Add to queue' : 'Generate';
+  $('go').textContent = $('goStick').textContent = goLabel(wasRunning);
   $('formNote').hidden = !body.continued;
   if (body.continued) $('formNote').textContent = `Continuing what was already paid for: ${body.continued}`;
   if (!body.ok) {

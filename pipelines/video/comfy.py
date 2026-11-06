@@ -226,9 +226,11 @@ class ComfyClient:
 
     def _wait_for(self, prompt_id):
         """Polls until the prompt finishes. Returns its history entry, or raises on error or timeout."""
-        started = answered = time.time()
+        answered = time.time()
+        # The limit counts from when ComfyUI starts this prompt, not from when it was queued behind others.
+        started = None
         quiet = False
-        while time.time() - started < self.timeout:
+        while started is None or time.time() - started < self.timeout:
             # Busy is not broken: before, one reply slower than 30s gave the image up while ComfyUI went on making it,
             # and the try after it waited behind, so neither was saved.
             try:
@@ -250,10 +252,19 @@ class ComfyClient:
                     raise RuntimeError("; ".join(details) or "ComfyUI stopped this clip.")
                 if status.get("completed", True):
                     return entry
+            elif started is None and self._is_running(prompt_id):
+                started = time.time()
             time.sleep(POLL_INTERVAL)
 
         self.cancel()
         raise RuntimeError(f"Timed out after {self.timeout}s.")
+
+    def _is_running(self, prompt_id):
+        try:
+            running = requests.get(f"{self.url}/queue", timeout=POLL_TIMEOUT).json().get("queue_running", [])
+        except (requests.RequestException, ValueError):
+            return False
+        return any(len(item) > 1 and item[1] == prompt_id for item in running)
 
     def cancel(self):
         """Cancels this run's clips, rendering or waiting. A render you started in ComfyUI yourself carries on."""

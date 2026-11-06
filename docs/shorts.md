@@ -154,7 +154,7 @@ She stays on screen for a random 3-6 seconds each time (`AVATAR_MIN_SECONDS`/`MA
 | `AVATAR_SIZE` | `736x1280` | Render size (portrait) |
 | `AVATAR_MIN_SECONDS` | `3` | Shortest time she stays on screen each time |
 | `AVATAR_MAX_SECONDS` | `6` | Longest time she stays on screen each time. A longer line cuts to stock footage while her voice carries on; a scene with no stock footage is covered whole, up to a 10 s render (or this value, if higher) |
-| `COMFYUI_TIMEOUT` | `1800` | Seconds to wait per clip |
+| `COMFYUI_TIMEOUT` | `3600` | Seconds to wait per clip, counted from when ComfyUI starts it |
 
 Each lip-synced clip is checked after rendering, on its worst second: if her mouth stops moving, her eyes go wide or her eye colour strays from the reference image, it is rendered again on a new seed, up to `AVATAR_LIPSYNC_ATTEMPTS` (default `3`) times, and the scene falls back to stock footage if it never passes. The limits come from the rejected videos in `output/shorts/bad/notes.md`. A clip whose mouth moves but doesn't match the words still passes: no check catches that yet. Because that is several renders per clip, a run can take longer when clips fail the check. The first check downloads a small face-tracking model to `assets/models/`; if the check can't run, the clip is kept and the log says so.
 

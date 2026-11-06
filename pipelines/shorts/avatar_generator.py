@@ -242,7 +242,7 @@ class AvatarGenerator:
         self.seed = seed
         self.url = (os.getenv("COMFYUI_URL") or DEFAULT_COMFYUI_URL).rstrip("/")
         self.workflow_path = os.getenv("COMFYUI_WORKFLOW") or os.path.join(os.getcwd(), DEFAULT_WORKFLOW)
-        self.timeout = int(os.getenv("COMFYUI_TIMEOUT") or 1800)
+        self.timeout = int(os.getenv("COMFYUI_TIMEOUT") or 3600)
         self.max_seconds = max(RENDER_CAP, on_screen_range()[1])
         self.lipsync_attempts = max(1, int(os.getenv("AVATAR_LIPSYNC_ATTEMPTS") or DEFAULT_LIPSYNC_ATTEMPTS))
         self.persona = os.getenv("AVATAR_PERSONA") or DEFAULT_PERSONA
@@ -555,9 +555,18 @@ class AvatarGenerator:
 
     def _wait_for(self, prompt_id):
         """Polls until the prompt finishes. Returns its history entry, or None on error/timeout."""
-        started = time.time()
-        while time.time() - started < self.timeout:
+        queued = time.time()
+        # The limit counts from when ComfyUI starts this prompt, not from when it was queued behind others.
+        started = None
+        while started is None or time.time() - started < self.timeout:
             entry = requests.get(f"{self.url}/history/{prompt_id}", timeout=30).json().get(prompt_id)
+            if not entry and started is None:
+                try:
+                    running = requests.get(f"{self.url}/queue", timeout=30).json().get("queue_running", [])
+                except (requests.RequestException, ValueError):
+                    running = []
+                if any(len(item) > 1 and item[1] == prompt_id for item in running):
+                    started = time.time()
             if entry:
                 status = entry.get("status", {})
                 if status.get("status_str") == "error":
@@ -566,7 +575,7 @@ class AvatarGenerator:
                             print(f"      ❌ {data.get('node_type')}: {data.get('exception_message', '').strip()}")
                     return None
                 if status.get("completed", True):
-                    print(f"      ⏱️ Rendered in {time.time() - started:.0f}s")
+                    print(f"      ⏱️ Rendered in {time.time() - (started or queued):.0f}s")
                     return entry
             time.sleep(POLL_INTERVAL)
 

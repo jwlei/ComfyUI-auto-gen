@@ -231,7 +231,10 @@ def plan_run(args, stages):
     video_model = comfy.video_model()
     # A clip can only start on the last one's final frame if an image is all it takes.
     start = args.start if takes["max_images"] == 1 else "image"
-    width, height = args.size or media.render_size(*(images[0].size if images else media.DEFAULT_SHAPE))
+    if args.size and media.size_problem(video_model, *args.size):
+        raise RuntimeError(media.size_problem(video_model, *args.size))
+    width, height = args.size or media.render_size(*(images[0].size if images else media.DEFAULT_SHAPE),
+                                                   media.most_pixels(video_model) or media.RENDER_AREA)
     llm = args.llm or planner.default_llm()
     if not args.direct and not planner.llm_configured(llm):
         raise RuntimeError(f"{llm} has no credentials: see .env.example.")

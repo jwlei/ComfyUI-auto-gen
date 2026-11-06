@@ -225,6 +225,11 @@ def generate():
     env, takes, error = chosen_workflow(request.form)
     if error:
         return {"ok": False, "error": error}, 400
+    size = option(flags, "--size")
+    if size and env.get("COMFYUI_WORKFLOW"):
+        problem = media.size_problem(workflow_model(env["COMFYUI_WORKFLOW"]), *map(int, size.split("x")))
+        if problem:
+            return {"ok": False, "error": problem}, 400
     chosen, error = form_options(request.form, takes)
     if error:
         return {"ok": False, "error": error}, 400

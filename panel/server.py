@@ -45,6 +45,7 @@ from pipelines.image.run_eta import RunEta as ImageEta
 from pipelines.shorts.paths import OUTPUT_DIR as SHORTS_READY, UPLOADED_DIR as SHORTS_UPLOADED
 from pipelines.shorts.run_eta import RunEta as ShortsEta
 from pipelines.video.paths import OUTPUT_DIR as VIDEO_OUTPUT
+from pipelines.video import media as video_media
 from pipelines.video import planner as video_planner
 from pipelines.video import comfy as video_comfy
 from pipelines.video.comfy import workflow_model
@@ -396,8 +397,16 @@ class JobQueue:
             item["later"] = True
         with self.lock:
             self._ensure_watcher()
+            if self.current and self.job.idle:
+                self._finish_current()
             item["id"] = self.next_id
             self.next_id += 1
+            # On hold and nothing running: this one starts now, and what was waiting stays on hold.
+            if self.held and self.job.idle and not self.current and not item.get("later") and not self.blocked():
+                self.held = bool(self.items)
+                item["waited"] = False
+                self._start(item)
+                return False
             # Ahead of those waiting to be started, which stay at the end.
             at = len(self.items) if item.get("later") else next((i for i, waiting in enumerate(self.items) if waiting.get("later")), len(self.items))
             self.items.insert(at, item)
@@ -498,6 +507,25 @@ class JobQueue:
             self._advance()
             self._save()
             return True
+
+    def run_now(self, item_id):
+        """Runs one waiting job from a paused queue, leaving the rest paused."""
+        with self.lock:
+            if self.current and self.job.idle:
+                self._finish_current()
+            if not self.held or not self.job.idle or self.current or self.blocked():
+                return "not_ready", None
+            item = next((item for item in self.items if item["id"] == item_id), None)
+            if not item:
+                return "not_found", None
+            self.items.remove(item)
+            item.pop("later", None)
+            self.held = bool(self.items)
+            self._save()
+            self._start(item)
+            if self.current is item:
+                return "started", None
+            return "failed", item.get("error", "Could not start the queued job.")
 
     def reorder(self, ids):
         """
@@ -1503,6 +1531,23 @@ def queue_start(lane, item_id):
     return {"ok": QUEUES[lane].start(item_id)}
 
 
+@app.route("/queue/<lane>/run-now/<int:item_id>", methods=["POST"])
+@password_required
+def queue_run_now(lane, item_id):
+    if lane not in QUEUES:
+        abort(404)
+    if lane != "run":
+        abort(404)
+    result, error = QUEUES[lane].run_now(item_id)
+    if result == "not_ready":
+        return {"ok": False, "error": "Run this is available only when the generation queue is paused and idle."}, 409
+    if result == "not_found":
+        return {"ok": False, "error": "That job is no longer in the queue."}, 404
+    if result == "failed":
+        return {"ok": False, "error": error}, 500
+    return {"ok": True}
+
+
 @app.route("/queue/<lane>/order", methods=["POST"])
 @password_required
 def queue_order(lane):
@@ -1875,7 +1920,10 @@ def workflows():
         # How long its video model makes a clip, for the form to say.
         paths = {w["name"]: w.get("path") for w in saved_workflows()}
         for w in found:
-            w["clip_seconds"] = video_planner.clip_seconds(workflow_model(paths.get(w["name"])))
+            model = workflow_model(paths.get(w["name"]))
+            w["clip_seconds"] = video_planner.clip_seconds(model)
+            if video_media.most_pixels(model):
+                w["most_pixels"] = video_media.most_pixels(model)
     return {"online": comfyui_online(), "workflows": found}
 
 

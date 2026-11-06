@@ -16,7 +16,7 @@ for (const [, id] of script.matchAll(/\$\('([A-Za-z]+)'\)/g)) assert(ids.has(id)
 
 function element(id) {
   return {
-    id, dataset: {}, style: {}, hidden: false, innerHTML: '', textContent: '', value: '', className: '', elements: [],
+    id, dataset: {}, style: {}, hidden: false, innerHTML: '', textContent: '', value: '', className: '', elements: [], options: [], selectedOptions: [{}],
     classList: { toggle() {}, add() {}, remove() {}, contains: () => false },
     addEventListener() {}, querySelectorAll: selector => (selector === 'input' ? [element('low'), element('high')] : []), querySelector: () => element('part'), setAttribute() {},
     getBoundingClientRect: () => ({ top: 0, bottom: 100 }), appendChild() {}, offsetHeight: 90, insertAdjacentHTML() {}, showModal() { this.open = true; }, close() { this.open = false; }, scrollTo() {},
@@ -161,6 +161,9 @@ for (const size of ['640x352', '864x480', '960x544', '1280x736', '352x640', '480
 const filmSizes = html.slice(html.indexOf('id="sizePreset"'), html.indexOf('id="size"'));
 assert.strictEqual([...filmSizes.matchAll(/<option value="(\d+)x(\d+)">/g)].filter(m => +m[1] * +m[2] > 1280 * 736).length, 0);
 els.sizePreset = element('sizePreset');
+els.sizePreset.options = [{ value: '' }, { value: '960x544' }, { value: '1280x736' }, { value: 'custom' }];
+Object.defineProperty(els.sizePreset, 'selectedOptions', { get() { return [els.sizePreset.options.find(o => o.value === els.sizePreset.value) || {}]; } });
+els.videoWorkflow = element('videoWorkflow');
 els.size = element('size');
 els.sizePreset.value = '352x640';
 run('syncSize()');
@@ -173,6 +176,13 @@ assert.strictEqual(els.size.value, '352x640', 'and starts from the last one');
 els.sizePreset.value = '';
 run('syncSize()');
 assert.strictEqual(els.size.value, '', 'the default sends no size, so it follows the image');
+run("workflowMost = { capped: 960 * 544 }; $('videoWorkflow').value = 'capped'");
+els.sizePreset.value = '1280x736';
+run('syncSize()');
+assert(els.sizePreset.options.find(o => o.value === '1280x736').disabled, 'a size over the workflow limit is off');
+assert(!els.sizePreset.options.find(o => o.value === '960x544').disabled);
+assert.strictEqual(els.size.value, '', 'and a chosen one falls back to the default');
+run("workflowMost = {}");
 
 // The film length range comes from the server, and goes down to one clip.
 assert(/id="duration"[^>]*min="5"[^>]*max="600"[^>]*step="5"/.test(html));
@@ -1038,6 +1048,11 @@ assert(els.comfyFacts.innerHTML.includes('Generating the image · 3/8') && els.c
   await run('poll()');
   assert.strictEqual(els.go.textContent, 'Add to queue');
   assert.strictEqual(els.goStick.textContent, 'Add to queue');
+  // Paused with nothing running, it starts at once.
+  context.fetch = answer({ ...quiet, server_started: 1, queue: { ...quiet.queue, held: true, items: [{ id: 1, label: 'x', estimate: 60 }] } });
+  await run('poll()');
+  assert.strictEqual(els.go.textContent, 'Generate');
+  assert.strictEqual(els.goStick.textContent, 'Generate');
 
   // Signed out: the page goes to the login rather than sit there stale.
   context.fetch = answer({}, { redirected: true });

@@ -346,6 +346,18 @@ class PartsTest(unittest.TestCase):
         self.assertAlmostEqual(width / height, 4 / 3, delta=0.03)
         self.assertAlmostEqual(width * height / (1280 * 736), 1, delta=0.05)
 
+    def test_a_model_with_a_pixel_limit_gets_sizes_within_it(self):
+        most = media.most_pixels("minimax_h3")
+        self.assertEqual(most, 960 * 544)
+        for shape in ((1280, 736), (736, 1280), (4032, 3024), (1000, 1000)):
+            width, height = media.render_size(*shape, most)
+            self.assertLessEqual(width * height, most)
+            self.assertEqual((width % 32, height % 32), (0, 0))
+        self.assertEqual(media.render_size(1280, 736, most), (960, 544))
+        self.assertIsNone(media.size_problem("minimax_h3", 960, 544))
+        self.assertIn("megapixels", media.size_problem("minimax_h3", 1280, 736))
+        self.assertIsNone(media.size_problem(None, 1280, 736))
+
 
 class PlanTest(unittest.TestCase):
     def test_durations(self):
@@ -884,6 +896,24 @@ class BusyComfyTest(unittest.TestCase):
         with mock.patch.object(comfy.requests, "get", side_effect=comfy.requests.ConnectionError("refused")),                 mock.patch.object(comfy.time, "time", lambda: now[0]),                 mock.patch.object(comfy.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds)):
             with self.assertRaisesRegex(RuntimeError, "has not answered for 30 minutes"):
                 self.client()._wait_for("p1")
+    def test_the_limit_counts_from_when_it_starts_running(self):
+        now = [0.0]
+        waiting = mock.Mock(json=lambda: {"queue_running": [[0, "other", {}, {}]]})
+        running = mock.Mock(json=lambda: {"queue_running": [[0, "p1", {}, {}]]})
+        empty = mock.Mock(json=lambda: {})
+
+        def get(url, **kwargs):
+            if "/history/" in url:
+                return empty
+            return waiting if now[0] < 7200 else running
+
+        with mock.patch.object(comfy.requests, "get", get), mock.patch.object(comfy.ComfyClient, "cancel") as cancel, \
+                mock.patch.object(comfy.time, "time", lambda: now[0]), \
+                mock.patch.object(comfy.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds)):
+            with self.assertRaisesRegex(RuntimeError, "Timed out after 3600s"):
+                self.client()._wait_for("p1")
+        self.assertGreaterEqual(now[0], 7200 + 3600, "two hours queued behind another did not count")
+        cancel.assert_called_once()
 
 
 if __name__ == "__main__":
