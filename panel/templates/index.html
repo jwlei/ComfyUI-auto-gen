@@ -246,10 +246,12 @@
     .upscale-dialog select { padding-right: 8px; }
     .upscale-note { color: #aaa; font-size: .72rem; font-variant-numeric: tabular-nums; }
   .upscale-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: .78rem; font-weight: 600; }
-  .upscale-dialog [data-method].active { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); color: #fff; }
   .upscale-dialog #upscaleGo { background: var(--accent); border-color: var(--accent); color: #fff; }
   .upscale-dialog .upscale-row button { flex: 1 1 0; min-width: 0; }
-  .upscale-dialog select[hidden] { display: none; }
+  .upscale-dialog select[hidden], .upscale-row[hidden], .upscale-methods button[hidden] { display: none; }
+  .upscale-methods { display: flex; flex-direction: column; gap: 6px; }
+  .upscale-methods button { text-align: center; }
+  dialog.upscale-settings { inset: 0; margin: auto; width: min(320px, 90vw); height: fit-content; }
   .viewer-head { position: relative; z-index: 0; width: 100%; }
   dialog.viewer #viewerImage { position: relative; z-index: 1; }
   .viewer-head .viewer-title { padding: 0 72px; }
@@ -1129,7 +1131,7 @@
     <div class="workflow-in">
       <label for="videoWorkflow">Workflow</label>
       <select id="videoWorkflow" name="workflow">
-        <option value="">Built-in LTX</option>
+        <option value="">LTX23_I2V_T2V</option>
       </select>
       <div class="hint" id="videoWorkflowHint">The image boxes below change to what it takes.</div>
       <div class="hint centred-hint" id="videoWorkflowOff" hidden>ComfyUI is off: this is the last list.</div>
@@ -1540,9 +1542,17 @@
     </div>
   </div>
 </dialog>
-<dialog id="viewerUpscaleBar" class="panel-dialog upscale-dialog" aria-label="Upscale to twice the size">
-  <div class="upscale-head"><span id="upscaleTitle">Upscale 2×</span><span class="upscale-note" id="upscaleNote"></span></div>
-  <div class="upscale-row" id="filmUpscaleRow" hidden>
+<dialog id="viewerUpscaleBar" class="panel-dialog upscale-dialog" aria-label="Upscale">
+  <div class="upscale-head"><span>Upscale</span><span class="upscale-note" id="upscaleNote"></span></div>
+  <div class="upscale-methods" id="upscaleMethods">
+    <button type="button" data-method="fast" data-for="image" title="Superscale-SP: seconds, and adds no new detail">Fast</button>
+    <button type="button" data-method="seedvr2" data-for="image" title="SeedVR2: minutes, and draws finer detail">SeedVR2</button>
+    <button type="button" data-method="vsr" data-for="film" title="NVIDIA RTX Video Super Resolution">RTX VSR</button>
+  </div>
+</dialog>
+<dialog id="upscaleSettings" class="panel-dialog upscale-dialog upscale-settings" aria-label="Upscale settings">
+  <div class="upscale-head"><span id="upscaleTitle">Upscale</span><span class="upscale-note" id="upscaleSettingsNote"></span></div>
+  <div class="upscale-row" data-show="vsr">
     <select id="filmUpscaleScale" aria-label="Scale" title="How many times bigger the film is made.">
       <option value="1.5">1.5×</option><option value="2" selected>2×</option><option value="3">3×</option><option value="4">4×</option>
     </select>
@@ -1551,19 +1561,19 @@
       <option value="STREAMING_ULTRA">Streaming · ultra</option><option value="ULTRA">Ultra</option>
     </select>
   </div>
-  <div class="upscale-row" id="imageUpscaleRow">
-    <button type="button" data-method="fast" title="Superscale-SP: seconds, and adds no new detail">Fast</button>
-    <button type="button" data-method="seedvr2" title="SeedVR2: minutes, and draws finer detail">SeedVR2</button>
+  <div class="upscale-row" data-show="fast">
     <select id="viewerUpscaleStrength" aria-label="Upscaler mix" title="How much of the upscaler's result is used, the rest a plain resize. Lower tones down texture the upscaler invents.">
       <option value="1">Upscaler 100%</option><option value="0.75">Upscaler 75%</option><option value="0.5">Upscaler 50%</option>
     </select>
-    <select id="viewerUpscaleSize" aria-label="Resolution" title="The shorter side SeedVR2 makes it, as in the Krea 2 workflow." hidden>
+  </div>
+  <div class="upscale-row" data-show="seedvr2">
+    <select id="viewerUpscaleSize" aria-label="Resolution" title="The shorter side SeedVR2 makes it, as in the Krea 2 workflow.">
       <option value="0">2×</option><option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">4K</option>
     </select>
   </div>
   <div class="upscale-row">
     <button type="button" id="upscaleCancel">Cancel</button>
-    <button type="button" id="upscaleGo" title="Adds it to the queue as a new image in this set">Add to queue</button>
+    <button type="button" id="upscaleGo" title="Adds it to the queue">Add to queue</button>
   </div>
 </dialog>
 
@@ -2059,7 +2069,7 @@ async function loadVideoWorkflows() {
   if (select.dataset.key === key) return;
   const wanted = select.dataset.key ? select.value : startingWorkflow('video', rememberedVideoWorkflow);
   select.dataset.key = key;
-  select.innerHTML = '<option value="">Built-in LTX</option>' + data.workflows.map(w =>
+  select.innerHTML = '<option value="">LTX23_I2V_T2V</option>' + data.workflows.map(w =>
     `<option value="${esc(w.name)}">${esc(w.label)}</option>`).join('');
   if (data.workflows.some(w => w.name === wanted)) select.value = wanted;
   workflowTakes = Object.fromEntries(data.workflows.map(w => [w.name, w.takes]));
@@ -2242,7 +2252,7 @@ $('addMedia').addEventListener('click', () => {
 });
 
 // --- Settings (the gear in the header) ---
-const SETTINGS_BUILTIN = { shorts: 'LTX23_I2V_T2V_shorts', video: 'Built-in LTX', image: 'Automatic' };
+const SETTINGS_BUILTIN = { shorts: 'LTX23_I2V_T2V_shorts', video: 'LTX23_I2V_T2V', image: 'Automatic' };
 const settingsDialog = $('settingsDialog');
 function settingsNote(text, bad) {
   $('settingsNote').hidden = !text;
@@ -2388,7 +2398,6 @@ function confirmTap(id, label) {
     $(id).classList.remove('armed');
     return true;
   }
-  label_.textContent = 'Tap again to confirm';
   $(id).classList.add('armed');
   armed[id] = setTimeout(() => { delete armed[id]; label_.textContent = label; $(id).classList.remove('armed'); }, 4000);
   return false;
@@ -3508,64 +3517,66 @@ $('viewerVariations').addEventListener('click', () => {
   closeViewer();
   sameAgain(id, position);
 });
+let upscaleMethod = 'fast';
 $('viewerUpscale').addEventListener('click', () => {
   const box = $('viewerUpscaleBar');
   if (box.open) return;
   const film = !!(viewing && viewing.film);
-  $('filmUpscaleRow').hidden = !film;
-  $('imageUpscaleRow').hidden = film;
+  for (const b of box.querySelectorAll('[data-for]')) b.hidden = (b.dataset.for === 'film') !== film;
   const img = $('viewerImage'), w = img.naturalWidth, h = img.naturalHeight;
-  $('upscaleTitle').textContent = film ? 'Upscale with RTX VSR' : 'Upscale 2×';
-  $('upscaleNote').textContent = film ? ($('viewerRes').textContent || '') : w ? `${w} × ${h}  →  ${w * 2} × ${h * 2}` : '2× the size';
-  const shorter = Math.min(w, h);
-  for (const o of $('viewerUpscaleSize').options) o.disabled = +o.value > 0 && +o.value <= shorter;
-  $('viewerUpscaleSize').value = '0';
-  setUpscaleMethod('fast');
+  $('upscaleNote').textContent = film ? ($('viewerRes').textContent || '') : w ? `${w} × ${h}` : '';
   box.showModal();
   // Over the buttons: the Download/Close/Delete row's width and bottom edge, growing upwards for its extra rows.
   const actions = $('viewerDownload').parentElement.getBoundingClientRect();
   Object.assign(box.style, { margin: '0', right: 'auto', bottom: 'auto', height: 'auto', left: `${actions.left}px`, width: `${actions.width}px` });
   box.style.top = `${actions.bottom - box.getBoundingClientRect().height}px`;
 });
-function setUpscaleMethod(method) {
-  $('viewerUpscaleBar').dataset.method = method;
-  for (const b of document.querySelectorAll('#viewerUpscaleBar [data-method]')) b.classList.toggle('active', b.dataset.method === method);
-  $('viewerUpscaleStrength').hidden = method !== 'fast';
-  $('viewerUpscaleSize').hidden = method !== 'seedvr2';
+function openUpscaleSettings(method) {
+  upscaleMethod = method;
+  const film = method === 'vsr', img = $('viewerImage'), w = img.naturalWidth, h = img.naturalHeight;
+  $('upscaleTitle').textContent = { fast: 'Fast upscale 2×', seedvr2: 'SeedVR2 upscale', vsr: 'RTX VSR upscale' }[method];
+  $('upscaleSettingsNote').textContent = film ? ($('viewerRes').textContent || '') : w ? `${w} × ${h}` : '';
+  for (const row of $('upscaleSettings').querySelectorAll('[data-show]')) row.hidden = row.dataset.show !== method;
+  const shorter = Math.min(w, h);
+  for (const o of $('viewerUpscaleSize').options) o.disabled = +o.value > 0 && +o.value <= shorter;
+  $('viewerUpscaleSize').value = '0';
+  $('upscaleSettings').showModal();
 }
-// A tap outside it, on the dimmed viewer, closes it.
-$('viewerUpscaleBar').addEventListener('click', e => {
+// A tap outside either dialog, on the dimmed viewer, closes it.
+for (const id of ['viewerUpscaleBar', 'upscaleSettings']) $(id).addEventListener('click', e => {
   const r = e.currentTarget.getBoundingClientRect();
   if (e.target === e.currentTarget && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) e.currentTarget.close();
 });
-$('viewerUpscaleBar').addEventListener('click', async e => {
+$('viewerUpscaleBar').addEventListener('click', e => {
   const pick = e.target.closest && e.target.closest('button[data-method]');
-  if (pick) { setUpscaleMethod(pick.dataset.method); return; }
-  if (e.target.closest && e.target.closest('#upscaleCancel')) { $('viewerUpscaleBar').close(); return; }
+  if (!pick) return;
+  $('viewerUpscaleBar').close();
+  openUpscaleSettings(pick.dataset.method);
+});
+$('upscaleSettings').addEventListener('click', async e => {
+  if (e.target.closest && e.target.closest('#upscaleCancel')) { $('upscaleSettings').close(); return; }
   const button = e.target.closest && e.target.closest('#upscaleGo');
   if (!button || !viewing) return;
-  if (viewing.film) {
-    let body;
-    const query = `scale=${encodeURIComponent($('filmUpscaleScale').value)}&quality=${encodeURIComponent($('filmUpscaleQuality').value)}`;
-    try { body = await (await fetch(`/films/${encodeURIComponent(viewing.name)}/upscale?${query}`, { method: 'POST' })).json(); }
-    catch (err) { body = { error: 'Could not reach the panel. Try again.' }; }
+  const done = body => {
     if (!body.ok) { alert(body.error || 'Could not upscale it.'); return; }
-    $('viewerUpscaleBar').close();
+    $('upscaleSettings').close();
     $('viewerUpscale').textContent = body.queued ? 'Queued' : 'Upscaling…';
     setTimeout(() => { $('viewerUpscale').textContent = 'Upscale'; }, 2500);
     poll();
+  };
+  let body;
+  if (viewing.film) {
+    const query = `scale=${encodeURIComponent($('filmUpscaleScale').value)}&quality=${encodeURIComponent($('filmUpscaleQuality').value)}`;
+    try { body = await (await fetch(`/films/${encodeURIComponent(viewing.name)}/upscale?${query}`, { method: 'POST' })).json(); }
+    catch (err) { body = { error: 'Could not reach the panel. Try again.' }; }
+    done(body);
     return;
   }
-  const { id, position } = viewing, method = $('viewerUpscaleBar').dataset.method;
-  const query = method === 'fast' ? `?method=fast&strength=${encodeURIComponent($('viewerUpscaleStrength').value)}` : `?method=seedvr2&resolution=${encodeURIComponent($('viewerUpscaleSize').value)}`;
-  let body;
+  const { id, position } = viewing;
+  const query = upscaleMethod === 'fast' ? `?method=fast&strength=${encodeURIComponent($('viewerUpscaleStrength').value)}` : `?method=seedvr2&resolution=${encodeURIComponent($('viewerUpscaleSize').value)}`;
   try { body = await (await fetch(`/image-runs/${encodeURIComponent(id)}/upscale/${position}${query}`, { method: 'POST' })).json(); }
-  catch (e) { body = { error: 'Could not reach the panel. Try again.' }; }
-  if (!body.ok) { alert(body.error || 'Could not upscale it.'); return; }
-  $('viewerUpscaleBar').close();
-  $('viewerUpscale').textContent = body.queued ? 'Queued' : 'Upscaling…';
-  setTimeout(() => { $('viewerUpscale').textContent = 'Upscale'; }, 2500);
-  poll();
+  catch (err) { body = { error: 'Could not reach the panel. Try again.' }; }
+  done(body);
 });
 // --- Edit: the Image side with Qwen-Image 2.1's edit workflow, for changing painted parts, expanding, or editing an image ---
 const EDIT_WORKFLOW = 'image_Qwen21_edit_turbo.json';
@@ -3829,7 +3840,7 @@ function closeViewer() {
   if ($('imageViewer').open) $('imageViewer').close();
 }
 $('imageViewer').addEventListener('close', () => {
-  if ($('viewerUpscaleBar').open) $('viewerUpscaleBar').close();
+  for (const id of ['viewerUpscaleBar', 'upscaleSettings']) if ($(id).open) $(id).close();
   viewing = null;
   $('viewerImage').removeAttribute('src');
   $('viewerVideo').pause();

@@ -10,7 +10,7 @@ command line.
 image + "a storm rolls in over the harbour"
   → Gemini or Claude writes the shot list (one request for the whole film)
   → ComfyUI renders each shot (LTX-2.3: 5-10 seconds a clip, MiniMax H3: 5-15, Wan: 3-5)
-  → ffmpeg joins the clips into output/<title>_<workflow>.mp4 (the workflow without video_; ltx for the built-in)
+  → ffmpeg joins the clips into output/<title>_<workflow>.mp4 (the workflow without video_; LTX23_I2V_T2V for the built-in)
   → optionally, YouTube
 ```
 
@@ -95,13 +95,13 @@ numbered before the audio clips. Every prompt has to name each one, or the missi
 
 | Video model | A clip | Why |
 |---|---|---|
-| LTX-2.3 (Built-in LTX, and any other) | 5-10 s | About as long as it holds up. |
+| LTX-2.3 (LTX23_I2V_T2V, and any other) | 5-10 s | About as long as it holds up. |
 | MiniMax H3 | 5-15 s | It was trained on 124-362 frames at 24 fps. |
 | Wan 2.2 | 3-5 s | It was trained on 81 frames at 16 fps. |
 
 The film length under the prompt says how many clips that comes to on the workflow you chose.
 
-A workflow with one image input, like Built-in LTX, renders from image 1 alone. Only the LLM sees image 2 there, so
+A workflow with one image input, like LTX23_I2V_T2V, renders from image 1 alone. Only the LLM sees image 2 there, so
 it reaches the clips as words in the prompts: expect a description of that place or person, not a copy of it.
 A reference workflow gives image 2 to every clip.
 
@@ -203,7 +203,7 @@ Ctrl+C cancels the clip in ComfyUI, and `--resume` continues. The plan is in `ru
 ## Using another workflow
 
 **Workflow**, at the top of the form, lists what you saved in ComfyUI, except those ending in `_shorts`, which are tuned for yt-auto-shorts, and those starting `image_`, which are for [Image](image.md). The panel converts the one you pick into API
-format when it lists them, and finds its prompt, image, length and size inputs from the graph. **Built-in LTX**
+format when it lists them, and finds its prompt, image, length and size inputs from the graph. **LTX23_I2V_T2V**
 stays the default and works as before.
 
 The form asks for what the chosen workflow can take:

@@ -21,7 +21,7 @@ from pipelines.video.comfy import ComfyClient
 from pipelines.video.run_state import STAGES, RunState, list_runs
 
 # The built-in workflow's short name in a film's file name.
-BUILT_IN = "ltx"
+BUILT_IN = "LTX23_I2V_T2V"
 
 CLIP_ATTEMPTS = 2
 # Clip render time per second of video, from the yt-auto-shorts runs on this GPU.

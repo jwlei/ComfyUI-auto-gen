@@ -1971,6 +1971,10 @@ def connect_tailscale(port):
 
 
 def main():
+    # Started with its output thrown away (the restart does), Python writes in the console's code page, which has no emoji.
+    for stream in (sys.stdout, sys.stderr):
+        if stream and hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     logging.getLogger("werkzeug").addFilter(_QuietPolling())
 
     parser = argparse.ArgumentParser(description="The ComfyUI auto-gen panel.")
