@@ -3537,10 +3537,10 @@ $('viewerUpscale').addEventListener('click', () => {
   $('upscaleNote').textContent = film ? ($('viewerRes').textContent || '') : w ? `${w} × ${h}` : '';
   box.classList.remove('closing');
   box.showModal();
-  // Over the buttons: the Download/Close/Delete row's width and bottom edge, growing upwards for its extra rows.
-  const actions = $('viewerDownload').parentElement.getBoundingClientRect();
-  Object.assign(box.style, { margin: '0', right: 'auto', bottom: 'auto', height: 'auto', left: `${actions.left}px`, width: `${actions.width}px` });
-  box.style.top = `${actions.bottom - box.getBoundingClientRect().height}px`;
+  // Above the Upscale button, its width, growing upwards out of it like the footer's side menu.
+  const anchor = $('viewerUpscale').getBoundingClientRect();
+  Object.assign(box.style, { margin: '0', right: 'auto', bottom: 'auto', height: 'auto', left: `${anchor.left}px`, width: `${Math.max(anchor.width, 150)}px` });
+  box.style.top = `${anchor.top - 6 - box.getBoundingClientRect().height}px`;
 });
 function openUpscaleSettings(method) {
   upscaleMethod = method;
