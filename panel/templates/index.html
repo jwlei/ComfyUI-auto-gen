@@ -3537,10 +3537,11 @@ $('viewerUpscale').addEventListener('click', () => {
   $('upscaleNote').textContent = film ? ($('viewerRes').textContent || '') : w ? `${w} × ${h}` : '';
   box.classList.remove('closing');
   box.showModal();
-  // Above the Upscale button, its width, growing upwards out of it like the footer's side menu.
-  const anchor = $('viewerUpscale').getBoundingClientRect();
-  Object.assign(box.style, { margin: '0', right: 'auto', bottom: 'auto', height: 'auto', left: `${anchor.left}px`, width: `${Math.max(anchor.width, 150)}px` });
-  box.style.top = `${anchor.top - 6 - box.getBoundingClientRect().height}px`;
+  // Over the parent's buttons: as wide as its button bar, on the parent's bottom edge, and at least as tall as the bar, growing upwards for more rows.
+  const parent = $('imageViewer').getBoundingClientRect(), bar = document.querySelector('#imageViewer .viewer-bar').getBoundingClientRect();
+  const barTop = Math.min(bar.top, $('viewerDownload').getBoundingClientRect().top);
+  Object.assign(box.style, { margin: '0', right: 'auto', bottom: 'auto', height: 'auto', left: `${bar.left}px`, width: `${bar.width}px`, minHeight: `${parent.bottom - barTop}px` });
+  box.style.top = `${parent.bottom - box.getBoundingClientRect().height}px`;
 });
 function openUpscaleSettings(method) {
   upscaleMethod = method;
