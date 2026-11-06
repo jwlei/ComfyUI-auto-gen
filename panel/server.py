@@ -15,6 +15,7 @@ any host but 127.0.0.1: an open instance lets anyone spend your API quota and GP
 import argparse
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -34,6 +35,7 @@ import websocket
 from dotenv import load_dotenv
 from flask import (Flask, abort, has_request_context, redirect, render_template, request,
                    send_file, session, url_for)
+from werkzeug.exceptions import NotFound
 
 from core import batch_stop, eta_keys, workflow_options
 from core.paths import LOGS_DIR, PROJECT_ROOT, SAVED_WORKFLOWS_DIR, comfyui_client_id
@@ -392,11 +394,26 @@ class JobQueue:
 
     def add(self, item):
         """Starts the job if nothing is ahead of it, otherwise queues it. Returns True if it is queued."""
+        edit_id = request.form.get("queue_edit_id", type=int) if has_request_context() else None
+        edit_token = request.form.get("queue_edit_token") if edit_id else None
         # Generate's "Start later": it waits in the queue until it's started.
         if has_request_context() and request.path.startswith("/generate/") and request.form.get("start_later"):
             item["later"] = True
         with self.lock:
             self._ensure_watcher()
+            if edit_id is not None:
+                old = next((entry for entry in self.items if entry["id"] == edit_id), None)
+                if not old or not edit_token or old.get("edit_token") != edit_token or old.get("pipeline") != item.get("pipeline"):
+                    item["error"] = "That queued job changed or is no longer being edited. Open its setup again."
+                    return True
+                self.items.remove(old)
+                item["id"] = edit_id
+                item["waited"] = True
+                item.pop("later", None)
+                self.items.insert(0, item)
+                self._save()
+                self._advance()
+                return item in self.items
             if self.current and self.job.idle:
                 self._finish_current()
             item["id"] = self.next_id
@@ -410,6 +427,8 @@ class JobQueue:
             # Ahead of those waiting to be started, which stay at the end.
             at = len(self.items) if item.get("later") else next((i for i, waiting in enumerate(self.items) if waiting.get("later")), len(self.items))
             self.items.insert(at, item)
+            if self.job is job and self.job.running and batch_stop.requested():
+                self.held = True
             self._advance()
             item["waited"] = item in self.items
             self._save()
@@ -496,14 +515,40 @@ class JobQueue:
             self._advance()
 
     def start(self, item_id):
-        """Starts a job that was waiting to be: it goes next, ahead of the rest."""
+        """Starts a pending job: at the end of the queue, or right away when nothing is queued ahead of it."""
         with self.lock:
             item = next((item for item in self.items if item["id"] == item_id), None)
             if not item:
                 return False
+            if item.get("edit_token"):
+                return False
             item.pop("later", None)
             self.items.remove(item)
-            self.items.insert(0, item)
+            ahead = any(not waiting.get("later") for waiting in self.items)
+            # Ahead of those still pending, which stay at the end.
+            at = next((i for i, waiting in enumerate(self.items) if waiting.get("later")), len(self.items))
+            self.items.insert(at, item)
+            # On hold with nothing ahead of it, this is what starts; the pending ones stay on hold.
+            if self.held and not ahead and self.job.idle and not self.current and not self.blocked():
+                self.held = len(self.items) > 1
+                self.items.remove(item)
+                item["waited"] = False
+                self._save()
+                self._start(item)
+                return True
+            self._advance()
+            self._save()
+            return True
+
+    def pause(self, item_id):
+        """Takes a waiting job out of the active queue: it goes to the end, waiting to be started."""
+        with self.lock:
+            item = next((item for item in self.items if item["id"] == item_id), None)
+            if not item:
+                return False
+            item["later"] = True
+            self.items.remove(item)
+            self.items.append(item)
             self._advance()
             self._save()
             return True
@@ -518,6 +563,8 @@ class JobQueue:
             item = next((item for item in self.items if item["id"] == item_id), None)
             if not item:
                 return "not_found", None
+            if item.get("edit_token"):
+                return "not_ready", None
             self.items.remove(item)
             item.pop("later", None)
             self.held = bool(self.items)
@@ -579,6 +626,7 @@ class JobQueue:
         with self.lock:
             self._advance()
             public = lambda item: {**{key: item.get(key) for key in ("id", "label", "detail", "estimate", "videos", "pipeline", "later")},
+                                   "editing": bool(item.get("edit_token")),
                                    "facts": run_facts(item)}
             return {"items": [public(item) for item in self.items],
                     "current": public(self.current) if self.current else None,
@@ -1531,6 +1579,232 @@ def queue_start(lane, item_id):
     return {"ok": QUEUES[lane].start(item_id)}
 
 
+@app.route("/queue/<lane>/pause/<int:item_id>", methods=["POST"])
+@password_required
+def queue_pause(lane, item_id):
+    if lane not in QUEUES:
+        abort(404)
+    return {"ok": QUEUES[lane].pause(item_id)}
+
+
+def legacy_queue_form(item):
+    """Reconstruct forms for generation jobs saved before form snapshots were kept."""
+    argv, env = item.get("argv") or [], item.get("env") or {}
+    pipeline = item.get("pipeline")
+    if pipeline not in ("video", "image") or "--resume" in argv or not any(
+        name in argv for name in ("pipelines.video.main", "pipelines.image.main")
+    ):
+        return None
+    flag = lambda name, default="": argv[argv.index(name) + 1] if name in argv[:-1] else default
+    workflow = next((w["name"] for w in saved_workflows() if env.get("COMFYUI_WORKFLOW") and w.get("path")
+                     and os.path.normcase(os.path.abspath(w["path"])) == os.path.normcase(os.path.abspath(env["COMFYUI_WORKFLOW"]))), "")
+    if env.get("COMFYUI_WORKFLOW") and not workflow:
+        return None
+    form = {"workflow": workflow, "prompt": item.get("prompt") or "", "seed": flag("--seed"),
+            "prompt_mode": "direct" if "--direct" in argv else "llm", "llm": flag("--llm"),
+            "size": flag("--size"), "review": "1" if "--plan-only" in argv or "--enhance-only" in argv else "",
+            "try_first": "1" if "--first-only" in argv else ""}
+    files = {}
+    if pipeline == "video":
+        form.update(duration=flag("--duration", "120"), clip_seconds=flag("--clip-seconds"), start=flag("--start", "chain"),
+                    audio_mode="file" if "--audio" in argv else "text" if "--narration" in argv else "none",
+                    narration=flag("--narration"), voice=flag("--voice"))
+        images = ([item["image"]] if item.get("image") else []) + [
+            argv[i + 1] for i, value in enumerate(argv[:-1]) if value == "--reference"]
+        for i, path in enumerate(images):
+            files["image" if not i else f"image_{i + 1}"] = path
+        image_roles = [argv[i + 1] for i, value in enumerate(argv[:-1]) if value == "--image-role"]
+        form.update({f"image_{i + 2}_role": role for i, role in enumerate(image_roles)})
+        if flag("--audio"):
+            files["audio_file"] = flag("--audio")
+        for kind in ("video", "audio"):
+            for i, value in enumerate(argv[:-1]):
+                if value == f"--ref-{kind}":
+                    number = sum(name.startswith("ref_media") for name in files) + 1
+                    name = "ref_media" if number == 1 else f"ref_media_{number}"
+                    files[name] = argv[i + 1]
+                    if i + 3 < len(argv) and argv[i + 2] == f"--ref-{kind}-role":
+                        form[name + "_role"] = argv[i + 3]
+        options = json.loads(env.get("COMFYUI_OPTIONS") or "{}")
+    else:
+        if "--areas" in argv:
+            return None
+        form.update(count=flag("--count", "1"), image_mode="compose" if "--compose" in argv else "expand" if "--expand" in argv else "edit",
+                    aspect=flag("--aspect"), megapixels=flag("--megapixels"), detail=flag("--reference-detail"),
+                    transparent="1" if "--transparent" in argv else "")
+        for i, path in enumerate(argv[index + 1] for index, value in enumerate(argv[:-1]) if value == "--image"):
+            files["image" if not i else f"image_{i + 1}"] = path
+        options = dict(argv[i + 1].split("=", 1) for i, value in enumerate(argv[:-1]) if value == "--option" and "=" in argv[i + 1])
+        if "--expand" in argv:
+            for side, value in zip(("left", "top", "right", "bottom"), flag("--expand").split(",")):
+                form[f"expand_{side}"] = value
+            form["expand_units"] = "pixels"
+    return form, files, options
+
+
+def upscale_queue_settings(item):
+    argv = item.get("argv") or []
+    flag = lambda name, default="": argv[argv.index(name) + 1] if name in argv[:-1] else default
+    if "pipelines.image.upscale" in argv and item.get("pipeline") == "image":
+        return {"kind": "image_upscale", "method": flag("--method", "seedvr2"),
+                "strength": flag("--strength", "1"), "resolution": flag("--resolution", "0")}
+    if "pipelines.video.upscale" in argv and item.get("pipeline") == "video":
+        return {"kind": "video_upscale", "scale": flag("--scale", "2"), "quality": flag("--quality")}
+    return None
+
+
+@app.route("/queue/run/edit/<int:item_id>", methods=["POST"])
+@password_required
+def queue_edit(item_id):
+    with run_queue.lock:
+        item = next((entry for entry in run_queue.items if entry["id"] == item_id), None)
+        if not item:
+            return {"ok": False, "error": "That job has already started or is no longer queued."}, 409
+        upscale = upscale_queue_settings(item)
+        if item.get("resume") and not upscale:
+            return {"ok": False, "error": "Setup for a continued run cannot be edited here. The job was not changed."}, 409
+        if upscale:
+            item["later"] = True
+            item["edit_token"] = secrets.token_urlsafe(24)
+            run_queue._save()
+            return {"ok": True, "id": item_id, "token": item["edit_token"], "pipeline": item.get("pipeline"),
+                    "upscale": upscale}
+        restored = (item["form"], item.get("form_files", {}), {}) if item.get("form") else legacy_queue_form(item)
+        if not restored:
+            return {"ok": False, "error": "Setup is unavailable for this job. It remains in the queue unchanged."}, 409
+        form, files, options = restored
+        missing = [name for name, path in files.items() if not os.path.isfile(path)]
+        if missing:
+            return {"ok": False, "error": "A queued input file is missing. The job was not changed."}, 409
+        item["later"] = True
+        item["edit_token"] = secrets.token_urlsafe(24)
+        run_queue._save()
+        return {"ok": True, "id": item_id, "token": item["edit_token"], "pipeline": item.get("pipeline"),
+                "form": form, "files": list(files), "filenames": {name: os.path.basename(path) for name, path in files.items()}, "options": options}
+
+
+@app.route("/queue/run/edit/<int:item_id>/upscale", methods=["POST"])
+@password_required
+def queue_edit_upscale(item_id):
+    from panel import image as image_panel, video as video_panel
+    from PIL import Image
+
+    data = request.get_json(silent=True) or {}
+    token = data.get("token")
+    if not isinstance(token, str):
+        return {"ok": False, "error": "That editing session expired. Open the queued job again."}, 409
+    with run_queue.lock:
+        old = next((entry for entry in run_queue.items if entry["id"] == item_id), None)
+        if not old or not old.get("edit_token") or not secrets.compare_digest(old["edit_token"], token):
+            return {"ok": False, "error": "That editing session expired. Open the queued job again."}, 409
+        settings = upscale_queue_settings(old)
+        if not settings:
+            return {"ok": False, "error": "This job is not an upscale."}, 400
+        argv = old["argv"]
+        flag = lambda name: argv[argv.index(name) + 1] if name in argv[:-1] else None
+        if settings["kind"] == "image_upscale":
+            state = image_panel.RunState.load(old.get("resume"))
+            position = flag("--image")
+            if not state or not position or not position.isdigit() or not 1 <= int(position) <= len(state.shots or []):
+                return {"ok": False, "error": "The original image is no longer available."}, 409
+            shot = state.shots[int(position) - 1]
+            if not shot.get("file"):
+                return {"ok": False, "error": "The original image is no longer available."}, 409
+            try:
+                with Image.open(state.image_path(shot)) as source:
+                    shorter = min(source.size)
+            except OSError:
+                return {"ok": False, "error": "The original image could not be read."}, 409
+            method = data.get("method")
+            try:
+                strength = float(data.get("strength", 1))
+                resolution = int(data.get("resolution", 0))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "Choose a valid strength and resolution."}, 400
+            if method not in ("fast", "seedvr2") or not math.isfinite(strength) or not 0 <= strength <= 1:
+                return {"ok": False, "error": "Choose a valid upscale method and strength."}, 400
+            if shorter > image_panel.UPSCALE_MOST_SIDE or (method == "seedvr2" and resolution and
+                    (resolution not in image_panel.UPSCALE_RESOLUTIONS or resolution <= shorter)):
+                return {"ok": False, "error": "Choose a supported resolution larger than the original image."}, 400
+            if method == "fast":
+                resolution = 0
+            how = (f"SeedVR2, {resolution}p" if resolution else "SeedVR2, twice the size") if method == "seedvr2" else f"Superscale-SP, twice the size, strength {round(strength * 100)}%"
+            new_argv = [*image_panel.UPSCALE, "--resume", state.id, "--image", position, "--method", method,
+                        "--strength", f"{strength:g}", *(["--resolution", str(resolution)] if resolution else [])]
+            estimate = image_panel.UPSCALE_SECONDS if method == "seedvr2" else image_panel.FAST_UPSCALE_SECONDS
+        else:
+            name = flag("--film")
+            if not name:
+                return {"ok": False, "error": "The original film is no longer available."}, 409
+            try:
+                video_panel.safe_video_path("video", name)
+            except NotFound:
+                return {"ok": False, "error": "The original film is no longer available."}, 409
+            try:
+                scale = float(data.get("scale"))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "Choose a valid scale."}, 400
+            quality = data.get("quality")
+            if not math.isfinite(scale) or not 1 <= scale <= 4 or quality not in video_panel.film_upscale.QUALITIES:
+                return {"ok": False, "error": "Choose a valid scale and quality."}, 400
+            how = f"RTX VSR, {scale:g}x, {quality}"
+            new_argv = [*video_panel.UPSCALE, "--film", name, "--scale", f"{scale:g}", "--quality", quality]
+            estimate = old.get("estimate")
+        replacement = {**old, "argv": new_argv, "detail": how, "estimate": estimate, "waited": True}
+        replacement.pop("later", None)
+        replacement.pop("edit_token", None)
+        run_queue.items.remove(old)
+        run_queue.items.insert(0, replacement)
+        run_queue._save()
+        run_queue._advance()
+        return {"ok": True, "queued": replacement in run_queue.items}
+
+
+def queue_form_snapshot():
+    return {name: values for name, values in request.form.to_dict(flat=False).items()
+            if name not in ("queue_edit_id", "queue_edit_token", "start_later")}
+
+
+@app.before_request
+def validate_queue_edit():
+    if not request.path.startswith("/generate/") or not request.form.get("queue_edit_id"):
+        return None
+    item_id = request.form.get("queue_edit_id", type=int)
+    token = request.form.get("queue_edit_token", "")
+    with run_queue.lock:
+        item = next((entry for entry in run_queue.items if entry["id"] == item_id), None)
+        if not item or item.get("pipeline") != request.path.rsplit("/", 1)[-1] or not item.get("edit_token") or not secrets.compare_digest(item["edit_token"], token):
+            return {"ok": False, "error": "That editing session expired. Open the queued job again."}, 409
+    return None
+
+
+@app.route("/queue/run/edit/<int:item_id>/file/<name>")
+@password_required
+def queue_edit_file(item_id, name):
+    with run_queue.lock:
+        item = next((entry for entry in run_queue.items if entry["id"] == item_id), None)
+        if not item or not item.get("edit_token") or not secrets.compare_digest(item["edit_token"], request.headers.get("X-Queue-Edit-Token", "")):
+            abort(404)
+        restored = (item["form"], item.get("form_files", {}), {}) if item.get("form") else legacy_queue_form(item)
+        path = restored[1].get(name) if restored else None
+        if not path or not os.path.isfile(path):
+            abort(404)
+        return send_file(path, download_name=os.path.basename(path))
+
+
+@app.route("/queue/run/edit/<int:item_id>/cancel", methods=["POST"])
+@password_required
+def queue_edit_cancel(item_id):
+    token = (request.get_json(silent=True) or {}).get("token", "")
+    with run_queue.lock:
+        item = next((entry for entry in run_queue.items if entry["id"] == item_id), None)
+        if not item or not item.get("edit_token") or not secrets.compare_digest(item["edit_token"], token):
+            return {"ok": False, "error": "That editing session is no longer active."}, 409
+        item.pop("edit_token")
+        run_queue._save()
+        return {"ok": True}
+
+
 @app.route("/queue/<lane>/run-now/<int:item_id>", methods=["POST"])
 @password_required
 def queue_run_now(lane, item_id):
@@ -1566,6 +1840,15 @@ def queue_resume(lane):
     if lane not in QUEUES:
         abort(404)
     QUEUES[lane].resume()
+    return {"ok": True}
+
+
+@app.route("/queue/<lane>/hold", methods=["POST"])
+@password_required
+def queue_hold(lane):
+    if lane not in QUEUES:
+        abort(404)
+    QUEUES[lane].hold()
     return {"ok": True}
 
 

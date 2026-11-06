@@ -494,6 +494,49 @@ class PanelTest(unittest.TestCase):
         self.wait_idle()
         self.assertEqual(self.status()["queue"]["items"], [], "started, it ran")
 
+    def test_edit_queued_generation_keeps_inputs_and_replaces_at_front(self):
+        self.assertTrue(self.generate(prompt="original", start_later="1").get_json()["ok"])
+        original = self.status()["queue"]["items"][0]
+        self.assertTrue(self.generate(prompt="other", start_later="1").get_json()["ok"])
+        response = self.client.post(f"/queue/run/edit/{original['id']}")
+        edit = response.get_json()
+        self.assertTrue(edit["ok"])
+        self.assertEqual(edit["form"]["prompt"], ["original"])
+        self.assertEqual(edit["files"], ["image"])
+        with self.client.get(f"/queue/run/edit/{original['id']}/file/image", headers={"X-Queue-Edit-Token": edit["token"]}) as response:
+            self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.get(f"/queue/run/edit/{original['id']}/file/image", headers={"X-Queue-Edit-Token": "wrong"}).status_code, 404)
+        self.assertFalse(self.client.post(f"/queue/run/start/{original['id']}").get_json()["ok"])
+        # A stale token never replaces the pending original.
+        bad = self.generate(prompt="changed", queue_edit_id=str(original["id"]), queue_edit_token="wrong")
+        self.assertEqual(bad.status_code, 409)
+        self.assertEqual(len(self.status()["queue"]["items"]), 2)
+        webapp.run_queue.hold()
+        saved = self.generate(prompt="changed", queue_edit_id=str(original["id"]), queue_edit_token=edit["token"])
+        self.assertTrue(saved.get_json()["ok"], saved.get_json())
+        items = self.status()["queue"]["items"]
+        self.assertEqual([item["id"] for item in items], [original["id"], original["id"] + 1])
+        self.assertFalse(items[0]["later"])
+        self.assertEqual(items[0]["facts"]["prompt"], "changed")
+        self.assertEqual(self.client.post(f"/queue/run/edit/{original['id']}/cancel", json={"token": edit["token"]}).status_code, 409)
+
+    def test_edit_legacy_video_reconstructs_original_form_and_inputs(self):
+        self.assertTrue(self.generate(prompt="legacy", start_later="1", review="1").get_json()["ok"])
+        item = webapp.run_queue.items[0]
+        item.pop("form")
+        item.pop("form_files")
+        result = self.client.post(f"/queue/run/edit/{item['id']}").get_json()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["form"]["prompt"], "legacy")
+        self.assertEqual(result["form"]["duration"], "60")
+        self.assertEqual(result["form"]["review"], "1")
+        self.assertEqual(result["files"], ["image"])
+        with self.client.get(f"/queue/run/edit/{item['id']}/file/image", headers={"X-Queue-Edit-Token": result["token"]}) as response:
+            self.assertEqual(response.status_code, 200)
+        self.assertTrue(self.client.post(f"/queue/run/edit/{item['id']}/cancel", json={"token": result["token"]}).get_json()["ok"])
+        self.assertTrue(item["later"])
+        self.assertNotIn("edit_token", item)
+
     def test_a_paused_queue_can_run_one_generation_without_resuming_the_rest(self):
         self.comfy.script = ["ok"] * 16
         self.assertTrue(self.generate(prompt="leave waiting", start_later="1").get_json()["queued"])
@@ -1016,6 +1059,75 @@ class PanelTest(unittest.TestCase):
                 with mock.patch.object(webapp.run_queue, "held", True):
                     self.assertEqual(self.client.post("/launcher/refresh", data=newer).get_json(), {"restarting": True})
             timer.assert_called_once()
+
+
+class QueueUpscaleEditTest(unittest.TestCase):
+    def setUp(self):
+        self.client = webapp.app.test_client()
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.patches = [
+            mock.patch.object(webapp.run_queue, "items", []),
+            mock.patch.object(webapp.run_queue, "_save"),
+            mock.patch.object(webapp.run_queue, "_advance"),
+        ]
+        for patch in self.patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def open(self, item):
+        webapp.run_queue.items.extend([{"id": 9, "later": True}, item])
+        response = self.client.post(f"/queue/run/edit/{item['id']}")
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertTrue(item["later"])
+        return response.get_json()
+
+    def test_image_upscale_edit_preserves_source_and_handles_errors(self):
+        from panel import image as image_panel
+        path = os.path.join(self.temp.name, "source.png")
+        Image.new("RGB", (640, 368)).save(path)
+        state = types.SimpleNamespace(id="image_1", shots=[{"file": "source.png"}], image_path=lambda shot: path)
+        item = {"id": 5, "pipeline": "image", "resume": state.id, "label": "Upscale",
+                "argv": [*image_panel.UPSCALE, "--resume", state.id, "--image", "1", "--method", "fast", "--strength", "0.5"], "env": {}}
+        with mock.patch.object(image_panel.RunState, "load", return_value=state):
+            edit = self.open(item)
+            self.assertEqual(edit["upscale"]["strength"], "0.5")
+            url = "/queue/run/edit/5/upscale"
+            values = {"token": edit["token"], "method": "seedvr2", "strength": "0.5", "resolution": "720"}
+            self.assertEqual(self.client.post(url, json={**values, "token": "stale"}).status_code, 409)
+            self.assertEqual(self.client.post(url, json={**values, "resolution": "100"}).status_code, 400)
+            os.remove(path)
+            self.assertEqual(self.client.post(url, json=values).status_code, 409)
+            self.assertIs(webapp.run_queue.items[-1], item)
+            Image.new("RGB", (640, 368)).save(path)
+            self.assertTrue(self.client.post(url, json=values).get_json()["ok"])
+        replacement = webapp.run_queue.items[0]
+        self.assertEqual([entry["id"] for entry in webapp.run_queue.items], [5, 9])
+        self.assertEqual(replacement["resume"], state.id)
+        self.assertIn("--image", replacement["argv"])
+        self.assertEqual(replacement["argv"][-2:], ["--resolution", "720"])
+        self.assertNotIn("later", replacement)
+        self.assertNotIn("edit_token", replacement)
+
+    def test_film_upscale_edit_and_cancel(self):
+        item = {"id": 6, "pipeline": "video", "label": "Upscale", "estimate": 100, "env": {},
+                "argv": [*video_panel.UPSCALE, "--film", "film.mp4", "--scale", "2", "--quality", "ULTRA"]}
+        edit = self.open(item)
+        self.assertEqual(edit["upscale"]["quality"], "ULTRA")
+        url = "/queue/run/edit/6/upscale"
+        values = {"token": edit["token"], "scale": "3", "quality": "STREAMING_ULTRA"}
+        self.assertEqual(self.client.post(url, json=values).status_code, 409)
+        with mock.patch.object(video_panel, "safe_video_path", return_value="film.mp4"):
+            self.assertEqual(self.client.post(url, json={**values, "scale": "nan"}).status_code, 400)
+            self.assertEqual(self.client.post(url, json={**values, "quality": "bad"}).status_code, 400)
+            self.assertTrue(self.client.post(url, json=values).get_json()["ok"])
+        replacement = webapp.run_queue.items[0]
+        self.assertEqual([entry["id"] for entry in webapp.run_queue.items], [6, 9])
+        self.assertEqual(replacement["argv"][-6:], ["--film", "film.mp4", "--scale", "3", "--quality", "STREAMING_ULTRA"])
+        edit = self.client.post("/queue/run/edit/6").get_json()
+        self.assertTrue(self.client.post("/queue/run/edit/6/cancel", json={"token": edit["token"]}).get_json()["ok"])
+        self.assertTrue(replacement["later"])
+        self.assertNotIn("edit_token", replacement)
 
 
 if __name__ == "__main__":

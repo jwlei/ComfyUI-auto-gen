@@ -10,7 +10,7 @@ from PIL import Image
 
 from core import seeds, workflow_options
 from core.saved_workflows import shorthand
-from panel.server import (read_outcome, IMAGE_TIMINGS, PIPELINES, _runs_cache, app, busy_runs, form_options, password_required, run_queue, saved_at,
+from panel.server import (read_outcome, IMAGE_TIMINGS, PIPELINES, _runs_cache, app, busy_runs, form_options, password_required, run_queue, saved_at, queue_form_snapshot,
                           saved_workflows)
 from panel.video import clean_inputs, queue_label, shot_seeds
 from pipelines.image import media, models, regions
@@ -349,7 +349,7 @@ def generate():
     flags += option_flags
 
     # A change to part of an image is a new one each time: what's painted isn't something to look for in a stopped run.
-    state = None if extra else run_to_continue(prompt, flags, env, images)
+    state = None if extra or request.form.get("queue_edit_id") else run_to_continue(prompt, flags, env, images)
     if state:
         if "--plan-only" in flags:
             return {"ok": True, "queued": False, "shots": state.id, "continued": state.title}
@@ -383,6 +383,9 @@ def generate():
     # Titled like every side's: how much, with the prompt a tap away in what the title opens.
     item = {"pipeline": "image", "label": f"{count} {'image' if count == 1 else 'images'}", "prompt": prompt, "detail": " · ".join(detail), "argv": argv, "env": env,
             "image": image_paths[0] if image_paths else None, "references": image_paths[1:] + region_files, "plan_only": plan_only, "first_only": "--first-only" in flags,
+            "form": queue_form_snapshot(),
+            "form_files": {**{("image" if i == 0 else f"image_{i + 1}"): path for i, path in enumerate(image_paths)},
+                           **({"areas_mask": region_files[1]} if region_files else {})},
             "estimate": RunEta(argv, env, IMAGE_TIMINGS).plan()["total"]}
     queued = run_queue.add(item)
     if item.get("error"):

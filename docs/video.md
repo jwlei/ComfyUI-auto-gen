@@ -118,6 +118,10 @@ its edges. The ETA scales with the pixel count.
 
 **While it runs:** you see each step with its ETA, which clip is rendering, ComfyUI's own progress, GPU use and the
 log. Generate adds more films to a queue, and each keeps the options it was queued with.
+The setup button on a queued generation moves it to Pending while you edit its settings and inputs.
+**Save to queue** replaces it at the front of the queue; **Cancel editing** leaves the original in Pending.
+Upscale jobs use their own settings dialog and follow the same Pending and queue replacement behavior.
+Continued runs cannot currently be edited this way.
 
 **Stop all** kills the run and cancels its clip in ComfyUI, leaving anything else you've queued there alone. What's
 queued in the panel waits for you to press Resume. **Skip, resume later** does the same but starts the next film in

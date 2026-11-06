@@ -10,7 +10,7 @@ from flask import abort, request, send_file
 
 from core import seeds, workflow_options
 from panel.server import (read_outcome, form_options, PIPELINES, VIDEO_TIMINGS, _runs_cache, app, busy_runs, item_images, job,
-                          password_required, safe_video_path, saved_at, run_queue, saved_runs, saved_workflows)
+                          password_required, safe_video_path, saved_at, run_queue, saved_runs, saved_workflows, queue_form_snapshot)
 from panel.shorts import VOICES
 from pipelines.video import media, paths, planner, roles
 from pipelines.video.comfy import workflow_model
@@ -178,7 +178,7 @@ def form_uploads(files, takes):
     return uploads, None
 
 
-def form_references(files, form, takes, images):
+def form_references(files, form, takes, images, saved_files=None):
     """
     The reference videos and audio clips chosen in the form's boxes (ref_media, ref_media_2...), saved
     to the inputs folder and sorted by what they are. Returns ([(path, role)] videos, [(path, role)] audio clips, error).
@@ -196,6 +196,8 @@ def form_references(files, form, takes, images):
         if not kind:
             os.remove(path)
             return None, None, f"Reference {number} isn't a video or audio file this can read."
+        if saved_files is not None:
+            saved_files[field(number)] = path
         role = form.get(f"{field(number)}_role")
         if kind == "video":
             videos.append((path, role if role in roles.VIDEO_ROLES else roles.MOTION))
@@ -266,7 +268,8 @@ def generate():
 
     # One box for image 2 is the LLM's alone when the clips take one image, and doesn't count.
     references = len(images) if takes["max_images"] != 1 else min(len(images), 1)
-    ref_videos, ref_audios, error = form_references(request.files, request.form, takes, references)
+    saved_files = {}
+    ref_videos, ref_audios, error = form_references(request.files, request.form, takes, references, saved_files)
     if error:
         return {"ok": False, "error": error}, 400
     media_paths = [path for path, _ in ref_videos + ref_audios]
@@ -279,7 +282,7 @@ def generate():
         audio_upload.save(audio_path)
     audio = media.audio_fingerprint(path=audio_path, text=narration or None, voice=voice or None)
 
-    state = run_to_continue(prompt, flags, env, takes, images, audio, ref_videos + ref_audios)
+    state = None if request.form.get("queue_edit_id") else run_to_continue(prompt, flags, env, takes, images, audio, ref_videos + ref_audios)
     if state:
         for path in ([audio_path] if audio_path else []) + media_paths:
             os.remove(path)
@@ -296,6 +299,9 @@ def generate():
     image_paths = [os.path.join(paths.INPUTS_DIR, f"{secrets.token_hex(8)}.png") for _ in images]
     for image, path in zip(images, image_paths):
         media.save_input(image, path)
+    saved_files.update({("image" if i == 0 else f"image_{i + 1}"): path for i, path in enumerate(image_paths)})
+    if audio_path:
+        saved_files["audio_file"] = audio_path
 
     references = [flag for path in image_paths[1:] for flag in ("--reference", path)]
     audio_flags = ["--audio", audio_path] if audio_path else ["--narration", narration, *(["--voice", voice] if voice else [])] if narration else []
@@ -311,6 +317,7 @@ def generate():
     # Titled like every side's: how much, with the prompt a tap away in what the title opens.
     item = {"pipeline": "video", "label": "1 video", "prompt": prompt, "detail": " · ".join(detail), "argv": argv, "env": env,
             "image": image_paths[0] if image_paths else None, "references": image_paths[1:] + ([audio_path] if audio_path else []) + media_paths, "plan_only": plan_only, "first_only": "--first-only" in flags,
+            "form": queue_form_snapshot(), "form_files": saved_files,
             "estimate": RunEta(argv, VIDEO_TIMINGS, env).plan()["total"]}
     queued = run_queue.add(item)
     if item.get("error"):

@@ -18,7 +18,8 @@ function element(id) {
   return {
     id, dataset: {}, style: {}, hidden: false, innerHTML: '', textContent: '', value: '', className: '', elements: [], options: [], selectedOptions: [{}],
     classList: { toggle() {}, add() {}, remove() {}, contains: () => false },
-    addEventListener() {}, querySelectorAll: selector => (selector === 'input' ? [element('low'), element('high')] : []), querySelector: () => element('part'), setAttribute() {},
+    listeners: {}, addEventListener(name, fn) { this.listeners[name] = fn; }, querySelectorAll: selector => (selector === 'input' ? [element('low'), element('high')] : []), querySelector: () => element('part'), setAttribute() {},
+    reportValidity() { return true; },
     getBoundingClientRect: () => ({ top: 0, bottom: 100 }), appendChild() {}, offsetHeight: 90, insertAdjacentHTML() {}, showModal() { this.open = true; }, close() { this.open = false; }, scrollTo() {},
     pause() {}, play() { return Promise.resolve(); }, removeAttribute(name) { delete this[name]; },
   };
@@ -207,7 +208,7 @@ assert(!els.etaDetail.hidden && els.etaDetail.innerHTML.includes('<details') && 
 
 // Shorts in YouTube red; the phone addresses are in the settings box, with copy buttons; no voice hint.
 assert(/body\.on-shorts \{ --accent: #ff0033; \}/.test(html));
-assert(!html.includes('id="misc"') && /class="settings-row url-row"[^>]*>\s*<span class="url-name">Same Wi-Fi<\/span><code>[^<]+<\/code><button type="button" class="copy-url"/.test(html));
+assert(!html.includes('id="misc"') && /class="settings-row url-row"[^>]*>\s*<span class="url-name">Local<\/span><code>[^<]+<\/code><button type="button" class="copy-url"/.test(html));
 assert(!/<summary>More<\/summary>/.test(html), 'no More dropdown');
 assert(!/id="statusHead"[^>]*aria-controls/.test(status0()));
 assert(!html.includes('If both Gemini voice models fail'));
@@ -491,7 +492,7 @@ assert(/data-goto="video"/.test(els.finishedList.innerHTML) && /<span class="res
 assert(/class="result done" style="--side:#4c8dff" data-goto="video"/.test(els.finishedList.innerHTML) && /class="result failed"/.test(els.finishedList.innerHTML), 'each outlined in the colour of the page that made it');
 assert(/\.results \.result \{ display: flex; align-items: center;/.test(html) && /border: 1px solid var\(--side/.test(html) && /\.result \.when \{ margin-left: auto;/.test(html)
   && /\.result-label \{[^}]*-webkit-line-clamp: 2/.test(html), 'outlined, text left, the time quietly at the right');
-assert(/id="skip"[^>]*>Skip<\/button>/.test(html) && /id="stop"[^>]*>Stop<\/button>/.test(html) && /\.run-actions \{ display: flex; justify-content: center;/.test(html), 'Skip and Stop, small and centred');
+assert(/id="skip"[^>]*>Cancel<\/button>/.test(html) && /id="stop"[^>]*>Stop<\/button>/.test(html) && /\.run-actions \{ display: flex; justify-content: center;/.test(html), 'Cancel and Stop, small and centred');
 assert(/data-goto="shorts" data-tab="uploaded">[\s\S]*?<span class="result-type">Upload</.test(els.finishedList.innerHTML), 'an upload goes to what was uploaded');
 // One tap takes you to that side's output.
 run("goToOutput('image')");
@@ -644,9 +645,9 @@ run('disarm(iconTapped)');
 assert.strictEqual(context.iconTapped.innerHTML, '<svg>bin</svg>');
 assert.strictEqual(context.tapped.style.width, '', 'and its own size again');
 
-// Moving on in the queue: the one starting leaves it at once, sliding up, and Status shows it arriving; never a blank.
+// The generation queue redraws together with Pending and Failed; upload departures keep their own animation.
 const queueEl = { dataset: { title: 'Queue', lane: 'run' }, hidden: false, innerHTML: '', nodes: [],
-  querySelectorAll() { return this.nodes; } };
+  querySelectorAll(selector) { return selector.startsWith('.queue-request') || selector.startsWith('.armed') ? [] : this.nodes; } };
 const queueTimers = [];
 context.queueEl = queueEl;
 context.setTimeout = (fn, ms) => { queueTimers.push([fn, ms]); return 1; };
@@ -656,8 +657,11 @@ assert(queueEl.innerHTML.includes('data-id="1"') && queueEl.innerHTML.includes('
 const first = { dataset: { id: '1' }, style: {}, offsetHeight: 40, classList: classes() };
 queueEl.nodes = [first, { dataset: { id: '2' }, style: {}, offsetHeight: 40, classList: classes() }];
 run('renderQueue(queueEl, twoQueued, 0, true)');
-assert(first.classList.contains('leaving') && first.style.height === '40px', 'the next one slides out of the queue');
-assert(queueEl.innerHTML.includes('data-id="1"'), 'drawn again only once it has gone');
+assert(!first.classList.contains('leaving'), 'generation departures are coordinated with the other sections');
+assert(!queueEl.innerHTML.includes('data-id="1"') && queueEl.innerHTML.includes('data-id="2"'));
+queueEl.dataset.lane = 'upload';
+run('renderQueue(queueEl, twoQueued, 0, true)');
+assert(first.classList.contains('leaving') && first.style.height === '40px', 'an upload still slides out of its queue');
 queueEl.nodes = [];
 queueTimers[queueTimers.length - 1][0]();
 assert(!queueEl.innerHTML.includes('data-id="1"') && queueEl.innerHTML.includes('data-id="2"') && queueEl.innerHTML.includes('Queue (1)'));
@@ -665,6 +669,56 @@ context.setTimeout = () => 0;
 run("showWork('Video: First')");
 assert(els.currentWork.hidden === false && els.currentWork.textContent === 'Video: First');
 assert(/nextUp \? `\$\{SIDE_NAMES\[queue\.items\[0\]\.pipeline\]/.test(script), 'between two jobs, the next one already shows');
+
+// Moving between sections changes both heights at once, including a disappearing section.
+{
+  const saved = ['runQueue', 'stoppedRuns', 'failedRuns', 'queueBox'].map(id => [id, els[id]]);
+  const animations = [], ghosts = [];
+  function fakeSection(id) {
+    const el = { id, hidden: true, dataset: { html: '' }, height: 0, rows: [], style: {},
+      getClientRects() { return this.hidden ? [] : [1]; },
+      getBoundingClientRect() { return { height: this.height }; },
+      querySelectorAll() { return this.rows; },
+      cloneNode() { return { ...fakeSection('copy'), hidden: false, height: this.height, removeAttribute() {}, setAttribute() {},
+        remove() { this.removed = true; } }; },
+      parentNode: { insertBefore(node) { ghosts.push(node); } },
+      animate(frames) {
+        const animation = { target: this, frames, cancel() { this.cancelled = true; if (this.oncancel) this.oncancel(); } };
+        animations.push(animation);
+        return animation;
+      },
+    };
+    return el;
+  }
+  const queue = els.runQueue = fakeSection('runQueue'), pending = els.stoppedRuns = fakeSection('stoppedRuns');
+  els.failedRuns = fakeSection('failedRuns');
+  els.queueBox = { getClientRects: () => [1] };
+  const row = top => ({ dataset: { motionKey: 'queue-1' }, getClientRects: () => [1],
+    getBoundingClientRect: () => ({ top }), animate(frames) { animations.push({ target: this, frames }); } });
+  context.testDraw = () => { queue.hidden = false; queue.height = 80; queue.dataset.html = 'one'; queue.rows = [row(100)]; };
+  run('runSectionsDrawn = false; renderRunSections(testDraw)');
+  assert.strictEqual(animations.length, 0, 'the first status draws without animation');
+  context.testDraw = () => {
+    queue.hidden = true; queue.dataset.html = ''; queue.rows = [];
+    pending.hidden = false; pending.height = 120; pending.dataset.html = 'one'; pending.rows = [row(150)];
+  };
+  run('renderRunSections(testDraw)');
+  assert.strictEqual(ghosts.length, 1, 'a disappearing section keeps its space while it closes');
+  assert.deepStrictEqual(Array.from(animations[0].frames, frame => frame.height), ['80px', '0px']);
+  assert.deepStrictEqual(Array.from(animations[1].frames, frame => frame.height), ['0px', '120px']);
+  assert.strictEqual(animations[2].frames[0].opacity, 0, 'the moved run fades into its destination');
+  run('renderRunSections(testDraw)');
+  assert(!animations[0].cancelled && !animations[1].cancelled, 'an unchanged poll does not interrupt the transition');
+  animations[0].onfinish();
+  assert(ghosts[0].removed, 'the disappearing section is removed after its transition');
+  context.window.matchMedia = () => ({ matches: true });
+  context.testDraw = () => { pending.hidden = true; pending.dataset.html = ''; };
+  const count = animations.length;
+  run('renderRunSections(testDraw)');
+  assert.strictEqual(animations.length, count, 'reduced motion draws immediately');
+  context.window.matchMedia = () => wide;
+  for (const [id, el] of saved) els[id] = el;
+}
 assert(/<button type="button" class="current-work" id="currentWork" aria-haspopup="dialog"/.test(html) && /<dialog id="runFacts" class="panel-dialog run-facts"/.test(html), 'the run title opens what it renders with');
 assert(/workItem = running \? queue\.current : nextUp \? queue\.items\[0\] : null;/.test(script) && script.includes("[['Workflow', facts.workflow], ['Resolution', facts.resolution], ...(facts.prompt ? [['Prompt', facts.prompt]] : [])]"));
 assert(/id="viewerEdit"[^>]*>Edit<\/button>\s*<button type="button" id="viewerPrompts"[^>]*>Prompts<\/button>/.test(html) && script.includes('openShots(id, position);'), 'Prompts beside Edit, on the image it was opened from');
@@ -769,7 +823,7 @@ assert(/class="meta loras" role="button" tabindex="0" title="LoRA: a, b">LoRA: a
 assert(/\.meta\.loras \{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis;/.test(html) && /\.meta\.loras\.open \{ white-space: normal;/.test(html));
 
 // Discarding a stopped run takes two taps, with no pop-up; deleting a whole set from Output has its own address.
-assert(!script.includes('Discard this run? Its') && /else if \(d\.discard\) \{\s*\/\/[^\n]*\n\s*if \(!secondTap\(e\.target\)\) return;/.test(script));
+assert(!script.includes('Discard this run? Its') && /else if \(d\.discard\) \{\s*\/\/[^\n]*\n\s*if \(!secondTap\(button\)\) return;/.test(script));
 assert(script.includes("stopJob(`/image-runs/${encodeURIComponent(d.deleteSet)}/delete`)"));
 
 // An exact size with nothing in its box falls back on 1:1 at one megapixel.
@@ -824,7 +878,7 @@ assert(/const PRESET_SKIP = \['prompt', 'narration', 'seed', 'topic', 'output', 
 assert((html.match(/<input type="checkbox" name="try_first">/g) || []).length === 1, 'one Preview run, under the button, for whichever form it is in');
 assert(/<button type="button" class="start-later" id="goLater"[^>]*>Start later<\/button>/.test(html) && !html.includes('type="time"'), 'Start later: a quiet button, no clock');
 assert(!html.includes('id="toast"') && !script.includes('announceResults'), 'nothing pops up when something ends: Finished has it');
-assert(/item\.later \? `<button type="button" class="start-item" data-start="\$\{item\.id\}"/.test(script), 'one waiting to be started has Start');
+assert(/class="icon-btn start-item" data-start="\$\{item\.id\}"/.test(script) && script.includes('ICONS.play'), 'one pending has a play button');
 
 assert(/\.output-filter-line \{ display: flex; justify-content: center;/.test(html) && /\.output-filter-line select \{ width: 220px;/.test(html), 'the filter: centred, one size');
 
@@ -1021,6 +1075,12 @@ run(`renderQueue(queue, { items: [{ id: 3, label: 'a', detail: 'd' }, { id: 4, l
 assert(queue.innerHTML.includes('data-grip="3"') && queue.innerHTML.includes('data-grip="4"'), 'each has a grip to drag it by');
 run(`queue._dragging = true; renderQueue(queue, { items: [{ id: 4, label: 'b', detail: 'd' }], results: [], held: false, current: null }, 0); queue._dragging = false`);
 assert(queue.innerHTML.includes('data-grip="3"'), 'nothing is drawn over a job being dragged');
+queue.dataset.lane = 'run';
+run(`renderQueue(queue, { items: [], held: false, running: true, pipeline: 'image', stopAfter: false }, 0)`);
+assert(!queue.hidden && queue.innerHTML.includes('aria-label="Pause after current"'), 'a running batch can be paused even with an empty queue');
+run(`renderQueue(queue, { items: [{ id: 3, label: 'a', detail: 'd' }], held: true, running: true, pipeline: 'image', stopAfter: true }, 0)`);
+assert(queue.innerHTML.includes('aria-label="Resume queue"') && !queue.innerHTML.includes('data-resume'), 'play is in the queue header, not a second Resume button');
+assert(!/id="stopAfter"/.test(html), 'pause moved out of the run actions');
 
 // ComfyUI's status, a tap on its icon away: one that's up but doesn't answer, on a PC out of memory, says why.
 run(`renderComfy({ online: false, listening: true, can_start: true, ram: { free: 2.1, total: 31.9 }, gpu: { util: 7, mem_used: 5.8, mem_total: 12, power: 26, temp: 40 } })`);
@@ -1031,6 +1091,34 @@ assert(els.comfyFacts.innerHTML.includes('Generating the image · 3/8') && els.c
 
 // The status recovers by itself.
 (async () => {
+  const feedback = context.feedback = { innerHTML: 'Add to queue', textContent: '', disabled: false,
+    classList: classes(), attrs: {}, getAttribute(name) { return this.attrs[name] ?? null; },
+    setAttribute(name, value) { this.attrs[name] = value; }, removeAttribute(name) { delete this.attrs[name]; } };
+  let finishRequest;
+  context.feedbackRequest = () => new Promise(resolve => { finishRequest = resolve; });
+  const feedbackResult = run('queueRequest(feedback, feedbackRequest)');
+  assert(feedback.disabled && feedback.textContent === 'Adding…' && feedback.attrs['aria-busy'] === 'true');
+  context.setTimeout = fn => { fn(); return 0; };
+  finishRequest({ ok: true, queued: true });
+  assert((await feedbackResult).ok && !feedback.disabled && feedback.innerHTML === 'Add to queue', 'feedback restores the button after success');
+  run(`queueUpscaleEdit = { id: 8, token: 'edit-token', kind: 'image_upscale' }`);
+  for (const id of ['queueUpscaleResolution', 'queueUpscaleStrength', 'queueUpscaleResolutionRow', 'queueUpscaleStrengthRow', 'queueUpscaleFilmRow']) context.document.getElementById(id);
+  els.queueUpscaleMethod.value = 'seedvr2';
+  els.queueUpscaleResolution.value = '1080';
+  els.queueUpscaleStrength.value = '1';
+  run('syncQueueUpscale()');
+  assert(!els.queueUpscaleResolutionRow.hidden && els.queueUpscaleStrengthRow.hidden && els.queueUpscaleFilmRow.hidden);
+  let savedUpscale;
+  context.fetch = async (url, options) => {
+    savedUpscale = { url, body: JSON.parse(options.body) };
+    return { json: async () => ({ ok: true }) };
+  };
+  await els.queueUpscaleSave.listeners.click({ currentTarget: feedback });
+  assert.strictEqual(savedUpscale.url, '/queue/run/edit/8/upscale');
+  assert.strictEqual(savedUpscale.body.resolution, '1080');
+  assert.strictEqual(savedUpscale.body.token, 'edit-token');
+  assert.strictEqual(run('queueUpscaleEdit'), null, 'saving closes the queued upscale editor');
+  context.setTimeout = () => 0;
   const quiet = { ...idle, lines: [], queue: { items: [], results: [], held: false, current: null }, stopped_runs: [], videos: { output: [], uploaded: [], video: [] },
     comfyui: { online: true }, quota: { groups: [], resets_in: 100 }, gpu: null, upload: { lines: [], running: false, elapsed: 0, queue: { items: [], results: [], held: false, current: null } } };
   // Status for the polls; the workflow lists ComfyUI coming online has the page fetch again, as the server has them.

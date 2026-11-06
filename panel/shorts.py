@@ -10,7 +10,7 @@ from flask import request
 from core import seeds
 from core.paths import PROJECT_ROOT, WORKFLOWS_DIR
 from panel.server import (read_outcome, form_options, PIPELINES, SHORTS_TIMINGS, _runs_cache, app, busy_runs, job, list_videos, password_required, saved_at,
-                          run_queue, safe_video_path, saved_workflows, upload_queue)
+                          run_queue, safe_video_path, saved_workflows, upload_queue, queue_form_snapshot)
 from pipelines.shorts.avatar_generator import avatar_clip_range, on_screen_range
 from pipelines.shorts.paths import avatar_still_path, thumbnail_path
 from pipelines.shorts.run_eta import RunEta
@@ -224,12 +224,14 @@ def generate():
     topic = (request.form.get("topic") or "").strip()
     output = argv[argv.index("--output") + 1] if "--output" in argv else ""
     for other in run_queue.pending():
+        if str(other.get("id")) == request.form.get("queue_edit_id"):
+            continue
         if topic and other.get("topic", "").lower() == topic.lower():
             return {"ok": False, "error": "That topic is already running or queued."}, 409
         if output and other.get("output", "").lower() == output.lower():
             return {"ok": False, "error": "That file name is already used by a running or queued job."}, 409
 
-    state = run_to_continue(topic, argv)
+    state = None if request.form.get("queue_edit_id") else run_to_continue(topic, argv)
     if state:
         state.adopt(argv[len(COMMAND):], env, int(option(argv, "--runs", 1)) - 1)
         reply = queue_continued(state)
@@ -237,7 +239,7 @@ def generate():
 
     label, detail = describe_run(request.form, argv)
     item = {"pipeline": "shorts", "label": label, "detail": detail, "argv": argv, "env": env, "topic": topic, "output": output,
-            "form": request.form.to_dict(), "estimate": RunEta(argv, env, SHORTS_TIMINGS).plan()["total"]}
+            "form": queue_form_snapshot(), "estimate": RunEta(argv, env, SHORTS_TIMINGS).plan()["total"]}
     queued = run_queue.add(item)
     if item.get("error"):
         return {"ok": False, "error": item["error"]}, 500
@@ -276,6 +278,35 @@ def continue_run(run_id):
 
     reply = queue_continued(state)
     return (reply, 500) if reply.get("error") else reply
+
+
+def form_of(state):
+    """What the form held for this run, as its fields name it: to change before pressing Generate."""
+    argv, env = state.argv, state.env
+    workflow = next((w["name"] for w in saved_workflows() if env.get("COMFYUI_WORKFLOW") and w.get("path")
+                     and os.path.abspath(w["path"]) == os.path.abspath(env["COMFYUI_WORKFLOW"])), "")
+    style = next((name for name, path in AVATAR_STYLES.items() if path == env.get("COMFYUI_WORKFLOW")), "lipsync")
+    try:
+        options = json.loads(env.get("COMFYUI_OPTIONS") or "{}")
+    except ValueError:
+        options = {}
+    form = {"topic": state.topic or "", "runs": option(argv, "--runs", "1"), "voice": option(argv, "--voice", ""),
+            "avatar_clips": option(argv, "--avatar-clips", "auto"), "seed": option(argv, "--seed", ""),
+            "avatar_size": env.get("AVATAR_SIZE", ""), "avatar_style": style, "workflow": workflow,
+            "upload": "--upload" in argv, "privacy": option(argv, "--privacy", "private"), "output": option(argv, "--output", "")}
+    for field, low_name, high_name, _, _ in AVATAR_SLIDERS:
+        if env.get(low_name) and env.get(high_name):
+            form[f"{field}_min"], form[f"{field}_max"] = int(env[low_name]), int(env[high_name])
+    return {"ok": True, "form": form, "options": options}
+
+
+@app.route("/shorts-runs/<run_id>/form")
+@password_required
+def shorts_run_form(run_id):
+    state = RunState.load(run_id)
+    if not state:
+        return {"ok": False, "error": "That run is no longer saved."}, 404
+    return form_of(state)
 
 
 def discard_run(run_id):

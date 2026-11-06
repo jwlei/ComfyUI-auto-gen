@@ -368,6 +368,18 @@ class StopAfterTest(unittest.TestCase):
                 self.assertEqual(client.post("/stop-after").status_code, 409, "a film is one video")
         self.assertEqual(client.post("/stop-after").status_code, 409, "nothing running")
 
+    def test_jobs_added_after_pause_wait_for_resume(self):
+        self.batch_stop.request()
+        queue = webapp.run_queue
+        with mock.patch.object(webapp.Job, "running", new_callable=mock.PropertyMock, return_value=True), \
+             mock.patch.object(webapp.Job, "idle", new_callable=mock.PropertyMock, return_value=False), \
+             mock.patch.object(queue, "items", []), mock.patch.object(queue, "held", False), \
+             mock.patch.object(queue, "current", None), mock.patch.object(queue, "next_id", 1), \
+             mock.patch.object(queue, "_ensure_watcher"), mock.patch.object(queue, "_save"):
+            self.assertTrue(queue.add({"label": "waiting"}))
+            self.assertTrue(queue.held)
+            self.assertEqual(queue.items[0]["label"], "waiting")
+
 
 class FreeComfyTest(unittest.TestCase):
     """ComfyUI lets go of its models when a job ends, unless the next one runs the same workflow."""

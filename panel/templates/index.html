@@ -80,6 +80,8 @@
   .queue .start-item { flex: none; color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
   .queue .run-item { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 5px; color: var(--accent); }
   .queue .run-item svg { width: 16px; height: 16px; }
+  button.queue-request { opacity: .75; cursor: wait; }
+  button.queue-request-done { color: var(--accent); }
   .queue-item.leaving { overflow: hidden; animation: queue-leave .38s ease forwards; pointer-events: none; }
   @keyframes queue-leave {
     45% { opacity: 0; transform: translateY(-10px); }
@@ -972,8 +974,7 @@
     </div>
   </div>
   <div class="run-actions" id="runActions" hidden>
-    <button type="button" id="stopAfter" title="Let the video or image being made now finish, then end the batch" hidden>Stop after this one</button>
-    <button type="button" id="skip" title="Skip this run and resume it later">Skip</button>
+    <button type="button" id="skip" title="Cancel this run and put it back under Pending">Cancel</button>
     <button type="button" id="stop" title="Stop everything: the queue waits until you press Resume">Stop</button>
   </div>
   </div>
@@ -986,6 +987,7 @@
     </div>
     <div class="queue" id="runQueue" data-lane="run" data-title="Queue" hidden></div>
     <div class="queue" id="stoppedRuns" hidden></div>
+    <div class="queue" id="failedRuns" hidden></div>
     <div class="queue only-shorts" id="uploadQueue" data-lane="upload" data-title="Uploads" hidden></div>
   </div>
   <div class="status-toggles" id="statusToggles">
@@ -1427,6 +1429,7 @@
     <label class="check preview-run not-shorts"><input type="checkbox" name="try_first"><span>Preview run</span></label>
     <button type="button" class="start-later" id="goLater" title="Into the queue, to start when you start it">Start later</button>
   </div>
+  <button type="button" class="start-later" id="cancelQueueEdit" hidden>Cancel editing (keep in Pending)</button>
   <div class="err" id="formError" hidden></div>
   <div class="hint" id="formNote" hidden></div>
   <div class="estimate" id="estimate" hidden>
@@ -1452,10 +1455,10 @@
   <div class="settings-row"><label for="defaultShorts">Shorts</label><select id="defaultShorts" data-side="shorts"></select></div>
   <div class="settings-row"><label for="defaultVideo">Video</label><select id="defaultVideo" data-side="video"></select></div>
   <div class="settings-row"><label for="defaultImage">Image</label><select id="defaultImage" data-side="image"></select></div>
-  <div class="settings-group">Open on your phone</div>
-  <div class="settings-row url-row"><span class="url-name">Same Wi-Fi</span><code>{{ phone_url }}</code><button type="button" class="copy-url" data-url="{{ phone_url }}">Copy</button></div>
-  {% if tailscale_url %}<div class="settings-row url-row"><span class="url-name">Anywhere (Tailscale)</span><code>{{ tailscale_url }}</code><button type="button" class="copy-url" data-url="{{ tailscale_url }}">Copy</button></div>{% endif %}
-  {% if tailscale_problem %}<div class="hint">Anywhere (Tailscale): {{ tailscale_problem }}</div>{% endif %}
+  <div class="settings-group">URL's</div>
+  <div class="settings-row url-row"><span class="url-name">Local</span><code>{{ phone_url }}</code><button type="button" class="copy-url" data-url="{{ phone_url }}">Copy</button></div>
+  {% if tailscale_url %}<div class="settings-row url-row"><span class="url-name">Tailscale</span><code>{{ tailscale_url }}</code><button type="button" class="copy-url" data-url="{{ tailscale_url }}">Copy</button></div>{% endif %}
+  {% if tailscale_problem %}<div class="hint">Tailscale: {{ tailscale_problem }}</div>{% endif %}
   <div class="settings-group">Storage</div>
   <div class="disk" id="diskBox"><div class="hint">Checking…</div></div>
   </div>
@@ -1581,6 +1584,33 @@
   <div class="upscale-row">
     <button type="button" id="upscaleCancel">Cancel</button>
     <button type="button" id="upscaleGo" title="Adds it to the queue">Add to queue</button>
+  </div>
+</dialog>
+<dialog id="queueUpscaleSettings" class="panel-dialog upscale-dialog upscale-settings" aria-label="Edit upscale settings">
+  <div class="upscale-head"><span>Edit upscale</span></div>
+  <div class="upscale-row" id="queueUpscaleMethodRow">
+    <select id="queueUpscaleMethod" aria-label="Upscale method">
+      <option value="fast">Superscale-SP</option><option value="seedvr2">SeedVR2</option>
+    </select>
+  </div>
+  <div class="upscale-row" id="queueUpscaleStrengthRow">
+    <label>Strength <input id="queueUpscaleStrength" type="number" min="0" max="1" step="0.01"></label>
+  </div>
+  <div class="upscale-row" id="queueUpscaleResolutionRow">
+    <select id="queueUpscaleResolution" aria-label="Resolution">
+      <option value="0">2×</option><option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">4K</option>
+    </select>
+  </div>
+  <div class="upscale-row" id="queueUpscaleFilmRow">
+    <label>Scale <input id="queueUpscaleScale" type="number" min="1" max="4" step="any"></label>
+    <select id="queueUpscaleQuality" aria-label="Quality">
+      <option value="HIGHBITRATE_HIGH">High bitrate · high</option><option value="HIGHBITRATE_ULTRA">High bitrate · ultra</option>
+      <option value="STREAMING_ULTRA">Streaming · ultra</option><option value="ULTRA">Ultra</option>
+    </select>
+  </div>
+  <div class="upscale-row">
+    <button type="button" id="queueUpscaleCancel">Cancel editing</button>
+    <button type="button" id="queueUpscaleSave">Save to queue</button>
   </div>
 </dialog>
 
@@ -1905,8 +1935,10 @@ function renderVideos() {
   $('countOutput').textContent = lastVideos.output.length;
   $('countUploaded').textContent = lastVideos.uploaded.length;
   $('uploadAll').hidden = folder !== 'output';
-  $('uploadAll').disabled = !CAN_UPLOAD || !unclaimedVideos().length;
-  $('uploadAll').textContent = busy ? 'Queue upload all' : 'Upload all';
+  if (!$('uploadAll').classList.contains('queue-request') && !$('uploadAll').classList.contains('queue-request-done')) {
+    $('uploadAll').disabled = !CAN_UPLOAD || !unclaimedVideos().length;
+    $('uploadAll').textContent = busy ? 'Queue upload all' : 'Upload all';
+  }
 
   const key = folder + '|' + outputFilter + '|' + videos.map(v => v.name + v.mtime + (v.topic || v.title || '')).join(',');
   // Keep players that already exist so a poll does not interrupt playback.
@@ -1921,6 +1953,7 @@ function renderVideos() {
   }
   // The upload icon says where it's at in its name, and pulses while it's claimed.
   for (const b of $('videos').querySelectorAll('[data-up]')) {
+    if (b.classList.contains('queue-request') || b.classList.contains('queue-request-done')) continue;
     const now = uploadingNow.has(b.dataset.up), queued = uploadQueued.has(b.dataset.up);
     const label = now ? 'Uploading…' : queued ? 'Queued to upload' : busy ? 'Queue upload to YouTube' : 'Upload to YouTube';
     b.disabled = now || queued || !CAN_UPLOAD;
@@ -1931,14 +1964,48 @@ function renderVideos() {
   updateNav();
 }
 
-async function startUpload(fields) {
+async function queueRequest(button, request, doneText = 'Queued', pendingText = 'Adding…') {
+  if (button.disabled) return null;
+  const original = button.innerHTML;
+  const label = button.getAttribute('aria-label');
+  button.disabled = true;
+  button.classList.add('queue-request');
+  button.setAttribute('aria-busy', 'true');
+  if (button.classList.contains('icon-btn') || button.classList.contains('run-item')) {
+    button.textContent = '…';
+  } else {
+    button.textContent = pendingText;
+  }
+  try {
+    const data = await request();
+    if (!data.ok) {
+      alert(data.error || 'Could not add it. Try again.');
+      return null;
+    }
+    button.classList.remove('queue-request');
+    button.classList.add('queue-request-done');
+    button.setAttribute('aria-label', doneText);
+    if (button.classList.contains('icon-btn') || button.classList.contains('run-item')) button.innerHTML = ICONS.check;
+    else button.textContent = doneText;
+    await new Promise(resolve => setTimeout(resolve, 800));
+    return data;
+  } catch (error) {
+    alert('Could not reach the panel. Try again.');
+    return null;
+  } finally {
+    button.disabled = false;
+    button.classList.remove('queue-request', 'queue-request-done');
+    button.removeAttribute('aria-busy');
+    if (label === null) button.removeAttribute('aria-label'); else button.setAttribute('aria-label', label);
+    button.innerHTML = original;
+  }
+}
+async function startUpload(fields, button) {
   const body = new FormData();
   body.append('privacy', $('privacy').value);
   for (const [k, v] of Object.entries(fields)) body.append(k, v);
-  const res = await fetch('/publish', { method: 'POST', body });
-  const data = await res.json();
-  if (!data.ok) alert(data.error || 'Could not start the upload.');
-  poll();
+  const data = await queueRequest(button, async () => (await fetch('/publish', { method: 'POST', body })).json());
+  if (data) poll();
 }
 function privacyNote() { return `as ${$('privacy').value} (change it under Publish)`; }
 
@@ -1995,7 +2062,7 @@ $('videos').addEventListener('click', async e => {
     }
     const when = busy ? ' when the current upload is done' : '';
     if (!confirm(`Upload ${d.up} to YouTube ${privacyNote()}${when}?`)) return;
-    startUpload(topic ? { video: d.up, topic } : { video: d.up });
+    startUpload(topic ? { video: d.up, topic } : { video: d.up }, e.target);
   }
 });
 $('uploadAll').addEventListener('click', () => {
@@ -2004,7 +2071,7 @@ $('uploadAll').addEventListener('click', () => {
   const skip = missing ? `\n\n${missing} without a recorded topic will be skipped; upload those on their own.` : '';
   const when = busy ? ' when the current upload is done' : '';
   if (!confirm(`Upload ${videos.length} video(s) to YouTube ${privacyNote()}${when}?${skip}`)) return;
-  startUpload({});
+  startUpload({}, $('uploadAll'));
 });
 $('openFolder').onclick = async () => {
   const data = await (await fetch(`/folders/${folder}/open`, { method: 'POST' })).json();
@@ -3386,6 +3453,8 @@ const ICONS = {
   enhanced: ICON_SVG('<path d="M12 3l1.8 4.6L18 9.4l-4.2 1.8L12 16l-1.8-4.8L6 9.4l4.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>'),
   upload: ICON_SVG('<path d="M12 20V9"/><path d="m7 14 5-5 5 5"/><path d="M5 4h14"/>'),
   again: ICON_SVG('<path d="M4 12a8 8 0 0 1 13.7-5.7L20 8.5"/><path d="M20 4v4.5h-4.5"/><path d="M20 12a8 8 0 0 1-13.7 5.7L4 15.5"/><path d="M4 20v-4.5h4.5"/>'),
+  play: ICON_SVG('<path d="M7 4.5v15l12-7.5z" fill="currentColor"/>'),
+  config: ICON_SVG('<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>'),
 };
 function imageSetHtml(set) {
   const id = encodeURIComponent(set.id);
@@ -3531,6 +3600,26 @@ async function sameAgainFilm(id) {
   if (WIDE.matches) $('optionsCard').scrollIntoView({ behavior: 'smooth' }); else showPage('generate');
 }
 const VARIATIONS = 4;
+// A Shorts run's settings back in Generate. With the same topic, pressing Generate continues that run with what you changed.
+async function sameAgainShorts(id) {
+  let data;
+  try { data = await (await fetch(`/shorts-runs/${encodeURIComponent(id)}/form`)).json(); } catch (e) { data = { error: 'Could not reach the panel. Try again.' }; }
+  if (!data.ok) { alert(data.error || 'Could not open that run.'); return; }
+  if (pipeline !== 'shorts') setPipeline('shorts');
+  await loadWorkflows();
+  for (const el of $('formShorts').elements) {
+    if (!el.name || el.type === 'file' || !(el.name in data.form)) continue;
+    const value = data.form[el.name];
+    if (el.type === 'checkbox') el.checked = !!value;
+    else if (!el.options || [...el.options].some(o => o.value === String(value) && !o.disabled)) el.value = value;
+  }
+  syncForm();
+  applyOptions($('shortsOptionsBox'), (shortsTakes[$('workflow').value] || {}).options || [], data.options);
+  syncForm();
+  saveForm();
+  showFormError('');
+  if (WIDE.matches) $('optionsCard').scrollIntoView({ behavior: 'smooth' }); else showPage('generate');
+}
 $('viewerVariations').addEventListener('click', () => {
   if (!viewing || viewing.film) return;
   const { id, position } = viewing;
@@ -3592,7 +3681,7 @@ $('upscaleSettings').addEventListener('click', async e => {
   const button = e.target.closest && e.target.closest('#upscaleGo');
   if (!button || !viewing) return;
   const done = body => {
-    if (!body.ok) { alert(body.error || 'Could not upscale it.'); return; }
+    if (!body) return;
     $('upscaleSettings').close();
     $('viewerUpscale').textContent = body.queued ? 'Queued' : 'Upscaling…';
     setTimeout(() => { $('viewerUpscale').textContent = 'Upscale'; }, 2500);
@@ -3601,15 +3690,13 @@ $('upscaleSettings').addEventListener('click', async e => {
   let body;
   if (viewing.film) {
     const query = `scale=${encodeURIComponent($('filmUpscaleScale').value)}&quality=${encodeURIComponent($('filmUpscaleQuality').value)}`;
-    try { body = await (await fetch(`/films/${encodeURIComponent(viewing.name)}/upscale?${query}`, { method: 'POST' })).json(); }
-    catch (err) { body = { error: 'Could not reach the panel. Try again.' }; }
+    body = await queueRequest(button, async () => (await fetch(`/films/${encodeURIComponent(viewing.name)}/upscale?${query}`, { method: 'POST' })).json());
     done(body);
     return;
   }
   const { id, position } = viewing;
   const query = upscaleMethod === 'fast' ? `?method=fast&strength=${encodeURIComponent($('viewerUpscaleStrength').value)}` : `?method=seedvr2&resolution=${encodeURIComponent($('viewerUpscaleSize').value)}`;
-  try { body = await (await fetch(`/image-runs/${encodeURIComponent(id)}/upscale/${position}${query}`, { method: 'POST' })).json(); }
-  catch (err) { body = { error: 'Could not reach the panel. Try again.' }; }
+  body = await queueRequest(button, async () => (await fetch(`/image-runs/${encodeURIComponent(id)}/upscale/${position}${query}`, { method: 'POST' })).json());
   done(body);
 });
 // --- Edit: the Image side with Qwen-Image 2.1's edit workflow, for changing painted parts, expanding, or editing an image ---
@@ -4108,9 +4195,9 @@ function closeShots() {
   $('shotsBody').querySelectorAll('video').forEach(v => v.pause());
   $('shotsDialog').close();
 }
-async function runSaved(url) {
-  const data = await (await fetch(url, { method: 'POST' })).json();
-  if (!data.ok) { alert(data.error || 'Could not start it.'); return; }
+async function runSaved(url, button) {
+  const data = await queueRequest(button, async () => (await fetch(url, { method: 'POST' })).json());
+  if (!data) return;
   closeShots();
   autoScroll = true;
   poll();
@@ -4139,7 +4226,7 @@ $('shotsBody').addEventListener('click', async e => {
     }
   }
   else if (d.render) {
-    if (await saveShots()) runSaved(`/runs/${shotsRun.id}/continue`);
+    if (await saveShots()) runSaved(`/runs/${shotsRun.id}/continue`, e.target);
   } else if (d.deleteImage) {
     if (!secondTap(e.target)) return;
     if (!await saveShots()) return;
@@ -4151,13 +4238,13 @@ $('shotsBody').addEventListener('click', async e => {
   } else if (d.redo && shotsRun.is_image) {
     const seed = $(`seed_${d.redo}`).value.trim();
     if (!confirm(`Make image ${d.redo} again on ${seed ? `seed ${seed}` : 'a new seed'}? The new one replaces it.`)) return;
-    if (await saveShots()) runSaved(`${runUrl(shotsRun.id)}/redo/${d.redo}`);
+    if (await saveShots()) runSaved(`${runUrl(shotsRun.id)}/redo/${d.redo}`, e.target);
   } else if (d.redo) {
     const after = shotsRun.start === 'chain' ? shotsRun.shots.length - d.redo : 0;
     const also = after ? ` and the ${after} after it` : '';
     const seed = $(`seed_${d.redo}`).value.trim();
     if (!confirm(`Render shot ${d.redo}${also} again on ${seed ? `seed ${seed}` : 'a new seed'}, then join the film anew? The film replaces the one already finished.`)) return;
-    if (await saveShots()) runSaved(`/runs/${shotsRun.id}/redo/${d.redo}`);
+    if (await saveShots()) runSaved(`/runs/${shotsRun.id}/redo/${d.redo}`, e.target);
   }
 });
 function closeSeedFolds() {
@@ -4442,10 +4529,11 @@ function renderQueue(el, q, doneIn, moving = false, idle = false) {
   // What has finished is under Finished: this is what's waiting. The one moving to start has left it already.
   el._last = [q, doneIn, moving, idle];
   if (el._leaving || el._dragging) return;  // Drawn once it has gone, or been dropped
+  if (el.querySelectorAll('.queue-request, .queue-request-done').length) return;
   const waiting = moving ? q.items.slice(1) : q.items;
   // What left since: it slides up out of the queue, towards Status, and the rest close up behind it.
   const gone = [...el.querySelectorAll('.queue-item[data-id]:not(.leaving)')].filter(node => !waiting.some(item => String(item.id) === node.dataset.id));
-  if (gone.length && !el.hidden) {
+  if (el.dataset.lane !== 'run' && gone.length && !el.hidden) {
     el._leaving = true;
     for (const node of gone) {
       node.style.height = `${node.offsetHeight}px`;
@@ -4454,7 +4542,8 @@ function renderQueue(el, q, doneIn, moving = false, idle = false) {
     setTimeout(() => { el._leaving = false; renderQueue(el, ...el._last); }, LEAVE_MS);
     return;
   }
-  el.hidden = !waiting.length;
+  const runControls = el.dataset.lane === 'run' && q.running && q.pipeline !== 'video';
+  el.hidden = !waiting.length && !runControls;
   if (el.hidden) {
     // Not what left, which would otherwise stay in it, hidden, and keep its head and Resume.
     el.innerHTML = '';
@@ -4462,25 +4551,27 @@ function renderQueue(el, q, doneIn, moving = false, idle = false) {
     return;
   }
   const head = `<b>${el.dataset.title} (${waiting.length})</b>` + (q.held
-    ? `<span class="when">On hold until you press Resume</span>`
-    : doneIn ? `<span class="when">All done around ${clockIn(doneIn)}</span>` : '');
+    ? `<span class="when">On hold until you press play</span>`
+    : doneIn ? `<span class="when">All done around ${clockIn(doneIn)}</span>` : '')
+    + (el.dataset.lane === 'run' ? `<button type="button" class="icon-btn" data-queue-toggle="1" aria-label="${q.held || q.stopAfter ? 'Resume queue' : 'Pause after current'}" title="${q.held || q.stopAfter ? 'Resume queue' : 'Stop after the current image or video'}">${q.held || q.stopAfter ? ICONS.play : '❚❚'}</button>` : '');
   const canRunNow = el.dataset.lane === 'run' && q.held && idle;
   const grip = item => waiting.length < 2 ? '' : `<button type="button" class="grip" data-grip="${item.id}" aria-label="Move ${esc(item.label)}: drag, or use the arrow keys" title="Drag to move">
         <svg viewBox="0 0 12 18" width="12" height="18" aria-hidden="true" fill="currentColor">${[3, 9, 15].map(y => `<circle cx="3" cy="${y}" r="1.6"/><circle cx="9" cy="${y}" r="1.6"/>`).join('')}</svg></button>`;
   const items = waiting.map((item, i) => `
-    <div class="queue-item" data-id="${esc(String(item.id))}">
+    <div class="queue-item" data-id="${esc(String(item.id))}" data-motion-key="queue-${esc(String(item.id))}">
       ${grip(item)}<div class="what">${i + 1}. ${esc(item.label)}<div class="hint">${el.dataset.lane === 'run' ? `${SIDE_NAMES[item.pipeline] || 'Shorts'} · ` : ''}${esc(item.detail)}</div></div>
       ${canRunNow ? `<button type="button" class="run-item" data-run="${item.id}" aria-label="Run this generation now" title="Run this now">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.8a.8.8 0 0 1 1.2-.7l8 5a1 1 0 0 1 0 1.7l-8 5A.8.8 0 0 1 4 13.1z" fill="currentColor"/></svg></button>`
-        : item.later ? `<button type="button" class="start-item" data-start="${item.id}" title="Start it: it goes next">Start</button>`
         : item.estimate ? `<span class="when">${fmtEta(item.estimate)}</span>` : ''}
-      <button type="button" data-remove="${item.id}" aria-label="Remove from the queue" title="Remove from the queue">✕</button>
+      ${el.dataset.lane === 'run' ? `<button type="button" class="icon-btn" data-edit="${item.id}" aria-label="Go to setup" title="Edit this queued job">${ICONS.config}</button>` : ''}
+      ${el.dataset.lane === 'run' ? `<button type="button" data-pause="${item.id}" aria-label="Pause: move to Pending" title="Pause: take it out of the queue and make it pending">❚❚</button>` : ''}
+      <button type="button" data-remove="${item.id}" aria-label="Remove from the queue" title="Remove from the queue (tap twice)">✕</button>
     </div>`).join('');
   // Resume under what it lets go, where a thumb ends up after reading the list.
-  const foot = q.held ? `<div class="queue-foot"><button type="button" data-resume="1">Resume</button></div>` : '';
+  const foot = q.held && el.dataset.lane !== 'run' ? `<div class="queue-foot"><button type="button" data-resume="1">Resume</button></div>` : '';
   const html = `<div class="queue-head">${head}</div>${items}${foot}`;
-  // Only when it changed, so a poll can't swallow a click on a button it just replaced.
-  if (el.dataset.html !== html) {
+  // Only when it changed, so a poll can't swallow a click on a button it just replaced; nor one waiting for its second tap.
+  if (el.dataset.html !== html && !el.querySelectorAll('.armed, .queue-request, .queue-request-done').length) {
     el.innerHTML = html;
     el.dataset.html = html;
   }
@@ -4570,47 +4661,165 @@ $('finishedList').addEventListener('click', e => {
 function whyHtml(outcome) {
   return `<details class="why"><summary>Why</summary><div class="why-text">${esc(outcome.why)}</div></details>`;
 }
-function renderStopped(runs) {
-  const el = $('stoppedRuns');
-  el.hidden = !runs.length;
-  const html = !runs.length ? '' : `<details class="stopped-fold"${el._open ? ' open' : ''}><summary><b>Stopped runs (${runs.length})</b><span class="chev" aria-hidden="true"></span></summary><div class="stopped-body">` + runs.map(run => `
-    <div class="stopped-run">
-      <div class="run-head"><div class="what">${esc(run.label)}</div>${run.outcome ? `<span class="run-tag">${esc(run.outcome.outcome)}</span>` : ''}</div>
+// Draw all three sections together, so their height changes move the rest of the page gradually.
+let runSectionsDrawn = false;
+function renderRunSections(draw) {
+  const sections = ['runQueue', 'stoppedRuns', 'failedRuns'].map(id => $(id));
+  const motion = runSectionsDrawn && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    && $('queueBox').getClientRects().length;
+  runSectionsDrawn = true;
+  if (!motion) {
+    for (const el of sections) {
+      if (el._sectionAnimation) el._sectionAnimation.cancel();
+    }
+    draw();
+    return;
+  }
+
+  const positions = new Map();
+  const before = sections.map(el => {
+    const ghost = el._exitGhost;
+    const visible = ghost || (!el.hidden && el.getClientRects().length ? el : null);
+    if (visible && !ghost) {
+      for (const row of el.querySelectorAll('[data-motion-key]')) {
+        if (row.getClientRects().length) positions.set(row.dataset.motionKey, { section: el, top: row.getBoundingClientRect().top });
+      }
+    }
+    return { html: el.dataset.html, hidden: el.hidden, height: visible ? visible.getBoundingClientRect().height : 0,
+             copy: visible ? visible.cloneNode(true) : null };
+  });
+  draw();
+
+  sections.forEach((el, i) => {
+    const old = before[i];
+    if (old.html === el.dataset.html && old.hidden === el.hidden) return;
+    if (el._sectionAnimation) el._sectionAnimation.cancel();
+    if (el._exitGhost) { el._exitGhost.remove(); el._exitGhost = null; }
+    const visible = !el.hidden && el.getClientRects().length;
+    const height = visible ? el.getBoundingClientRect().height : 0;
+    let target = visible ? el : null;
+    if (!target && old.copy && old.height) {
+      target = old.copy;
+      target.removeAttribute('id');
+      target.setAttribute('aria-hidden', 'true');
+      target.inert = true;
+      target.style.pointerEvents = 'none';
+      el.parentNode.insertBefore(target, el);
+      el._exitGhost = target;
+    }
+    if (target && Math.abs(old.height - height) > 0.5) {
+      const animation = target.animate([
+        { height: `${old.height}px`, marginTop: old.height ? '12px' : '0px', overflow: 'hidden', boxSizing: 'border-box' },
+        { height: `${height}px`, marginTop: height ? '12px' : '0px', overflow: 'hidden', boxSizing: 'border-box' },
+      ], { duration: 300, easing: 'cubic-bezier(.2,.8,.2,1)' });
+      el._sectionAnimation = animation;
+      const finish = () => {
+        if (el._sectionAnimation === animation) el._sectionAnimation = null;
+        if (el._exitGhost === target) { target.remove(); el._exitGhost = null; }
+      };
+      animation.onfinish = finish;
+      animation.oncancel = finish;
+    }
+    if (!visible) return;
+    for (const row of el.querySelectorAll('[data-motion-key]')) {
+      if (!row.getClientRects().length) continue;
+      const previous = positions.get(row.dataset.motionKey);
+      const shift = previous ? previous.top - row.getBoundingClientRect().top : 0;
+      if (!previous || previous.section !== el) {
+        row.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, easing: 'ease-out' });
+      } else if (Math.abs(shift) > 0.5) {
+        row.animate([{ transform: `translateY(${shift}px)` }, { transform: 'none' }],
+          { duration: 300, easing: 'cubic-bezier(.2,.8,.2,1)' });
+      }
+    }
+  });
+}
+function renderStopped(runs, parked = []) {
+  const failed = runs.filter(run => run.outcome && run.outcome.outcome === 'failed');
+  const idle = runs.filter(run => !failed.includes(run));
+  const tag = run => run.outcome ? `<span class="run-tag">${esc(run.outcome.outcome === 'failed' ? 'Failed' : run.outcome.outcome)}</span>` : '';
+  const runRow = (run, isFailed = false) => `
+    <div class="stopped-run" data-motion-key="run-${esc(run.id)}">
+      <div class="run-head"><div class="what">${esc(run.label)}</div>${tag(run)}</div>
       <div class="hint">${SIDE_NAMES[run.pipeline] || 'Shorts'} · ${esc(run.detail)}</div>
       ${run.when ? `<div class="hint">${esc(run.when)}</div>` : ''}
       ${run.outcome ? whyHtml(run.outcome) : ''}
       <div class="stopped-actions">
         <span class="when">${fmtEta(run.estimate)}</span>
         ${run.pipeline !== 'shorts' ? `<button type="button" data-shots="${esc(run.id)}">Prompts</button>` : ''}
-        <button type="button" data-continue="${esc(run.id)}">${run.pipeline !== 'shorts' && !run.clips ? 'Render' : 'Continue'}</button>
-        <button type="button" class="icon-btn" data-discard="${esc(run.id)}" data-pipeline="${esc(run.pipeline)}" data-clips="${run.clips}" aria-label="Discard this run" title="Discard what it has still to do: anything it made stays">✕</button>
+        ${isFailed ? `<button type="button" class="icon-btn" data-config="${esc(run.id)}" data-pipeline="${esc(run.pipeline)}" aria-label="Change configuration" title="Back to Generate with its settings, to change them">${ICONS.config}</button>
+        <button type="button" class="icon-btn" data-continue="${esc(run.id)}" aria-label="Retry" title="Retry from where it got to">${ICONS.again}</button>`
+          : `<button type="button" data-continue="${esc(run.id)}">${run.pipeline !== 'shorts' && !run.clips ? 'Render' : 'Continue'}</button>`}
+        <button type="button" class="icon-btn" data-discard="${esc(run.id)}" data-pipeline="${esc(run.pipeline)}" data-clips="${run.clips}" aria-label="Discard this run" title="Discard what it has still to do: anything it made stays (tap twice)">✕</button>
       </div>
-    </div>`).join('') + '</div></details>';
-  // Only when it changed, so a poll can't swallow a click on a button it just replaced.
-  if (el.dataset.html !== html) {
-    el.innerHTML = html;
-    el.dataset.html = html;
-  }
+    </div>`;
+  // Waiting to be started: put there by Start later or Pause, and not in the queue until you start it.
+  const parkedRow = item => `
+    <div class="stopped-run" data-motion-key="queue-${esc(String(item.id))}">
+      <div class="run-head"><div class="what">${esc(item.label)}</div></div>
+      <div class="hint">${SIDE_NAMES[item.pipeline] || 'Shorts'} · ${esc(item.detail)}</div>
+      <div class="stopped-actions">
+        ${item.estimate ? `<span class="when">${fmtEta(item.estimate)}</span>` : ''}
+        <button type="button" class="icon-btn" data-edit="${item.id}" aria-label="Go to setup" title="Edit this pending job">${ICONS.config}</button>
+        ${item.editing ? '<span class="when">Editing</span>' : `<button type="button" class="icon-btn start-item" data-start="${item.id}" aria-label="Start" title="Start: at the end of the queue, or now if nothing is queued">${ICONS.play}</button>`}
+        <button type="button" class="icon-btn" data-remove="${item.id}" aria-label="Remove it" title="Remove it (tap twice)">✕</button>
+      </div>
+    </div>`;
+  const fold = (id, title, rows) => {
+    const el = $(id);
+    if (el.querySelectorAll('.queue-request, .queue-request-done').length) return;
+    el.hidden = !rows.length;
+    const html = !rows.length ? '' : `<details class="stopped-fold"${el._open ? ' open' : ''}><summary><b>${title} (${rows.length})</b><span class="chev" aria-hidden="true"></span></summary><div class="stopped-body">${rows.join('')}</div></details>`;
+    // Only when it changed, so a poll can't swallow a click on a button it just replaced; nor one waiting for its second tap.
+    if (el.dataset.html !== html && !el.querySelectorAll('.armed, .queue-request, .queue-request-done').length) {
+      el.innerHTML = html;
+      el.dataset.html = html;
+    }
+  };
+  fold('stoppedRuns', 'Pending', [...parked.map(parkedRow), ...idle.map(run => runRow(run))]);
+  fold('failedRuns', 'Failed', failed.map(run => runRow(run, true)));
 }
 // Open or shut stays as it was left, through the redraws.
-$('stoppedRuns').addEventListener('toggle', e => { if (e.target.matches('.stopped-fold')) $('stoppedRuns')._open = e.target.open; }, true);
-$('stoppedRuns').addEventListener('click', async e => {
-  const d = e.target.dataset || {};
-  let url;
-  if (d.shots) {
-    openShots(d.shots);
-    return;
-  } else if (d.continue) {
-    url = `/runs/${d.continue}/continue`;
-  } else if (d.discard) {
-    // Two taps, as a delete: what it already made stays in Output.
-    if (!secondTap(e.target)) return;
-    url = `/runs/${d.discard}/discard`;
-  } else {
-    return;
-  }
-  await stopJob(url);
-});
+for (const id of ['stoppedRuns', 'failedRuns']) {
+  $(id).addEventListener('toggle', e => { if (e.target.matches('.stopped-fold')) $(id)._open = e.target.open; }, true);
+  $(id).addEventListener('click', async e => {
+    const button = e.target.closest && e.target.closest('button');
+    const d = button ? button.dataset : {};
+    let url;
+    if (d.shots) {
+      openShots(d.shots);
+      return;
+    } else if (d.config) {
+      if (d.pipeline === 'image') await sameAgain(d.config);
+      else if (d.pipeline === 'video') await sameAgainFilm(d.config);
+      else await sameAgainShorts(d.config);
+      return;
+    } else if (d.continue) {
+      const data = await queueRequest(button, async () => (await fetch(`/runs/${encodeURIComponent(d.continue)}/continue`, { method: 'POST' })).json());
+      if (data) poll();
+      return;
+    } else if (d.discard) {
+      // Two taps, as a delete: what it already made stays in Output.
+      if (!secondTap(button)) return;
+      url = `/runs/${d.discard}/discard`;
+    } else if (d.edit) {
+      await editQueued(d.edit, button);
+      return;
+    } else if (d.start || d.remove) {
+      if (d.remove && !secondTap(button)) return;
+      if (d.start) {
+        const data = await queueRequest(button, async () => (await fetch(`/queue/run/start/${d.start}`, { method: 'POST' })).json());
+        if (data) poll();
+      } else {
+        await stopJob(`/queue/run/remove/${d.remove}`);
+      }
+      return;
+    } else {
+      return;
+    }
+    await stopJob(url);
+  });
+}
 // Reordering the queue: drag a job by its grip, or move it with the arrow keys there. The page moves it at once,
 // then sends the new order; the next poll draws what the server has.
 function queueOrder(el) { return [...el.querySelectorAll('.queue-item[data-id]')].map(node => Number(node.dataset.id)); }
@@ -4678,15 +4887,34 @@ function dragQueue(el) {
 for (const id of ['runQueue', 'uploadQueue']) {
   dragQueue($(id));
   $(id).addEventListener('click', async e => {
-    const button = e.target.closest && e.target.closest('button[data-run], button[data-start], button[data-remove], button[data-resume]');
+    const button = e.target.closest && e.target.closest('button[data-run], button[data-pause], button[data-remove], button[data-resume], button[data-queue-toggle], button[data-edit]');
     const d = button ? button.dataset : {}, lane = $(id).dataset.lane;
-    if (d.run) {
-      const response = await fetch(`/queue/${lane}/run-now/${d.run}`, { method: 'POST' });
-      const body = await response.json();
-      if (!response.ok || !body.ok) alert(body.error || 'Could not run that queued generation.');
+    if (d.edit) {
+      await editQueued(d.edit, button);
+      return;
     }
-    else if (d.start) await fetch(`/queue/${lane}/start/${d.start}`, { method: 'POST' });
-    else if (d.remove) await fetch(`/queue/${lane}/remove/${d.remove}`, { method: 'POST' });
+    if (d.queueToggle) {
+      const state = $(id)._last[0];
+      const data = await queueRequest(button, async () => {
+        if (state.stopAfter) {
+          const result = await (await fetch('/stop-after', { method: 'POST' })).json();
+          if (!result.ok) return result;
+          if (!state.held) return result;
+        }
+        const action = state.held || state.stopAfter ? 'resume' : state.running && state.pipeline !== 'video' ? null : 'hold';
+        return (await fetch(action ? `/queue/run/${action}` : '/stop-after', { method: 'POST' })).json();
+      }, state.held || state.stopAfter ? 'Resumed' : 'Paused', 'Updating…');
+      if (!data) return;
+    }
+    else if (d.run || d.pause) {
+      const action = d.run ? 'run-now' : 'pause';
+      const data = await queueRequest(button, async () => (await fetch(`/queue/${lane}/${action}/${d.run || d.pause}`, { method: 'POST' })).json(), d.pause ? 'Pending' : 'Started', d.pause ? 'Pausing…' : 'Starting…');
+      if (!data) return;
+    }
+    else if (d.remove) {
+      if (!secondTap(button)) return;
+      await fetch(`/queue/${lane}/remove/${d.remove}`, { method: 'POST' });
+    }
     else if (d.resume) {
       // Shown at once; the next status confirms it.
       if ($(id)._last) { $(id)._last[0] = { ...$(id)._last[0], held: false }; renderQueue($(id), ...$(id)._last); }
@@ -4912,11 +5140,12 @@ async function pollOnce() {
   }
   wasRunning = running;
   const queue = data.queue, upq = data.upload.queue;
-  runsQueued = queue.items.length;
+  const ready = queue.items.filter(item => !item.later);
+  runsQueued = ready.length;
   queueHeld = !!queue.held;
   uploadsQueued = upq.items.length;
-  // Waiting to be started, they don't start by themselves: not next, and not part of when this all ends.
-  const ready = queue.items.filter(item => !item.later);
+  // Pending ones (Start later, Pause) aren't in the active queue: they don't start by themselves, so not next, and not part of when this all ends.
+  const parked = queue.items.filter(item => item.later);
   // Between two jobs for a moment: the next is about to start, so this isn't "Finished".
   const nextUp = !running && ready.length > 0 && !queue.held;
   // On hold they won't start by themselves, so they aren't part of when this all ends.
@@ -4931,14 +5160,16 @@ async function pollOnce() {
   uploadRunning = data.upload.running;
   busy = uploadRunning || uploadsQueued > 0 || (running && (data.progress.stage || [])[2] === 'Upload');
   safely(() => renderUpload(data.upload));
-  safely(() => renderQueue($('runQueue'), queue, queue.held ? 0 : queueAhead, nextUp, !running && !queue.current));
-  safely(() => renderStopped(data.stopped_runs));
+  safely(() => renderRunSections(() => {
+    safely(() => renderQueue($('runQueue'), { ...queue, items: ready, running, pipeline: data.pipeline, stopAfter: data.stop_after }, queue.held ? 0 : queueAhead, nextUp, !running && !queue.current));
+    safely(() => renderStopped(data.stopped_runs, parked));
+  }));
   safely(() => renderFinished(queue.results, upq.results, data.made_now || []));
   $('dot').className = 'dot' + (running || nextUp ? ' on' : '');
   $('jumpDot').className = $('dot').className;
   safely(() => renderStrips(data));
   $('go').disabled = $('goStick').disabled = submitting;
-  if (!submitting) $('go').textContent = $('goStick').textContent = goLabel(running);
+  if (!submitting) $('go').textContent = $('goStick').textContent = queueEdit ? 'Save to queue' : goLabel(running);
   workItem = running ? queue.current : nextUp ? queue.items[0] : null;
   lastStatus = data;
   showWork(running ? `${SIDE_NAMES[data.pipeline] || 'Shorts'}: ${(queue.current || {}).label || 'Starting'}`
@@ -4950,10 +5181,6 @@ async function pollOnce() {
   if (data.stopped_runs.length !== stoppedCount) { stoppedCount = data.stopped_runs.length; refreshPlan(); }
   $('runActions').hidden = !running;
   // A batch (Shorts' videos, Image's images) can end once the one being made is done; a film is one video.
-  $('stopAfter').hidden = !running || data.pipeline === 'video';
-  $('stopAfter').textContent = data.stop_after ? 'Keep going' : 'Stop after this one';
-  $('stopAfter').title = data.stop_after ? 'Stopping once the one being made now is done: press to let the batch go on'
-    : 'Let the video or image being made now finish, then end the batch';
 
   safely(() => renderNow(data));
   safely(() => renderEtaDetail(running ? (data.progress || {}).eta : null));
@@ -5065,6 +5292,160 @@ function showFormError(text) {
   $('formError').textContent = $('goError').textContent = text || '';
   $('formError').hidden = $('goError').hidden = !text;
 }
+let queueEdit = null;
+let queueUpscaleEdit = null;
+function syncQueueUpscale() {
+  const image = queueUpscaleEdit.kind === 'image_upscale';
+  $('queueUpscaleMethodRow').hidden = !image;
+  $('queueUpscaleStrengthRow').hidden = !image || $('queueUpscaleMethod').value !== 'fast';
+  $('queueUpscaleResolutionRow').hidden = !image || $('queueUpscaleMethod').value !== 'seedvr2';
+  $('queueUpscaleFilmRow').hidden = image;
+}
+$('queueUpscaleMethod').addEventListener('change', syncQueueUpscale);
+async function cancelQueueUpscale() {
+  if (!queueUpscaleEdit || $('queueUpscaleSave').disabled) return;
+  const edit = queueUpscaleEdit;
+  try {
+    const body = await (await fetch(`/queue/run/edit/${edit.id}/cancel`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: edit.token }),
+    })).json();
+    if (!body.ok) { alert(body.error || 'Could not cancel editing.'); return; }
+    queueUpscaleEdit = null;
+    $('queueUpscaleSettings').close();
+    poll();
+  } catch (error) { alert('Could not reach the panel. Try again.'); }
+}
+$('queueUpscaleCancel').addEventListener('click', cancelQueueUpscale);
+$('queueUpscaleSettings').addEventListener('cancel', e => { e.preventDefault(); cancelQueueUpscale(); });
+$('queueUpscaleSave').addEventListener('click', async e => {
+  if (!queueUpscaleEdit) return;
+  const image = queueUpscaleEdit.kind === 'image_upscale';
+  const fields = image
+    ? [$('queueUpscaleMethod'), $('queueUpscaleMethod').value === 'fast' ? $('queueUpscaleStrength') : $('queueUpscaleResolution')]
+    : [$('queueUpscaleScale'), $('queueUpscaleQuality')];
+  if (fields.some(field => !field.value || !field.reportValidity())) return;
+  const edit = queueUpscaleEdit;
+  const values = { token: edit.token, method: $('queueUpscaleMethod').value, strength: $('queueUpscaleStrength').value,
+    resolution: $('queueUpscaleResolution').value, scale: $('queueUpscaleScale').value, quality: $('queueUpscaleQuality').value };
+  $('queueUpscaleCancel').disabled = true;
+  const body = await queueRequest(e.currentTarget, async () => (await fetch(`/queue/run/edit/${edit.id}/upscale`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values),
+  })).json(), 'Saved', 'Saving…');
+  $('queueUpscaleCancel').disabled = false;
+  if (body) { queueUpscaleEdit = null; $('queueUpscaleSettings').close(); poll(); }
+});
+function queueEditLabel() {
+  $('cancelQueueEdit').hidden = !queueEdit;
+  $('goLater').hidden = !!queueEdit;
+  if (!submitting) $('go').textContent = $('goStick').textContent = queueEdit ? 'Save to queue' : goLabel(wasRunning);
+}
+async function editQueued(id, button) {
+  if (queueUpscaleEdit) {
+    alert('Finish or cancel the current queued edit first.');
+    return;
+  }
+  if (queueEdit && String(queueEdit.id) !== String(id)) {
+    alert('Finish or cancel the current queued edit first.');
+    return;
+  }
+  const data = await queueRequest(button, async () => (await fetch(`/queue/run/edit/${id}`, { method: 'POST' })).json(), 'Pending', 'Opening…');
+  if (!data) return;
+  if (data.upscale) {
+    queueUpscaleEdit = { id: data.id, token: data.token, kind: data.upscale.kind };
+    $('queueUpscaleMethod').value = data.upscale.method || 'fast';
+    $('queueUpscaleStrength').value = data.upscale.strength || '1';
+    $('queueUpscaleResolution').value = data.upscale.resolution || '0';
+    $('queueUpscaleScale').value = data.upscale.scale || '2';
+    $('queueUpscaleQuality').value = data.upscale.quality || 'HIGHBITRATE_HIGH';
+    syncQueueUpscale();
+    $('queueUpscaleSettings').showModal();
+    poll();
+    return;
+  }
+  queueEdit = { id: data.id, token: data.token, pipeline: data.pipeline, ready: false };
+  queueEditLabel();
+  poll();
+  try {
+    const files = {};
+    for (const name of data.files) {
+      const response = await fetch(`/queue/run/edit/${id}/file/${encodeURIComponent(name)}`, { headers: { 'X-Queue-Edit-Token': data.token } });
+      if (!response.ok) throw new Error(`Could not load ${name}.`);
+      const blob = await response.blob();
+      files[name] = new File([blob], data.filenames[name], { type: blob.type || 'application/octet-stream' });
+    }
+    if (pipeline !== data.pipeline) setPipeline(data.pipeline);
+    if (pipeline === 'video') await loadVideoWorkflows();
+    else if (pipeline === 'image') await loadImageWorkflows();
+    else await loadWorkflows();
+    const form = $(SIDE_FORMS[pipeline]), values = data.form;
+    form.reset();
+    for (const el of form.elements) if (el.type === 'checkbox') el.checked = false;
+    const apply = () => {
+      const indexes = {};
+      for (const el of form.elements) {
+        if (!el.name || el.type === 'file' || !(el.name in values)) continue;
+        const all = Array.isArray(values[el.name]) ? values[el.name] : [values[el.name]];
+        if (el.type === 'checkbox') el.checked = all.some(value => value && value !== '0');
+        else {
+          const index = indexes[el.name] || 0;
+          const value = all[Math.min(index, all.length - 1)];
+          indexes[el.name] = index + 1;
+          if (!el.options || [...el.options].some(o => o.value === String(value) && !o.disabled)) el.value = value;
+        }
+      }
+    };
+    apply();
+    const workflow = Array.isArray(values.workflow) ? values.workflow[0] : values.workflow;
+    const workflowField = pipeline === 'image' ? $('imageWorkflow') : pipeline === 'video' ? $('videoWorkflow') : $('workflow');
+    if (workflow && workflowField.value !== workflow) throw new Error('The saved workflow is unavailable. The job remains in Pending.');
+    if (pipeline === 'video') {
+      imageBoxes().forEach(clearImage);
+      mediaBoxes().forEach(clearMedia);
+      imagesShown = Math.max(1, Object.keys(files).filter(name => /^image(_\d+)?$/.test(name)).length);
+      mediaShown = Math.max(1, Object.keys(files).filter(name => /^ref_media(_\d+)?$/.test(name)).length);
+      if (values.size && String(values.size) !== '') $('sizePreset').value = 'custom';
+      syncVideoForm();
+    } else if (pipeline === 'image') {
+      sourceBoxes().forEach((box, i) => clearSource(box, i === 0));
+      sourcesShown = Math.max(1, Object.keys(files).filter(name => /^image(_\d+)?$/.test(name)).length);
+      if (values.size && !values.aspect) $('imageAspect').value = 'custom';
+      syncImageForm();
+    } else syncForm();
+    for (const [name, file] of Object.entries(files)) {
+      const input = [...form.elements].find(el => el.name === name && el.type === 'file');
+      if (!input || input.disabled) throw new Error(`Cannot restore ${name} for this workflow. The job remains in Pending.`);
+      putFile(input, file);
+      const box = input.closest('.image-box');
+      if (box && pipeline === 'image') showSource(box, sourceBoxes()[0] === box);
+      else if (box && name.startsWith('ref_media')) showMedia(box);
+      else if (box) showImage(box);
+    }
+    apply();
+    if (pipeline === 'video') syncVideoForm(); else if (pipeline === 'image') syncImageForm(); else syncForm();
+    const options = pipeline === 'video' ? (workflowTakes[$('videoWorkflow').value] || {}).options || []
+      : pipeline === 'image' ? imageTakes().options || [] : (shortsTakes[$('workflow').value] || {}).options || [];
+    if (Object.keys(data.options || {}).length) applyOptions($(OPTION_BOXES[pipeline]), options, data.options);
+    queueEdit.ready = true;
+    showFormError('');
+    queueEditLabel();
+    if (WIDE.matches) $('optionsCard').scrollIntoView({ behavior: 'smooth' }); else showPage('generate');
+  } catch (error) {
+    showFormError(error.message || 'Could not restore the queued setup. The job remains in Pending.');
+    alert(error.message || 'Could not restore the queued setup. The job remains in Pending.');
+  }
+}
+$('cancelQueueEdit').addEventListener('click', async () => {
+  if (!queueEdit) return;
+  try {
+    const body = await (await fetch(`/queue/run/edit/${queueEdit.id}/cancel`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: queueEdit.token }),
+    })).json();
+    if (!body.ok) { alert(body.error || 'Could not cancel editing.'); return; }
+    queueEdit = null;
+    queueEditLabel();
+    poll();
+  } catch (error) { alert('Could not reach the panel. Try again.'); }
+});
 for (const form of ['formShorts', 'formVideo', 'formImage']) $(form).addEventListener('input', () => { if (!$('goError').hidden) showFormError(''); });
 // Sends a form and reports how much of it is sent: an image over mobile data can take a while.
 function postForm(url, form, progress) {
@@ -5088,48 +5469,54 @@ function showSending(share) {
   $('queuePendingBar').style.width = `${Math.round((share || 0) * 100)}%`;
 }
 async function startJob(url, later = false) {
+  if (submitting) return;
+  if (queueEdit && pipeline !== queueEdit.pipeline) {
+    showFormError('Return to the run being edited, or cancel editing first.');
+    return;
+  }
+  if (queueEdit && !queueEdit.ready) {
+    showFormError('The queued setup could not be restored. Open it again or cancel editing.');
+    return;
+  }
   showFormError('');
   submitting = true;
-  $('go').disabled = $('goStick').disabled = true;
+  $('go').disabled = $('goStick').disabled = $('goLater').disabled = true;
   showSending(0);
+  if (later) $('goLater').textContent = 'Adding…';
   const form = new FormData($(SIDE_FORMS[pipeline]));
   if (later) form.append('start_later', '1');
+  if (queueEdit) {
+    form.append('queue_edit_id', String(queueEdit.id));
+    form.append('queue_edit_token', queueEdit.token);
+  }
   const body = await postForm(url, form, showSending);
+  if (body.ok) {
+    $('go').textContent = $('goStick').textContent = later ? 'Pending' : body.queued ? 'Queued' : 'Started';
+    if (later) $('goLater').textContent = 'Pending';
+    await new Promise(resolve => setTimeout(resolve, 800));
+  }
   submitting = false;
+  $('go').disabled = $('goStick').disabled = $('goLater').disabled = false;
+  $('goLater').textContent = 'Start later';
+  if (body.ok && queueEdit) queueEdit = null;
+  queueEditLabel();
   $('queuePending').hidden = true;
-  $('go').textContent = $('goStick').textContent = goLabel(wasRunning);
+  $('go').textContent = $('goStick').textContent = queueEdit ? 'Save to queue' : goLabel(wasRunning);
   $('formNote').hidden = !body.continued;
   if (body.continued) $('formNote').textContent = `Continuing what was already paid for: ${body.continued}`;
   if (!body.ok) {
     showFormError(body.error || 'Could not start.');
   } else if (url.startsWith('/generate/video')) {
-    // The options stay for the next film, but the images and prompt belong to this one.
+    // Keep the form intact so variants can be queued without entering everything again.
     autoScroll = true;
-    $('prompt').value = '';
-    $('narration').value = '';
-    $('audioFile').value = '';
-    imageBoxes().forEach(clearImage);
-    for (const select of $('imageBoxes').querySelectorAll('select')) select.value = 'view';
-    imagesShown = 1;
-    mediaBoxes().forEach(clearMedia);
-    mediaShown = 1;
-    syncImageInput();
-    syncMediaInput();
     queuePlan();
     if (body.shots) openShots(body.shots);
   } else if (url.startsWith('/generate/image')) {
-    // The options stay for the next set, but the images and prompt belong to this one.
+    // Keep the prompt, sources and painting for another variant.
     autoScroll = true;
-    $('imagePrompt').value = '';
-    sourceBoxes().forEach((box, i) => clearSource(box, i === 0));
-    sourcesShown = 1;
-    forgetPaint();
-    syncImageForm();
     queuePlan();
     if (body.shots) openShots(body.shots);
   } else if (body.queued) {
-    // The options stay for the next job, but a topic and file name belong to this one.
-    $('topic').value = '';
     queuePlan();
   } else {
     autoScroll = true;
@@ -5181,14 +5568,14 @@ async function stopJob(url) {
 }
 $('stop').addEventListener('click', async () => {
   const held = runsQueued ? ` The ${runsQueued} queued after it will wait until you press Resume.` : '';
-  if (!confirm(`Stop all? This kills the current run and its ffmpeg renders, and cancels its ComfyUI clips. You can continue it later under Stopped runs, without the clip being rendered now.${held}`)) return;
+  if (!confirm(`Stop all? This kills the current run and its ffmpeg renders, and cancels its ComfyUI clips. You can continue it later under Pending, without the clip being rendered now.${held}`)) return;
   await stopJob('/stop');
 });
-$('stopAfter').addEventListener('click', () => stopJob('/stop-after'));
 $('skip').addEventListener('click', async () => {
   const next = runsQueued ? 'The next in the queue starts now.' : 'Nothing else is queued, so nothing starts after it.';
-  if (!confirm(`Skip this run and resume it later? ${next} Finished clips are kept, but the clip rendering now starts over when you continue. It waits under Stopped runs until you press Continue.`)) return;
-  await stopJob('/skip');
+  if (!confirm(`Cancel this run and put it back under Pending? ${next} Finished clips are kept, but the clip rendering now starts over when you continue. It waits under Pending until you press Continue.`)) return;
+  const data = await queueRequest($('skip'), async () => (await fetch('/skip', { method: 'POST' })).json(), 'Pending', 'Stopping…');
+  if (data) poll();
 });
 
 $('stopUpload').addEventListener('click', async () => {

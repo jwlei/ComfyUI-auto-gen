@@ -380,6 +380,25 @@ class PanelTest(unittest.TestCase):
         self.wait_idle()
         return reply.get_json()
 
+    def test_edit_pending_image_restores_inputs_and_replaces_job(self):
+        response = self.generate(image=True, start_later="1", prompt="original")
+        self.assertTrue(response.get_json()["ok"], response.get_json())
+        original = webapp.run_queue.items[0]
+        edit = self.client.post(f"/queue/run/edit/{original['id']}").get_json()
+        self.assertTrue(edit["ok"], edit)
+        self.assertEqual(edit["form"]["prompt"], ["original"])
+        self.assertEqual(edit["files"], ["image"])
+        with self.client.get(f"/queue/run/edit/{original['id']}/file/image", headers={"X-Queue-Edit-Token": edit["token"]}) as source:
+            self.assertEqual(source.status_code, 200)
+            self.assertTrue(source.get_data().startswith(b"\x89PNG"))
+        webapp.run_queue.hold()
+        response = self.generate(image=True, prompt="changed", queue_edit_id=str(original["id"]), queue_edit_token=edit["token"])
+        self.assertTrue(response.get_json()["ok"], response.get_json())
+        self.assertEqual(len(webapp.run_queue.items), 1)
+        self.assertEqual(webapp.run_queue.items[0]["id"], original["id"])
+        self.assertEqual(webapp.run_queue.items[0]["prompt"], "changed")
+        self.assertNotIn("later", webapp.run_queue.items[0])
+
     def status(self):
         webapp._runs_cache["at"] = 0.0
         return self.client.get("/api/status").get_json()
