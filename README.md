@@ -10,8 +10,14 @@ Makes videos and images with ComfyUI from one panel, with three pipelines behind
 | Publishing | Uploads to YouTube | Download only | Download only |
 | Details | [docs/shorts.md](docs/shorts.md) | [docs/video.md](docs/video.md) | [docs/image.md](docs/image.md) |
 
-On a phone, the footer shows one section at a time: Status, Generate, Quota or the videos and images, with a small bar
-over the footer for what's running when you're elsewhere.
+On a phone, the navigation shows one section at a time: Status, Generate or the videos and images, with a small bar
+for what's running when you're elsewhere. Log and Quota are icons at the top of Settings; Finished is beside the
+run controls in Status.
+
+The log groups its lines by stage; each stage heading shows its outcome (clips done, failures, time) and opens or
+closes with a tap. **Summary** (the default) folds a clip's seed and render lines into one line, sums up the stock
+footage, and cuts long prompts short with a *Show full prompt* button. Warnings and failures stay visible even in a
+closed stage. **Detailed** shows every line as printed. The **ComfyUI** and **Errors** filters work in both.
 
 They share one queue, because there is one GPU, and a job started on either side shows on both. They also share one
 record of API use: when a provider says a model is used up for the day, every run moves to the next model until the

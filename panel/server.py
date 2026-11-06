@@ -517,6 +517,15 @@ class JobQueue:
                              "at": datetime.now().strftime("%H:%M"), "t": time.time()})
         del self.results[:-self.KEPT_RESULTS]
 
+    def dismiss_failure(self, job_id):
+        """Forgets a failure that has no saved run to retry. Returns whether there was one."""
+        with self.lock:
+            kept = [result for result in self.results
+                    if not (result["job_id"] == job_id and result["outcome"] == "failed" and not result["run_id"])]
+            dismissed = len(kept) != len(self.results)
+            self.results = kept
+            return dismissed
+
     def hold(self):
         with self.lock:
             self.held = bool(self.items)
@@ -1755,6 +1764,14 @@ def queue_remove(lane, item_id):
     if lane not in QUEUES:
         abort(404)
     return {"ok": QUEUES[lane].remove(item_id)}
+
+
+@app.route("/queue/<lane>/failed/<int:job_id>/dismiss", methods=["POST"])
+@password_required
+def queue_dismiss_failure(lane, job_id):
+    if lane not in QUEUES:
+        abort(404)
+    return {"ok": QUEUES[lane].dismiss_failure(job_id)}
 
 
 @app.route("/queue/<lane>/start/<int:item_id>", methods=["POST"])

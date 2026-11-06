@@ -499,14 +499,19 @@ run('renderStopped([])');
 assert.strictEqual(box.hidden, true);
 run(`renderStopped([], [], [{ job_id: 7, pipeline: 'image', label: 'No plan', outcome: 'failed', note: 'Failed to start' }])`);
 assert(els.failedRuns.innerHTML.includes('data-job-id="7"') && els.failedRuns.innerHTML.includes('No saved run to retry'), 'failures without a saved run still appear under Failed');
-
+assert(els.failedRuns.innerHTML.includes('data-dismiss-job="7"') && els.failedRuns.innerHTML.includes('unsaved-actions'), 'a failure without a saved run has a delete button');
 // How a run or upload ended is said once, under Finished, newest first; the status itself goes back to Idle.
+const finishedClasses = {};
+els.finishedToggle.classList.toggle = (name, value) => { finishedClasses[name] = value; };
 run(`renderUpload({ lines: [{ n: 1, t: '17:00', text: 'x' }], running: false, started_at: '17:00', elapsed: 1, returncode: 1, stopped: true, queue: { items: [], held: false, results: [] } })`);
 assert.strictEqual(els.uploadBox.hidden, true, 'an upload that ended has nothing to show here');
 run(`renderFinished([{ label: 'A <b>run', outcome: 'done', at: '17:05', pipeline: 'video' }, { label: 'B', outcome: 'failed', note: 'exit 1', at: '17:10', pipeline: 'image' }],
   [{ label: 'C', outcome: 'done', at: '17:20' }])`);
 assert.strictEqual(els.finishedToggle.disabled, false);
-assert(els.finishedToggle.innerHTML.startsWith('Finished (3)') && els.finishedToggle.innerHTML.includes('1 failed'));
+assert.strictEqual(finishedClasses.empty, false, 'phone icon appears when results exist');
+assert(els.finishedLabel.innerHTML.startsWith('Finished (3)') && els.finishedLabel.innerHTML.includes('1 failed'));
+assert.strictEqual(els.finishedCount.textContent, '3');
+assert.strictEqual(els.finishedToggle.title, 'Finished (3) · 1 failed');
 const order = ['>C<', '>B (exit 1)<', '>A &lt;b&gt;run<'].map(text => els.finishedList.innerHTML.indexOf(text));
 assert(order.every(i => i >= 0) && order[0] < order[1] && order[1] < order[2], 'newest first, escaped');
 assert(/data-goto="video"/.test(els.finishedList.innerHTML) && /<span class="result-mark">✔<\/span><span class="result-type">Video<\/span><span class="result-label">A &lt;b&gt;run[^<]*<\/span><span class="when">17:05<\/span>/.test(els.finishedList.innerHTML), 'its type before its title, the time last');
@@ -520,9 +525,29 @@ run("goToOutput('image')");
 assert.strictEqual(run('pipeline'), 'image');
 assert.strictEqual(context.document.body.dataset.page, 'output');
 run("setPipeline('shorts', false)");
-// Finished on the left, Log in the middle, Quota on the right: each opens in a box over the page, and gives it back.
-assert(/<div class="status-toggles" id="statusToggles">\s*<button[^>]*id="queueToggle"[^>]*>Queue<\/button>\s*<button[^>]*id="logToggle"[^>]*>Log<\/button>\s*<button[^>]*id="finishedToggle"[\s\S]*?id="quotaToggle"[^>]*>Quota<\/button>/.test(html), 'Log, Finished, Quota');
+// On phones the icons move to Settings and beside the run controls; desktop keeps the tabs.
+assert(/<div class="status-toggles" id="statusToggles">[\s\S]*?id="queueToggle"[\s\S]*?id="logToggle"[\s\S]*?id="finishedToggle"[\s\S]*?id="quotaToggle"/.test(html), 'desktop tabs');
 assert(/#logToggle \{ grid-column: 1;/.test(html) && /#finishedToggle \{ grid-column: 2;/.test(html));
+for (const id of ['logToggle', 'finishedToggle', 'quotaToggle']) {
+  assert(new RegExp(`id="${id}"[^>]*aria-label="[^"]+"`).test(html), `${id} has an accessible name`);
+}
+{
+  const moved = [];
+  for (const id of ['settingsHead', 'runActions', 'statusToggles']) context.document.getElementById(id).appendChild = el => moved.push(`${id}:${el.id}`);
+  wide.matches = false;
+  run('placePanelControls()');
+  assert.deepStrictEqual(moved.splice(0), ['settingsHead:logToggle', 'settingsHead:quotaToggle', 'runActions:finishedToggle']);
+  assert(!els.runActions.hidden && els.skip.hidden && els.stop.hidden, 'Finished stays available when idle');
+  run('lastStatus = { running: true }; placePanelControls()');
+  assert(!els.skip.hidden && !els.stop.hidden, 'run controls appear during generation');
+  moved.length = 0;
+  wide.matches = true;
+  run('lastStatus = null; placePanelControls()');
+  assert.deepStrictEqual(moved, ['statusToggles:logToggle', 'statusToggles:finishedToggle', 'statusToggles:quotaToggle']);
+  assert(els.runActions.hidden, 'desktop run controls remain hidden when idle');
+  wide.matches = false;
+  run('placePanelControls()');
+}
 assert(!html.includes('Expand to see the log'));
 {
   const moved = [];
@@ -539,7 +564,10 @@ assert(/dialog\.panel-dialog::backdrop \{[^}]*backdrop-filter: blur\(6px\)/.test
 assert(/\.status-queue:has\(> :not\(\[hidden\]\)\) \{[^}]*background: var\(--bg\)/.test(html), 'the runs in a darker box');
 assert(/\.status-queue:has\(> :not\(\[hidden\]\)\) \{ margin: 14px -10px 0; padding: 2px 12px 12px;/.test(html), 'wider, out into the card, with its own room inside');
 run('renderFinished([], [])');
-assert(els.finishedToggle.disabled === true && els.finishedToggle.textContent === 'Finished', 'still there, greyed out, when nothing has finished');
+assert(els.finishedToggle.disabled === true && els.finishedLabel.innerHTML === 'Finished' && els.finishedCount.textContent === '', 'still there, greyed out, when nothing has finished');
+assert.strictEqual(finishedClasses.empty, true, 'phone icon is hidden when there are no results');
+assert(/\.run-actions \{ position: relative;[^}]*align-items: center/.test(html) && /\.run-actions #finishedToggle \{ position: absolute; right: 0;/.test(html), 'phone run actions remain centred independently of Finished');
+assert(/\.run-actions #finishedToggle\.empty \{ display: none; \}/.test(html), 'empty Finished is hidden only on the phone');
 assert(!script.includes("'Finished ✔'") && !script.includes('Upload finished') && !script.includes('Failed (exit'));
 
 // The header: a short status on Run, and a bar under it per job.
@@ -595,6 +623,49 @@ assert.strictEqual(context.document.body.dataset.page, 'status', 'a tap while op
 assert(!els.runStrip.classList.contains('open'));
 context.setTimeout = () => 0;
 assert(/\.go-bar button \{[^}]*padding: 8px 14px; font-size: \.85rem;/.test(html), 'the footer button is the smaller one');
+
+// The log: stages are sections with their outcome on the heading, routine lines fold into one, and problems stay on show.
+const logSample = [
+  '▶ Stage 2/4: Stock footage',
+  '🎥 Starting Double-Feature Video Download (Pexels)...',
+  "   🔍 Searching Pexels for: 'lion'...",
+  '   ✅ Scene 1 Ready (A + B).',
+  '      ⚠️ Scene 2 Clip A missing. Using Clip B for both.',
+  '   ✅ Scene 2 Ready (A + B).',
+  "   🔍 Searching Pexels for: 'tiger'...",
+  '   ❌ Scene 3 Completely Failed (No videos found).',
+  '🎥 Assets Downloaded: {1: 2, 2: 2}',
+  '▶ Stage 3/4: Avatar clips',
+  '   🎬 Clip 1/2 · scene 1: 5s image-to-video',
+  '      🌱 Seed 123',
+  '🎛️ ComfyUI: 10 steps',
+  '      ⏱️ Rendered in 42s',
+  '      ✅ Saved avatar_scene_1.mp4',
+  '   🎬 Clip 2/2 · scene 2: 5s image-to-video',
+  '      🌱 Seed 456',
+  '   ❌ Scene 2 avatar failed: boom',
+  '   ❌ Scene 2 avatar clip not made; using stock footage.',
+  '▶ Stage 4/4: Compose',
+  '   ' + 'a very long prompt '.repeat(30),
+].map((text, i) => ({ n: i + 1, t: `10:${String(Math.floor(i / 6)).padStart(2, '0')}:${String(i % 6 * 10).padStart(2, '0')}`, text, ...(text.startsWith('🎛️') ? { k: 'comfy' } : {}) }));
+context.logSample = logSample;
+run('var logSummary = logHtml(logSample, false)');
+run('var logFull = logHtml(logSample, true)');
+const summary = context.logSummary, full = context.logFull;
+assert(summary.includes('▶ Stage 3/4 · Avatar clips · 1/2 clips · <span class="bad">1 failed</span>'), 'a stage says how its clips went');
+assert(summary.includes('🎬 Clip 1/2 · Scene 1 · 5s · image-to-video · saved in 42s'), 'a clip is one line');
+assert(summary.indexOf('Seed 123') > summary.indexOf('grp-body') && summary.indexOf('Saved avatar_scene_1') < summary.indexOf('Clip 2/2'), 'its seed and render details wait inside it');
+assert(/class="ln [^"]*child"[^>]*><span class="t">[^<]*<\/span><span class="x">\s*✅ Saved avatar_scene_1/.test(summary), 'the saved file is a child of its clip');
+assert(summary.includes('🎥 Stock footage: 2/3 scenes ready · scene 2 using fallback · scene 3 failed'), 'the stock footage is one line');
+assert(summary.includes('⚠️ Scene 2: avatar failed · using stock footage'), 'what failed and what happened next is one line');
+assert(summary.includes('Scene 2 Clip A missing') && summary.includes('Scene 3 Completely Failed'), 'warnings and failures stay on show');
+assert(summary.includes('Show full prompt') && summary.includes('class="ln  long'), 'a long prompt is cut short, with a way to read it all');
+assert(!full.includes('Show full prompt') && !full.includes('grp-body') && full.includes('Seed 123') && full.includes('avatar clip not made'), 'Detailed keeps every line as printed');
+assert(/class="stage-sec open"[^>]*data-key="s10"/.test(summary) === false && /class="stage-sec"[^>]*data-key="s10"/.test(summary), 'a finished stage is closed');
+assert(/class="stage-sec open"[^>]*data-key="s20"/.test(summary), 'the stage being run is open');
+assert(!/class="stage-sec"/.test(full), 'Detailed opens every stage');
+assert(/\.stage-sec:not\(\.open\) \.stage-body \.ln:not\(\.err\):not\(\.warn\) \{ display: none; \}/.test(html), 'a closed stage keeps its warnings and errors');
+assert(html.includes('id="logSummary"') && html.includes('id="logDetailed"') && html.includes('id="logProblems"'), 'Summary, Detailed and Errors are all there');
 
 // A log keeps where you are reading: the upload log only follows when it's at its end, and old lines going off the
 // top don't move what you're looking at.
@@ -893,6 +964,7 @@ assert.deepStrictEqual(JSON.parse(run('JSON.stringify(visibleFilms().map(v => v.
 assert(els.imageSets.innerHTML.includes('data-nsfw-image="image_private"') && els.imageSets.innerHTML.includes('Remove NSFW tag'));
 assert(els.videos.innerHTML.includes('data-nsfw-video="private.mp4"') && els.videos.innerHTML.includes('data-film-folder="video"'));
 assert(nsfwView && html.includes('body.nsfw-view .videos-card #imageSets, body.nsfw-view .videos-card #videos'), 'the combined Image and Video view is active');
+assert(html.includes('#videos:has(~ #imageSets .image-set) .image-set:last-child { border-bottom: 1px solid var(--line)'), 'a divider separates the last video from the images below it');
 context.document.body.classList.toggle = bodyToggle;
 run(`renderFinished([], [], []);`);
 assert.strictEqual(els.finishedList.innerHTML, '', 'an open Finished list is cleared when nothing remains');
@@ -1116,6 +1188,7 @@ queue.dataset.title = 'Queue';
 context.queue = queue;
 run(`renderQueue(queue, { items: [{ id: 3, label: 'a <film>', detail: 'd', estimate: 600 }], results: [], held: true, current: null }, 0)`);
 assert(queue.innerHTML.includes('<b>Queue (1)</b>'));
+assert(queue.innerHTML.includes('<span class="when">On hold</span>'), 'held queue has a concise hint');
 assert(queue.innerHTML.includes('data-resume') && queue.innerHTML.includes('data-remove="3"') && queue.innerHTML.includes('a &lt;film&gt;'));
 assert(queue.innerHTML.indexOf('data-resume') > queue.innerHTML.indexOf('data-remove="3"'), 'Resume sits under what it lets go');
 assert(!queue.innerHTML.includes('data-grip'), 'one job alone has nothing to be moved past');
@@ -1160,10 +1233,27 @@ assert(/\.queue \.queue-head button\[data-queue-toggle\] \{ width: 30px; height:
 assert(queue.innerHTML.includes('data-fold-queue="1" aria-expanded="true"') && queue.innerHTML.includes('class="queue-list" tabindex="0"'), 'run queue has a separate collapsible scrollable list');
 assert(/class="queue-head run-queue-head"[\s\S]*class="queue-fold-toggle queue-fold-title"[\s\S]*data-queue-toggle="1"[\s\S]*class="queue-fold-toggle queue-fold-arrow" data-fold-queue="1" aria-expanded="true" aria-label="Collapse queue"/.test(queue.innerHTML), 'queue controls precede the rightmost collapse button');
 assert(/\.queue-head\.run-queue-head \{ display: grid; grid-template-columns: minmax\(0, 1fr\) auto 30px 20px; \}/.test(html), 'queue header keeps the chevron in the last column');
+assert(/\.queue-head \.queue-fold-arrow \{[^}]*justify-content: flex-end/.test(html) && /\.queue-fold-toggle \.chev \{[^}]*transition: transform \.25s ease; margin-right: 4px/.test(html), 'queue chevron aligns and turns like Pending and Failed');
 queue._open = false;
 run(`renderQueue(queue, { items: [{ id: 1, label: 'new', detail: '', pipeline: 'image' }] }, 0)`);
 assert(queue.innerHTML.includes('aria-expanded="false"') && queue.innerHTML.includes('class="queue-list" tabindex="0" hidden'), 'collapsed queue stays collapsed through redraws');
 assert(queue.innerHTML.includes('aria-label="Expand queue"'), 'the chevron reflects the collapsed state');
+{
+  const liveQueue = els.runQueue;
+  const attrs = [{}, {}];
+  const controls = attrs.map((attr, i) => ({
+    classList: { contains: name => i === 1 && name === 'queue-fold-arrow' },
+    setAttribute: (name, value) => { attr[name] = value; },
+  }));
+  const list = { hidden: false, scrollTop: 0, style: { setProperty() {} }, querySelectorAll: () => [] };
+  liveQueue._open = true;
+  liveQueue.dataset.html = '<button aria-expanded="true"></button><button aria-expanded="true" aria-label="Collapse queue"></button><div class="queue-list" tabindex="0"></div>';
+  liveQueue.querySelector = selector => selector === '.queue-list' ? list : null;
+  liveQueue.querySelectorAll = selector => selector === 'button[data-fold-queue]' ? controls : [];
+  liveQueue.listeners.click({ target: { closest: selector => selector === 'button[data-fold-queue]' ? controls[0] : null } });
+  assert(list.hidden && attrs.every(a => a['aria-expanded'] === 'false') && attrs[1]['aria-label'] === 'Expand queue', 'clicking the title updates the chevron and its accessible state');
+  assert(liveQueue.dataset.html.includes('aria-label="Expand queue"') && liveQueue.dataset.html.includes('tabindex="0" hidden'), 'polling retains the animated controls instead of replacing them');
+}
 {
   const rows = [0, 60, 170, 265].map((top, index) => ({ offsetTop: top, offsetHeight: [54, 104, 89, 80][index], getClientRects: () => [1] }));
   const properties = {};

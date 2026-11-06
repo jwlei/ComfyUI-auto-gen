@@ -53,8 +53,8 @@
   .run-queue-head [data-queue-toggle] { grid-column: 3; }
   .queue-head .queue-fold-toggle { padding: 2px 0; border: 0; background: transparent; text-align: left; }
   .queue-head .queue-fold-title { grid-column: 1; min-width: 0; }
-  .queue-head .queue-fold-arrow { grid-column: 4; width: 20px; height: 30px; display: flex; align-items: center; justify-content: center; }
-  .queue-fold-toggle .chev { width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); margin-right: 4px; }
+  .queue-head .queue-fold-arrow { grid-column: 4; width: 20px; height: 30px; display: flex; align-items: center; justify-content: flex-end; }
+  .queue-fold-toggle .chev { width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); transition: transform .25s ease; margin-right: 4px; }
   .queue-fold-toggle[aria-expanded="true"] .chev { transform: rotate(-135deg); }
   .queue-list, .stopped-body { position: relative; max-height: min(var(--three-rows, 55dvh), 55dvh); overflow-y: auto; overscroll-behavior: contain; }
   .queue-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
@@ -85,13 +85,15 @@
   .stopped-fold .chev { width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
     transform: rotate(45deg); transition: transform .25s ease; margin-right: 4px; }
   .stopped-fold[open] .chev { transform: rotate(-135deg); }
-  .stopped-fold[open] .stopped-body { animation: fold-open .25s ease; }
+  .stopped-fold[open] .stopped-body, .queue-list:not([hidden]) { animation: fold-open .25s ease; }
   @keyframes fold-open { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
-  @media (prefers-reduced-motion: reduce) { .stopped-fold[open] .stopped-body { animation: none; } .queue-item.dragging { transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .stopped-fold[open] .stopped-body, .queue-list:not([hidden]) { animation: none; } .queue-fold-toggle .chev { transition: none; } .queue-item.dragging { transform: none; } }
   .queue-item.dragging .grip { cursor: grabbing; }
   .queue-item .hint { margin-top: 0; }
   .queue-item .when { color: var(--muted); font-size: .78rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .queue button { width: auto; margin: 0; padding: 4px 10px; font-size: .78rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+  .queue .queue-head .queue-fold-toggle { padding: 2px 0; border: 0; background: transparent; }
+  .queue .queue-head .queue-fold-arrow { width: 20px; }
   .queue .queue-head button[data-queue-toggle] { width: 30px; height: 30px; padding: 5px; font-size: .7rem; }
   .queue .queue-head button[data-queue-toggle] svg { width: 14px; height: 14px; }
   .queue-item .grip[hidden] { display: none; }
@@ -117,6 +119,7 @@
   .stopped-run .what { overflow-wrap: anywhere; font-weight: 600; }
   .stopped-run .hint { margin-top: 2px; }
   .stopped-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+  .stopped-actions.unsaved-actions { justify-content: flex-end; }
   .stopped-actions .when { margin-right: auto; color: var(--muted); font-size: .78rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .queue .stopped-run button { background: var(--panel); }
   .queue .stopped-actions .icon-btn:not(.continue-item) { color: var(--muted); }
@@ -135,9 +138,36 @@
   .ln.comfy .x { color: #7fb4d9; }
   .log-panes.hide-comfy .ln.comfy { display: none; }
   .log-panes.problems-only .ln:not(.err):not(.warn):not(.stage) { display: none; }
-  .log-tools { display: flex; flex-wrap: nowrap; gap: 6px; margin-bottom: 6px; }
-  .log-chip { padding: 2px 10px; font-size: .78rem; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; }
+  .log-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+  .log-chip { width: auto; margin: 0; padding: 2px 10px; font-size: .78rem; font-weight: 400; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; }
   .log-chip[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+  /* Summary and Detailed are one switch: two halves of a pill. */
+  .log-seg { display: inline-flex; }
+  .log-seg .log-chip:first-child { border-radius: 999px 0 0 999px; }
+  .log-seg .log-chip:last-child { border-radius: 0 999px 999px 0; margin-left: -1px; }
+  .log-seg .log-chip[aria-pressed="true"] { position: relative; }
+  /* A stage is a section: its heading says how it went, and closed it keeps only what went wrong. */
+  .stage-sec { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line); }
+  .stage-sec:first-child { margin-top: 0; padding-top: 1px; border-top: 0; }
+  .stage-sec > .ln.stage { margin-top: 0; padding-top: 1px; border-top: 0; }
+  .stage-sec:not(.open) .stage-body .ln:not(.err):not(.warn) { display: none; }
+  .log-fold { width: auto; margin: 0; padding: 0; background: none; border: 0; border-radius: 0; font: inherit; font-weight: inherit; color: inherit; text-align: left; cursor: pointer; display: inline; }
+  .log-fold:hover .grp-text, .log-fold:hover .stage-text { text-decoration: underline; text-decoration-color: var(--muted); }
+  .log-chev { display: inline-block; width: 6px; height: 6px; margin: 0 0 2px 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform .2s ease; }
+  .log-fold[aria-expanded="true"] .log-chev { transform: rotate(45deg); }
+  .stage-sec .stage-text .bad { color: var(--err); }
+  .stage-sec .stage-text .caution { color: #f2b84b; }
+  /* One line that stands for several: a tap shows them. */
+  .log-grp .grp-body { display: none; margin: 1px 0 3px; padding-left: 8px; border-left: 2px solid var(--line); }
+  .log-grp.open .grp-body { display: block; }
+  .ln.child .x { color: var(--muted); font-size: .92em; }
+  .ln.child.err .x { color: var(--err); }
+  .ln.child.comfy .x { color: #7fb4d9; }
+  .ln.long .x-full, .ln.long.expanded .x-short { display: none; }
+  .ln.long.expanded .x-full { display: inline; }
+  .ln-more { width: auto; margin: 0 0 0 6px; padding: 0; background: none; border: 0; border-radius: 0; font: inherit; font-size: .9em; font-weight: 400; color: var(--accent); cursor: pointer; white-space: nowrap; }
+  .ln-more:hover { text-decoration: underline; }
+  @media (prefers-reduced-motion: reduce) { .log-chev { transition: none; } }
   dialog.workflow-view { width: min(760px, calc(100vw - 24px)); }
   .workflow-nodes { max-height: 52dvh; overflow: auto; font-size: .82rem; }
   .workflow-nodes details { border-top: 1px solid var(--line); padding: 3px 0; }
@@ -225,20 +255,31 @@
   .phone { font-size: .82rem; color: var(--muted); margin-top: 6px; }
   .finished, .misc { margin-top: 10px; font-size: .85rem; }
   .finished > summary, .log-box > summary { display: none; }
-  /* Log and Finished: two toggles on one line, one open at a time. */
-  .status-toggles { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 12px; }
+  .status-toggles { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; margin-top: 12px; }
   .status-toggle { width: auto; margin: 0; padding: 4px 0; background: none; border: 0; color: var(--muted); font-size: .8rem; font-weight: 500; }
   .status-toggle::after { content: "\203A"; display: inline-block; margin-left: 6px; transition: transform .15s; }
   .status-toggle[aria-expanded="true"] { color: var(--text); }
   .status-toggle[aria-expanded="true"]::after { transform: rotate(90deg); }
-  /* Log on the left, Finished in the middle, Quota on the right, each in its own place even when one is hidden. */
-  .status-toggles { display: grid; grid-template-columns: 1fr auto 1fr; }
   #logToggle { grid-column: 1; justify-self: start; }
   #finishedToggle { grid-column: 2; justify-self: center; }
   #quotaToggle { grid-column: 3; justify-self: end; }
   .status-toggle[aria-haspopup]::after { content: none; }
   #queueToggle { display: none; }
+  .settings-head { display: flex; align-items: center; gap: 4px; }
+  .settings-head .panel-dialog-title { margin-right: auto; }
   .status-toggle:disabled { opacity: .45; cursor: default; }
+  .status-toggle svg { display: none; }
+  .status-toggle .failed { color: var(--err); }
+  @media (min-width: 1280px) { #finishedCount { display: none; } }
+  @media (max-width: 1279px) {
+    .panel-icon { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; margin: 0; padding: 0;
+      background: transparent; border: 0; border-radius: 8px; color: var(--muted); cursor: pointer; }
+    .panel-icon svg { display: block; }
+    .panel-icon .icon-label { display: none; }
+    .panel-icon:hover:not(:disabled), .panel-icon:focus-visible { color: var(--text); background: var(--line); }
+    .panel-icon:disabled { opacity: .45; cursor: default; }
+    .status-toggles { display: none; }
+  }
   /* Finished, Log and Quota open over a blurred page, like the viewer, with a quiet Close under them. */
   dialog.panel-dialog { width: min(620px, calc(100vw - 24px)); max-height: calc(100dvh - 48px); padding: 14px 14px 12px;
     display: none; flex-direction: column; gap: 10px; animation: menu-in .2s ease; }
@@ -267,7 +308,6 @@
   dialog.log-open .ln .t { font-size: .8rem; line-height: 1.95; }
   dialog.log-open .panel-close { padding: 4px 18px; }
   @media (prefers-reduced-motion: reduce) { dialog.panel-dialog { animation: none; } }
-  .status-toggle .failed { color: var(--err); }
   dialog.upscale-dialog { position: fixed; margin: 0; padding: 8px 10px; gap: 6px; flex-direction: column; align-items: stretch; justify-content: space-between;
       overflow: visible; max-height: none; max-width: none; box-sizing: border-box; background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 6px 20px rgba(0, 0, 0, .5); animation: none; }
     dialog.upscale-dialog::backdrop { background: rgba(0, 0, 0, .25); -webkit-backdrop-filter: none; backdrop-filter: none; }
@@ -647,6 +687,7 @@
   .image-set-heading .nsfw-button { flex: none; width: 34px; height: 28px; padding: 0; margin: 0; display: inline-flex; align-items: center; justify-content: center; background: var(--panel-2); color: var(--muted); }
   body.nsfw-view .videos-card #imageSets, body.nsfw-view .videos-card #videos { display: block !important; }
   body.nsfw-view .videos-card #videos { margin-top: 12px; }
+  body.nsfw-view .videos-card #videos:has(~ #imageSets .image-set) .image-set:last-child { border-bottom: 1px solid var(--line); margin-bottom: 8px; }
   body.nsfw-view .videos-card .vhead, body.nsfw-view .videos-card .cnav { display: none !important; }
   /* A run that made nothing: a small word at the end of its title's line, and why under a fold. */
   .run-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
@@ -784,6 +825,14 @@
   .run-actions[hidden] { display: none; }
   .run-actions button { flex: none; width: auto; min-width: 84px; margin: 0; padding: 6px 16px; font-size: .82rem; font-weight: 600;
     background: transparent; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
+  .run-actions button[hidden] { display: none; }
+  @media (max-width: 1279px) {
+    .run-actions { position: relative; min-height: 36px; align-items: center; }
+    .run-actions:has(#finishedToggle.empty):not(:has(#skip:not([hidden]))) { display: none; }
+    .run-actions #finishedToggle { position: absolute; right: 0; width: auto; min-width: 36px; height: 36px; padding: 0 6px; border: 0; border-radius: 8px; gap: 4px; }
+    .run-actions #finishedToggle.empty { display: none; }
+    #finishedCount { font-size: .75rem; }
+  }
   .run-actions #stop { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent); }
   .card > .section-title:first-child { margin-top: 0; }
   /* Each heading folds what's under it away. */
@@ -922,7 +971,6 @@
     .run-tabs > .status-toggles .status-toggle { flex: 1 1 0; justify-self: auto; padding: 6px 4px; border-radius: 8px; visibility: visible; text-align: center; }
     .run-tabs > .status-toggles .status-toggle.on { background: var(--panel-2); color: var(--text); }
     .run-tabs > .status-toggles #queueToggle { display: block; }
-    #logToggle, #quotaToggle { visibility: visible; }
     .run-status .run-actions { margin-top: 8px; }
     .run-status .status { margin: 0; }
   }
@@ -1035,14 +1083,18 @@
   </div>
   <div class="status-toggles" id="statusToggles">
     <button type="button" class="status-toggle" id="queueToggle">Queue</button>
-    <button type="button" class="status-toggle" id="logToggle" aria-haspopup="dialog">Log</button>
-    <button type="button" class="status-toggle" id="finishedToggle" aria-haspopup="dialog" disabled>Finished</button>
-    <button type="button" class="status-toggle" id="quotaToggle" aria-haspopup="dialog">Quota</button>
+    <button type="button" class="status-toggle panel-icon" id="logToggle" aria-haspopup="dialog" aria-label="Log" title="Log"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5"/></svg><span class="icon-label">Log</span></button>
+    <button type="button" class="status-toggle panel-icon empty" id="finishedToggle" aria-haspopup="dialog" aria-label="Finished" title="Finished" disabled><span id="finishedCount" aria-hidden="true"></span><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg><span class="icon-label" id="finishedLabel">Finished</span></button>
+    <button type="button" class="status-toggle panel-icon" id="quotaToggle" aria-haspopup="dialog" aria-label="Quota" title="Quota"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16M6 17v-5M12 17V7M18 17V4"/></svg><span class="icon-label">Quota</span></button>
   </div>
   <details class="log-box" id="logBox">
     <summary>Log</summary>
     <div class="log-panes" id="logPanes">
       <div class="log-tools">
+        <span class="log-seg" role="group" aria-label="How much of the log to show">
+          <button type="button" class="log-chip" id="logSummary" aria-pressed="true" title="Each clip and the stock footage on one line, long prompts shortened. Tap a line to open it">Summary</button>
+          <button type="button" class="log-chip" id="logDetailed" aria-pressed="false" title="Every line, as it was printed">Detailed</button>
+        </span>
         <button type="button" class="log-chip" id="logComfy" aria-pressed="true" title="What ComfyUI is doing, and how long each part took">ComfyUI</button>
         <button type="button" class="log-chip" id="logProblems" aria-pressed="false" title="Only the stages, warnings and errors">Errors</button>
         <button type="button" class="log-chip" id="logWorkflow" title="The workflow this run renders with, and the options it was set to">Workflow</button>
@@ -1491,7 +1543,9 @@
   </div>
 </dialog>
 <dialog id="settingsDialog" class="panel-dialog settings-dialog" aria-labelledby="settingsTitle">
-  <div class="panel-dialog-title" id="settingsTitle">Settings</div>
+  <div class="settings-head" id="settingsHead">
+    <div class="panel-dialog-title" id="settingsTitle">Settings</div>
+  </div>
   <div class="panel-dialog-body settings-body">
   <div class="settings-actions">
     <button type="button" id="restartPanel" title="Start the panel again, to load new code. Not while a run or upload is going."><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span>Restart panel</span></button>
@@ -4667,7 +4721,262 @@ function logWriter(el, follow) {
     if (follow()) el.scrollTop = el.scrollHeight;
   };
 }
-const renderLog = logWriter($('log'), () => autoScroll);
+// --- The generation log: sections per stage ---
+// Summary puts the lines of one clip, or of the stock footage, on a line of their own that opens to show them, and
+// shortens long prompts. Detailed leaves every line as it was printed. A warning or a failure is never folded away:
+// it stays on show, even in a stage that is closed.
+const LOG_STAGE = /^▶ Stage (\d+)\/(\d+): (.+)$/;
+const LOG_CLIP = /^🎬 Clip (\d+)\/(\d+) · (.+)$/;
+const LOG_KEPT = /^♻️ Clip (\d+)(?:\/| of )(\d+)\b.*kept from earlier/;
+const LOG_AVATAR_FAILED = /^❌ Scene (\d+) avatar failed: (.*)$/;
+const LOG_AVATAR_GAVE_UP = /^❌ Scene (\d+) avatar clip not made; using stock footage\.?$/;
+const LOG_FELL_BACK = /^[❌⚠️]+\s*Scene (\d+) (.+?)\s*(?:;|—)\s*using stock footage\.?$/u;
+const LOG_PREVIEW_AT = 220;
+const LOG_PREVIEW = 160;
+const logOpened = new Map();   // What was opened or closed by hand, by key; the rest follows the defaults
+let logDetailed = false;
+let logLines = [];
+let logShown = '';
+
+function logClock(t) {
+  const m = /^(\d+):(\d+):(\d+)$/.exec(t || '');
+  return m ? (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) : null;
+}
+function logTook(from, to) {
+  if (from === null || to === null) return '';
+  const sec = to >= from ? to - from : to + 86400 - from;
+  const m = Math.floor(sec / 60);
+  return sec < 60 ? `${sec}s` : m < 60 ? `${m}m ${sec % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+function logClipTitle(c) {
+  const avatar = /^scene (\d+): (\d+s)\s*(.*)$/i.exec(c.rest);
+  return `🎬 Clip ${c.number}/${c.total} · ` + (avatar ? `Scene ${avatar[1]} · ${avatar[2]}${avatar[3] ? ` · ${avatar[3]}` : ''}` : c.rest)
+    + (c.failed ? ' · failed' : c.saved ? ` · saved${c.secs ? ` in ${c.secs}s` : ''}` : '');
+}
+function logStockTitle(g) {
+  const total = g.scenes || g.ready.size + g.failed.size;
+  const list = set => [...set].sort((a, b) => a - b).join(', ');
+  return `🎥 Stock footage: ${g.ready.size}/${total} scene${total === 1 ? '' : 's'} ready`
+    + (g.fallback.size ? ` · scene${g.fallback.size === 1 ? '' : 's'} ${list(g.fallback)} using fallback` : '')
+    + (g.failed.size ? ` · scene${g.failed.size === 1 ? '' : 's'} ${list(g.failed)} failed` : '');
+}
+
+// Turns the lines into stages, each with its entries: a line, or a group that stands for several.
+function buildLog(lines, detailed) {
+  const blocks = [];
+  let stage = null, current = null, inClip = false, stock = null, held = null, scenes = 0;
+  const emit = entry => {
+    (stage ? stage.entries : blocks).push(entry);
+    if (stage && entry.k === 'err') stage.err++;
+    else if (stage && entry.k === 'warn') stage.warn++;
+    return entry;
+  };
+  const flush = () => { if (held) { emit(held.entry); held = null; } };
+  const group = (entry, children, text) => ({ ...entry, text, children });
+  for (const l of lines) {
+    const text = l.text, trimmed = text.trim(), k = l.k ?? lineKind(text);
+    const entry = { n: l.n, t: l.t, k, text };
+    const total = /(?:narration|Generation) for (\d+) scenes/.exec(trimmed);
+    if (total) scenes = +total[1];
+
+    const begins = LOG_STAGE.exec(trimmed);
+    if (begins) {
+      flush();
+      current = stock = null;
+      inClip = false;
+      stage = { n: l.n, t: l.t, idx: +begins[1], total: +begins[2], name: begins[3], entries: [], warn: 0, err: 0,
+        from: logClock(l.t), to: logClock(l.t), clips: [], stocks: [] };
+      blocks.push(stage);
+      continue;
+    }
+    if (/^=====/.test(trimmed)) {
+      flush();
+      current = stock = null;
+      inClip = false;
+      stage = null;
+      blocks.push({ ...entry, k: 'stage' });
+      continue;
+    }
+    if (stage) stage.to = logClock(l.t) ?? stage.to;
+
+    // What it says about the clip being made, whichever way the lines are shown.
+    const problem = k === 'err' || k === 'warn';
+    const detail = k === 'comfy' || (/^\s{3,}/.test(text) && !problem);
+    const clipLine = LOG_CLIP.exec(trimmed);
+    if (clipLine && stage) {
+      current = { n: l.n, number: +clipLine[1], total: +clipLine[2], rest: clipLine[3], scene: (/^scene (\d+):/i.exec(clipLine[3]) || [])[1], saved: false, failed: false, kept: false, secs: 0 };
+      stage.clips.push(current);
+    } else if (stage && LOG_KEPT.test(trimmed)) {
+      stage.clips.push({ n: l.n, kept: true, total: +LOG_KEPT.exec(trimmed)[2] });
+    } else if (current) {
+      if (/^✅ Saved /.test(trimmed)) current.saved = true;
+      const took = /Rendered in (\d+)s/.exec(trimmed);
+      if (took) current.secs += +took[1];
+    }
+    const failedClip = /^❌ Clip (\d+) failed/.exec(trimmed);
+    const failedScene = /^[❌⚠️]+\s*Scene (\d+) .*(?:avatar failed|avatar clip not made|never passed)/u.exec(trimmed);
+    if (stage && (failedClip || failedScene)) {
+      const hit = stage.clips.find(c => failedClip ? c.number === +failedClip[1] : c.scene === failedScene[1]);
+      if (hit) hit.failed = true;
+    }
+    if (clipLine) inClip = true;
+    else if (!problem && !detail) inClip = false;
+
+    if (detailed) { emit(entry); continue; }
+
+    // A failure the app recovered from, in one line: what happened, and what it did next.
+    if (held) {
+      const gaveUp = LOG_AVATAR_GAVE_UP.exec(trimmed);
+      if (gaveUp && gaveUp[1] === held.scene) {
+        emit(group({ n: held.entry.n, t: held.entry.t, k: 'warn' }, [held.entry, entry], `⚠️ Scene ${held.scene}: avatar failed · using stock footage`));
+        held = null;
+        continue;
+      }
+      flush();
+    }
+    const failed = LOG_AVATAR_FAILED.exec(trimmed);
+    if (failed) { held = { scene: failed[1], entry }; continue; }
+    const fellBack = LOG_FELL_BACK.exec(trimmed);
+    if (fellBack) { emit({ ...entry, k: 'warn', text: `⚠️ Scene ${fellBack[1]}: ${fellBack[2]} · using stock footage` }); continue; }
+
+    if (clipLine && stage) {
+      current.entry = emit(group(entry, [], logClipTitle(current)));
+      continue;
+    }
+    if (/^🎥 Starting Double-Feature Video Download/.test(trimmed) && stage) {
+      stock = { ready: new Set(), fallback: new Set(), failed: new Set(), scenes };
+      stage.stocks.push(stock);
+      stock.entry = emit(group(entry, [entry], ''));
+      stock.entry.text = logStockTitle(stock);
+      continue;
+    }
+    if (stock) {
+      const ready = /^✅ Scene (\d+) Ready/.exec(trimmed), missing = /^⚠️ Scene (\d+) Clip [AB] missing/.exec(trimmed), lost = /^❌ Scene (\d+) Completely Failed/.exec(trimmed);
+      if (ready) stock.ready.add(+ready[1]);
+      if (missing) stock.fallback.add(+missing[1]);
+      if (lost) stock.failed.add(+lost[1]);
+      if (problem) emit(entry);
+      else stock.entry.children.push(entry);
+      stock.entry.text = logStockTitle(stock);
+      if (/^🎥 Assets Downloaded/.test(trimmed)) stock = null;
+      continue;
+    }
+    if (current && current.entry && inClip && !problem && detail) {
+      current.entry.children.push(entry);
+      current.entry.text = logClipTitle(current);
+      continue;
+    }
+    if (current && current.entry) current.entry.text = logClipTitle(current);
+    emit(entry);
+  }
+  flush();
+  const last = [...blocks].reverse().find(block => block.entries);
+  for (const block of blocks) {
+    if (!block.entries) continue;
+    const active = block === last;
+    for (const c of block.clips) c.running = !!(active && inClip && c === current && !c.saved && !c.failed);
+  }
+  return blocks;
+}
+
+function logStageHeading(stage) {
+  const parts = [`▶ Stage ${stage.idx}/${stage.total}`, esc(stage.name)];
+  const clips = stage.clips;
+  if (clips.length) {
+    const total = Math.max(...clips.map(c => c.total));
+    const done = clips.filter(c => c.kept || c.saved || (!c.failed && !c.running)).length;
+    const failed = clips.filter(c => c.failed).length;
+    parts.push(done === total && !failed ? `${done}/${total} complete` : `${done}/${total} clips`);
+    if (failed) parts.push(`<span class="bad">${failed} failed</span>`);
+  } else if (stage.stocks.length) {
+    const stock = stage.stocks[stage.stocks.length - 1];
+    const total = stock.scenes || stock.ready.size + stock.failed.size;
+    parts.push(`${stock.ready.size}/${total} scenes`);
+  }
+  const took = logTook(stage.from, stage.to);
+  if (took) parts.push(took);
+  if (stage.err) parts.push(`<span class="bad">✖ ${stage.err}</span>`);
+  if (stage.warn) parts.push(`<span class="caution">⚠ ${stage.warn}</span>`);
+  return parts.join(' · ');
+}
+
+function logRowHtml(entry, detailed, child = false) {
+  const problem = entry.k === 'err' || entry.k === 'warn';
+  const long = !detailed && entry.text.length > LOG_PREVIEW_AT;
+  const classes = `ln ${entry.k}${child ? ' child' : ''}`;
+  if (!long) return `<div class="${classes}" data-n="${entry.n}"><span class="t">${entry.t}</span><span class="x">${esc(entry.text)}</span></div>`;
+  const cut = entry.text.slice(0, LOG_PREVIEW), space = cut.lastIndexOf(' ');
+  const preview = (space > LOG_PREVIEW / 2 ? cut.slice(0, space) : cut).trimEnd();
+  const label = problem ? 'Show full message' : /^\s{3,}/.test(entry.text) || /prompt/i.test(entry.text.slice(0, 80)) ? 'Show full prompt' : 'Show full response';
+  const open = logOpened.get(`m${entry.n}`) === true;
+  return `<div class="${classes} long${open ? ' expanded' : ''}" data-n="${entry.n}"><span class="t">${entry.t}</span><span class="x"><span class="x-short">${esc(preview)}…</span><span class="x-full">${esc(entry.text)}</span>`
+    + `<button type="button" class="ln-more" data-more="${entry.n}" data-label="${label}">${open ? 'Hide' : label}</button></span></div>`;
+}
+
+function logHtml(lines, detailed) {
+  const blocks = buildLog(lines, detailed);
+  const last = [...blocks].reverse().find(block => block.entries);
+  const entryHtml = entry => {
+    if (!entry.children) return logRowHtml(entry, detailed);
+    const key = `g${entry.n}`, open = logOpened.get(key) === true;
+    return `<div class="log-grp${open ? ' open' : ''}" data-key="${key}"><div class="ln ${entry.k}" data-n="${entry.n}"><span class="t">${entry.t}</span>`
+      + `<span class="x"><button type="button" class="log-fold" aria-expanded="${open}"><span class="grp-text">${esc(entry.text)}</span><span class="log-chev"></span></button></span></div>`
+      + `<div class="grp-body">${entry.children.map(child => logRowHtml(child, detailed, true)).join('')}</div></div>`;
+  };
+  return blocks.map(block => {
+    if (!block.entries) return logRowHtml(block, detailed);
+    const key = `s${block.n}`;
+    const open = logOpened.has(key) ? logOpened.get(key) : detailed || block === last;
+    return `<section class="stage-sec${open ? ' open' : ''}" data-key="${key}"><div class="ln stage" data-n="${block.n}"><span class="t">${block.t}</span>`
+      + `<span class="x"><button type="button" class="log-fold" aria-expanded="${open}"><span class="stage-text">${logStageHeading(block)}</span><span class="log-chev"></span></button></span></div>`
+      + `<div class="stage-body">${block.entries.map(entryHtml).join('')}</div></section>`;
+  }).join('');
+}
+
+function renderLog(lines = logLines, force = false) {
+  logLines = lines;
+  if (!lines.length) return;
+  const el = $('log');
+  const key = `${logDetailed}|${lines.length}|${lines[0].n}|${lines[lines.length - 1].n}`;
+  if (!force && key === logShown) return;
+  // Not under a selection being copied: it would be lost. It is drawn on the next poll.
+  const picked = typeof getSelection === 'function' ? getSelection() : null;
+  if (!force && picked && !picked.isCollapsed && picked.anchorNode && el.contains(picked.anchorNode)) return;
+  logShown = key;
+  const follows = autoScroll;
+  // Reading further up keeps what is in view where it is, as lines are added below or trimmed off the top.
+  let anchor = null;
+  if (!follows && el.querySelectorAll) {
+    const top = el.getBoundingClientRect().top;
+    for (const node of el.querySelectorAll('[data-n]')) {
+      const box = node.getBoundingClientRect();
+      if (box.height && box.bottom > top) { anchor = { n: node.dataset.n, offset: box.top - top }; break; }
+    }
+  }
+  el.innerHTML = logHtml(lines, logDetailed);
+  if (follows) el.scrollTop = el.scrollHeight;
+  else if (anchor) {
+    const node = el.querySelector(`[data-n="${anchor.n}"]`);
+    if (node) el.scrollTop += node.getBoundingClientRect().top - el.getBoundingClientRect().top - anchor.offset;
+  }
+}
+$('log').addEventListener('click', e => {
+  const button = e.target.closest && e.target.closest('button');
+  if (!button) return;
+  if (button.classList.contains('log-fold')) {
+    const box = button.closest('.stage-sec, .log-grp');
+    const open = !box.classList.contains('open');
+    box.classList.toggle('open', open);
+    button.setAttribute('aria-expanded', String(open));
+    logOpened.set(box.dataset.key, open);
+  } else if (button.classList.contains('ln-more')) {
+    const row = button.closest('.ln');
+    const open = !row.classList.contains('expanded');
+    row.classList.toggle('expanded', open);
+    button.textContent = open ? 'Hide' : button.dataset.label;
+    logOpened.set(`m${button.dataset.more}`, open);
+  }
+});
 let uploadFollow = true;
 const renderUploadLog = logWriter($('uploadLog'), () => uploadFollow);
 
@@ -4714,7 +5023,7 @@ function renderQueue(el, q, doneIn, moving = false, idle = false) {
   const heading = `<b>${el.dataset.title} (${waiting.length})</b>`;
   const expanded = el._open !== false;
   const head = (el.dataset.lane === 'run' ? `<button type="button" class="queue-fold-toggle queue-fold-title" data-fold-queue="1" aria-expanded="${expanded}">${heading}</button>` : heading) + (q.held
-    ? `<span class="when">On hold until you press play</span>`
+    ? `<span class="when">On hold</span>`
     : doneIn ? `<span class="when">All done around ${clockIn(doneIn)}</span>` : '')
     + (el.dataset.lane === 'run' ? `<button type="button" class="icon-btn" data-queue-toggle="1" aria-label="${q.held || q.stopAfter ? 'Resume queue' : 'Pause after current'}" title="${q.held || q.stopAfter ? 'Resume queue' : 'Stop after the current image or video'}">${q.held || q.stopAfter ? ICONS.play : '❚❚'}</button><button type="button" class="queue-fold-toggle queue-fold-arrow" data-fold-queue="1" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse queue' : 'Expand queue'}"><span class="chev" aria-hidden="true"></span></button>` : '');
   const canRunNow = el.dataset.lane === 'run' && q.held && idle;
@@ -4777,20 +5086,23 @@ function renderFinished(runs, uploads, madeNow = []) {
     .concat(uploads.map(r => ({ ...r, type: 'Upload', side: 'shorts', tab: r.outcome === 'done' ? 'uploaded' : 'output' })))
     .sort((a, b) => (b.t || 0) - (a.t || 0) || (b.at || '').localeCompare(a.at || ''))
     .slice(0, FINISHED_SHOWN);
-  // Always there, so the line keeps its shape: greyed out while nothing has finished.
   $('finishedToggle').disabled = !all.length;
+  $('finishedToggle').classList.toggle('empty', !all.length);
+  const failed = all.filter(r => r.outcome === 'failed').length;
+  const title = all.length ? `Finished (${all.length})${failed ? ` · ${failed} failed` : ''}` : 'Finished';
+  $('finishedToggle').setAttribute('aria-label', title);
+  $('finishedToggle').title = title;
+  $('finishedLabel').innerHTML = all.length ? `Finished (${all.length})${failed ? ` · <span class="failed">${failed} failed</span>` : ''}` : 'Finished';
+  $('finishedCount').textContent = all.length ? String(all.length) : '';
+  $('finishedCount').classList.toggle('failed', failed > 0);
   if (!all.length) {
-    $('finishedToggle').textContent = 'Finished';
     $('finishedList').innerHTML = '';
     $('finishedList').dataset.html = '';
     return;
   }
-  const failed = all.filter(r => r.outcome === 'failed').length;
-  const title = `Finished (${all.length})${failed ? ` · <span class="failed">${failed} failed</span>` : ''}`;
   const list = all.map(r => `<button type="button" class="result ${esc(r.outcome)}" style="--side:${SIDE_COLOURS[r.side] || SIDE_COLOURS.shorts}" data-goto="${esc(r.side)}"${r.tab ? ` data-tab="${r.tab}"` : ''}${r.run_id ? ` data-run-id="${esc(r.run_id)}"` : ''}${r.job_id != null ? ` data-job-id="${esc(String(r.job_id))}"` : ''}${r.position ? ` data-position="${r.position}"` : ''}${r.film ? ` data-film="${esc(r.film)}"` : ''}${r.outcome === 'failed' && r.type !== 'Upload' ? ' data-failed="1"' : ''}>`
     + `<span class="result-mark">${RESULT_MARKS[r.outcome]}</span><span class="result-type">${r.type}</span>`
     + `<span class="result-label">${esc(r.label)}${r.note ? ` (${esc(r.note)})` : ''}</span><span class="when">${r.at}</span></button>`).join('');
-  if ($('finishedToggle').innerHTML !== title) $('finishedToggle').innerHTML = title;
   if ($('finishedList').dataset.html !== list) { $('finishedList').innerHTML = list; $('finishedList').dataset.html = list; }
 }
 // --- Finished, Log and Quota: each opens in a box over the page ---
@@ -4816,8 +5128,21 @@ function closePanel() {
   if ($('panelDialog').open) $('panelDialog').close();
 }
 $('finishedToggle').addEventListener('click', () => openPanel('finished'));
-// From 1280px wide the run's Queue, Log, Finished and Quota are tabs in its column, not boxes over the page.
 const DESK = window.matchMedia('(min-width: 1280px)');
+let lastStatus = null;
+function placePanelControls() {
+  if (DESK.matches) {
+    for (const id of ['logToggle', 'finishedToggle', 'quotaToggle']) $('statusToggles').appendChild($(id));
+  } else {
+    $('settingsHead').appendChild($('logToggle'));
+    $('settingsHead').appendChild($('quotaToggle'));
+    $('runActions').appendChild($('finishedToggle'));
+  }
+  const running = !!(lastStatus && lastStatus.running);
+  $('runActions').hidden = DESK.matches && !running;
+  $('skip').hidden = $('stop').hidden = !running;
+}
+DESK.addEventListener('change', placePanelControls);
 function setRunTab(which) {
   document.body.dataset.runtab = which;
   for (const [id, tab] of [['queueToggle', 'queue'], ['logToggle', 'log'], ['finishedToggle', 'finished'], ['quotaToggle', 'quota']]) {
@@ -4835,6 +5160,7 @@ function placeQuota() {
 }
 DESK.addEventListener('change', placeQuota);
 $('queueToggle').addEventListener('click', () => setRunTab('queue'));
+placePanelControls();
 placeQuota();
 $('logToggle').addEventListener('click', () => openPanel('log'));
 $('quotaToggle').addEventListener('click', () => openPanel('quota'));
@@ -4999,6 +5325,9 @@ function renderStopped(runs, parked = [], results = []) {
       <div class="run-head"><div class="what">${esc(result.label)}</div><span class="run-tag">Failed</span></div>
       <div class="hint">${SIDE_NAMES[result.pipeline] || 'Shorts'} · No saved run to retry</div>
       ${result.note ? whyHtml({ why: result.note }) : ''}
+      <div class="stopped-actions unsaved-actions">
+        <button type="button" class="icon-btn" data-dismiss-job="${esc(String(result.job_id))}" aria-label="Delete this failure" title="Delete it (tap twice)">${ICONS.trash}</button>
+      </div>
     </div>`;
   const fold = (id, title, rows) => {
     const el = $(id);
@@ -5040,6 +5369,9 @@ for (const id of ['stoppedRuns', 'failedRuns']) {
       // Two taps, as a delete: what it already made stays in Output.
       if (!secondTap(button)) return;
       url = `/runs/${d.discard}/discard`;
+    } else if (d.dismissJob) {
+      if (!secondTap(button)) return;
+      url = `/queue/run/failed/${encodeURIComponent(d.dismissJob)}/dismiss`;
     } else if (d.edit) {
       await editQueued(d.edit, button);
       return;
@@ -5164,8 +5496,15 @@ for (const id of ['runQueue', 'uploadQueue']) {
     if (fold) {
       const el = $(id), list = el.querySelector('.queue-list');
       el._open = el._open === false;
-      fold.setAttribute('aria-expanded', String(el._open));
+      for (const control of el.querySelectorAll('button[data-fold-queue]')) {
+        control.setAttribute('aria-expanded', String(el._open));
+        if (control.classList.contains('queue-fold-arrow')) control.setAttribute('aria-label', el._open ? 'Collapse queue' : 'Expand queue');
+      }
       if (list) list.hidden = !el._open;
+      el.dataset.html = el.dataset.html
+        .replace(/aria-expanded="(?:true|false)"/g, `aria-expanded="${el._open}"`)
+        .replace(/aria-label="(?:Collapse|Expand) queue"/, `aria-label="${el._open ? 'Collapse' : 'Expand'} queue"`)
+        .replace(/class="queue-list" tabindex="0"(?: hidden)?/, `class="queue-list" tabindex="0"${el._open ? '' : ' hidden'}`);
       if (el._open) setupQueueScroll(el, '.queue-list', '.queue-item', list ? list.scrollTop : 0);
       return;
     }
@@ -5250,7 +5589,6 @@ $('comfyDialog').addEventListener('click', e => { if (e.target === $('comfyDialo
 // What's being made, in Status. A new one slides in, as it leaves the queue below.
 // The run the title is about, and what it renders with, a tap away.
 let workItem = null;
-let lastStatus = null;
 // Everything known about the run, not just its title: where it is, how long it has gone, and what ComfyUI is doing.
 function runFactRows() {
   const facts = (workItem && workItem.facts) || {};
@@ -5475,7 +5813,8 @@ async function pollOnce() {
     $(id).querySelector('.dot').classList.toggle('hidden', !(running && data.pipeline === side && side !== pipeline));
   }
   if (data.stopped_runs.length !== stoppedCount) { stoppedCount = data.stopped_runs.length; refreshPlan(); }
-  $('runActions').hidden = !running;
+  $('runActions').hidden = DESK.matches && !running;
+  $('skip').hidden = $('stop').hidden = !running;
   // A batch (Shorts' videos, Image's images) can end once the one being made is done; a film is one video.
 
   safely(() => renderNow(data));
@@ -5532,6 +5871,22 @@ $('uploadLog').addEventListener('scroll', () => {
 });
 
 // --- Log filters and the workflow view ---
+{
+  const apply = detailed => {
+    logDetailed = detailed;
+    $('logDetailed').setAttribute('aria-pressed', String(detailed));
+    $('logSummary').setAttribute('aria-pressed', String(!detailed));
+    renderLog(logLines, true);
+  };
+  if (localStorage.getItem('comfyui-auto-gen.logDetailed') === '1') apply(true);
+  for (const [id, detailed] of [['logSummary', false], ['logDetailed', true]]) {
+    $(id).addEventListener('click', () => {
+      if (logDetailed === detailed) return;
+      apply(detailed);
+      try { localStorage.setItem('comfyui-auto-gen.logDetailed', detailed ? '1' : '0'); } catch (e) {}
+    });
+  }
+}
 for (const [id, cls, onWhenPressed] of [['logComfy', 'hide-comfy', false], ['logProblems', 'problems-only', true]]) {
   const saved = localStorage.getItem(`comfyui-auto-gen.${id}`);
   const apply = pressed => {

@@ -234,8 +234,9 @@ the tab's folder in File Explorer; it's only there on this PC, not on your phone
 wide the options, the run card (Generate, ComfyUI, progress, log) and the
 portrait videos sit in three columns on one screen.
 
-On a phone a header stays on top with Options, Run (with a short status), Queue, Log, Quota
-and Videos, and a small progress bar under it while a run or upload is going.
+On a phone the navigation offers Status, Generate and Videos, with a small progress bar while a run or upload is going.
+The Log and Quota icons are at the top right of Settings. The Finished icon appears to the right of Cancel and Stop
+in Status when there are finished results, and remains available after a run ends.
 
 The **Log** colours each line by what it is, and what ComfyUI does while a run renders is in it too, with how long each
 part took (sampling steps, decoding, a failed node and why). **ComfyUI activity** hides those lines and **Problems only**
