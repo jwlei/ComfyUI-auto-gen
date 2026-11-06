@@ -217,10 +217,12 @@ def audio_slice(path, start, seconds, output):
     return output
 
 
-def with_audio(video_path, audio_path):
+def with_audio(video_path, audio_path, pad=False):
     """Puts this audio on the film, in place of any the clips came with. Not encoding the picture again."""
     part_path = video_path + ".part"
     video, audio = ffmpeg.input(video_path).video, ffmpeg.input(audio_path).audio
+    if pad:
+        audio = audio.filter("apad")
     (ffmpeg.output(video, audio, part_path, vcodec="copy", acodec="aac", shortest=None, format="mp4", movflags="faststart")
      .run(overwrite_output=True, quiet=True))
     os.replace(part_path, video_path)

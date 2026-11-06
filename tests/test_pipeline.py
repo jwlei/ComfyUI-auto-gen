@@ -85,6 +85,24 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(self.film("--narration", "Too long"), 1)
         main.planner.plan_film.assert_not_called()
 
+    def test_fixed_clip_rounds_audio_and_direct_plan(self):
+        with self.fake_voice(30), mock.patch.object(main, "LOGS_DIR", self.temp):
+            self.assertEqual(self.film("--narration", "Hello", "--clip-seconds", "8-8", "--fixed-clips", "--direct", "--plan-only"), 0)
+        state = self.only_run()
+        self.assertEqual(state.seconds, 32)
+        self.assertTrue(state.fixed_clip)
+        self.assertEqual([shot["seconds"] for shot in state.shots], [8, 8, 8, 8])
+        self.assertTrue(run_state.RunState.load(state.id).fixed_clip)
+
+    def test_fixed_clip_audio_is_padded_or_trimmed_to_video(self):
+        for audio_seconds in (2, 6):
+            video = os.path.join(self.temp, f"video_{audio_seconds}.mp4")
+            audio = os.path.join(self.temp, f"audio_{audio_seconds}.wav")
+            make_clip(video, 4, audio=False)
+            ffmpeg.input(f"sine=f=440:d={audio_seconds}", f="lavfi").output(audio).run(overwrite_output=True, quiet=True)
+            media.with_audio(video, audio, pad=True)
+            self.assertAlmostEqual(media.duration(video), 4, delta=0.15)
+
     def test_audio_and_narration_are_one_or_the_other(self):
         with self.assertRaises(SystemExit):
             main.parse_args([self.image, "a prompt", "--audio", "a.wav", "--narration", "Hello"])
@@ -360,6 +378,24 @@ class PartsTest(unittest.TestCase):
 
 
 class PlanTest(unittest.TestCase):
+    def test_fixed_clip_rounds_to_nearest_compatible_film_length(self):
+        self.assertEqual(planner.fixed_film_seconds(30, None, (8, 8)), 32)
+        self.assertEqual(planner.fixed_film_seconds(29, None, (8, 8)), 32)
+        self.assertEqual(planner.fixed_film_seconds(27, None, (8, 8)), 24)
+        self.assertEqual(planner.fixed_film_seconds(5, None, (10, 10)), 10)
+        self.assertEqual(planner.fixed_film_seconds(600, h3_prompt.MODEL, (13, 13)), 598)
+        self.assertEqual(planner.fixed_film_seconds(30, None, (5, 10)), 30)
+        self.assertEqual(planner.fixed_film_seconds(30, None, (15, 15)), 30)
+        seconds = planner.fixed_film_seconds(30, None, (8, 8))
+        shots = [{"title": f"S{i}", "seconds": 8, "prompt": "p"} for i in range(4)]
+        with mock.patch.object(planner, "_ask", return_value=self.reply(shots)):
+            _, result = planner.plan_film(b"jpeg", "brief", seconds, "image", "gemini", chosen=(8, 8))
+        self.assertEqual([shot["seconds"] for shot in result], [8, 8, 8, 8])
+        eta = RunEta(["--duration", "30", "--clip-seconds", "8-8", "--fixed-clips"], "no_such_file.json")
+        self.assertEqual((eta.film_seconds, eta.shots), (32, 4))
+        old = RunEta(["--duration", "30", "--clip-seconds", "8-8"], "no_such_file.json")
+        self.assertEqual(old.film_seconds, 30)
+
     def test_durations(self):
         self.assertEqual(planner.fit_durations([8, 8, 8], 24), [8, 8, 8])
         self.assertEqual(sum(planner.fit_durations([1, 30, 8], 24)), 24)

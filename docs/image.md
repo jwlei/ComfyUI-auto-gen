@@ -7,7 +7,7 @@ short brief, or your own prompt goes in word for word.
 
 ```
 image of a woman + "recreate her with different outfits and hairstyles" + 15 images
-  → Gemini or Claude writes 15 prompts that differ from each other (one request for the whole set)
+  → Gemini or a local model writes 15 prompts that differ from each other (one request for the whole set)
   → ComfyUI makes each image
   → output/image/<title>_<workflow>/<title>_<workflow>_001.png ...
 ```
@@ -26,9 +26,10 @@ Choosing one yourself asks for what it takes.
 Use **Write prompt** beside the prompt field to rewrite an idea locally with the model selected in Settings. On
 success the text is replaced and Exact prompt is selected when available. It needs an idle, reachable ComfyUI and
 temporarily unloads its models; queued panel generations wait. Your text is kept if it fails.
+The progress bar and remaining time are estimates, learned separately for each model and for video and image prompts.
 The writer receives only the text in the prompt box, not attached images. Its image instructions focus on a
 single composition, spatial relationships, lighting and other visible details.
-Alternatively, select **Local model (Settings)** under **Prompts → LLM** to write a separate prompt for each image
+Alternatively, select **LLM** under **Prompt source** and **Local model** under **Model** to write a separate prompt for each image
 with the workflow's existing planning instructions. Gemma can analyze attached images; Qwen rejects them because
 it is text-only. ComfyUI must be reachable and idle while the local model plans; it unloads before rendering.
 Large sets may exceed the local model's context or output limits.
@@ -38,7 +39,7 @@ Large sets may exceed the local model's context or output limits.
 | **The LLM writes one per image** | Its own prompt, written from what you say. A sentence or two is enough. They're written together in one request, so they can differ from each other. |
 | **Use my prompt, word for word** | Your prompt exactly, on a new seed each time. No LLM, so no key or quota needed. |
 
-A workflow that writes its own prompts adds them to **Who writes the prompts**, beside Gemini and Claude:
+A workflow that writes its own prompts adds them to **Model**, beside Gemini and the local model:
 
 | Choice | What happens |
 |---|---|
@@ -87,7 +88,7 @@ a second try, doesn't cost the rest of the set: the run ends as failed with the 
 
 **Generate** continues a stopped set with the same brief, images, count and workflow rather than paying for new prompts.
 
-**Let me read the prompts before rendering**, under How, stops once they're written so you can change them. With the
+**Let me read the prompts before rendering**, under Other, stops once they're written so you can change them. With the
 workflow's own prompt enhancer it works too: ComfyUI runs only the enhancer, one prompt per image on that image's seed,
 and the run stops there. Continue makes them as written, with the enhancer off (Kokon's "read the prompt first").
 

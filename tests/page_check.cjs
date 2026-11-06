@@ -34,8 +34,8 @@ const context = {
   fetch: async () => { throw new Error('offline'); },
   FormData: class { delete() {} append() {} },
   location: { reload() { context.reloads++; } }, reloads: 0, AbortController,
-  URL, Event: class { constructor(type, options) { this.type = type; this.bubbles = options.bubbles; } }, setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, requestAnimationFrame: () => 0, cancelAnimationFrame() {},
-  confirm: () => true, alert() {}, console, Date, Math, JSON, Set, Object, String,
+  URL, Event: class { constructor(type, options) { this.type = type; this.bubbles = options.bubbles; } }, setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {}, requestAnimationFrame: () => 0, cancelAnimationFrame() {},
+  confirm: () => true, alert() {}, console, Date, performance: { now: () => 0 }, Math, JSON, Set, Object, String,
 };
 vm.createContext(context);
 vm.runInContext(script, context);
@@ -47,6 +47,8 @@ for (const side of ['video', 'shorts']) {
   assert(section.includes('value="balanced" selected'), `${side} defaults to balanced`);
 }
 assert(html.includes('value="gemma-4-12b"') && html.includes('value="qwen3-14b"'), 'Settings offers both OpenH3 models');
+assert(els.writeVideoPrompt.innerHTML === run('ICONS.enhanced') && els.writeImagePrompt.innerHTML === run('ICONS.enhanced'), 'prompt writers use the detailed prompt icon');
+assert(!html.includes('Local model uses the model in Settings.'), 'no local model hint');
 assert(html.includes('value="review">Enhance before review') && html.includes('value="render">Enhance before each clip'));
 
 // Remembered options never touch a file input, which throws if you set its value.
@@ -201,8 +203,8 @@ assert(!els.sizePreset.options.find(o => o.value === '960x544').disabled);
 assert.strictEqual(els.size.value, '', 'and a chosen one falls back to the default');
 run("workflowMost = {}");
 
-// The film length range comes from the server, and goes down to one clip.
-assert(/id="duration"[^>]*min="5"[^>]*max="600"[^>]*step="5"/.test(html));
+// The film length allows single-second input within the server's limits.
+assert(/id="duration"[^>]*type="number"[^>]*min="5"[^>]*max="600"[^>]*step="1"/.test(html));
 assert.strictEqual(run('clipCount(1)'), '1 clip');
 assert.strictEqual(run('clipCount(75)'), '75 clips');
 
@@ -1049,8 +1051,8 @@ for (const [form, generation, prompt] of [['formImage', 'imageGeneration', 'imag
   const g = html.indexOf(`id="${generation}"`), p = html.lastIndexOf('<details', html.indexOf(`id="${prompt}"`));
   assert(g > 0 && p > g && html.slice(html.indexOf('</details>', g), p).replace(/<\/details>|\s/g, '') === '', `${form}: Prompt right below Generation`);
 }
-assert(/id="imagePromptSection">\s*<summary class="section-title">Prompt [\s\S]*?id="clearImagePrompt"[\s\S]*?<\/summary>[\s\S]*?id="imagePrompt"[\s\S]*?id="imageLlm"[\s\S]*?id="imageReview"[\s\S]*?<\/details>/.test(html));
-assert(/id="videoPromptSection">\s*<summary class="section-title">Prompt [\s\S]*?id="clearVideoPrompt"[\s\S]*?<\/summary>[\s\S]*?id="prompt"[\s\S]*?id="llm"[\s\S]*?id="review"[\s\S]*?<\/details>/.test(html));
+assert(/id="imagePromptSection">[\s\S]*?id="imagePromptMode"[\s\S]*?id="imageLlm"[\s\S]*?id="clearImagePrompt"[\s\S]*?id="writeImagePrompt"[\s\S]*?id="imagePrompt"/.test(html));
+assert(/id="videoPromptSection">[\s\S]*?id="videoPromptMode"[\s\S]*?id="llm"[\s\S]*?id="clearVideoPrompt"[\s\S]*?id="writeVideoPrompt"[\s\S]*?id="prompt"/.test(html));
 assert(/<summary class="section-title">Avatar<\/summary>\s*<label for="voice">Narrator<\/label>/.test(html) && !html.includes('id="formVoice"') && !html.includes('id="formAdvanced"') && !html.includes('name="fail_fast"'));
 // Video's clip length: a range within the model's; at its full span nothing is chosen.
 assert(/<div class="range" id="videoClipRange">/.test(html) && /<input id="videoClipSeconds" name="clip_seconds" hidden>/.test(html));
@@ -1064,13 +1066,74 @@ els.videoClipSeconds.value = '2-30';
 assert.deepStrictEqual(JSON.parse(run('JSON.stringify(videoClips())')), [5, 15, 10], 'held to what the model makes');
 els.videoClipSeconds.value = '';
 els.videoWorkflow.value = '';
+{
+  const box = els.videoClipRange, originalInputs = box.querySelectorAll, originalPart = box.querySelector;
+  const low = element('fixed-low'), high = element('fixed-high'), fill = { style: {} };
+  low.setAttribute = (name, value) => { low[name] = value; };
+  box.querySelectorAll = () => [low, high];
+  box.querySelector = () => fill;
+  els.videoClipFixedButton.setAttribute = (name, value) => { els.videoClipFixedButton[name] = value; };
+  els.videoClipFixed.checked = true;
+  els.videoClipSeconds.value = '8-8';
+  run('syncVideoClips()');
+  assert(high.hidden && high.disabled && low.value == 8);
+  assert.strictEqual(els.videoClipFixedButton['aria-pressed'], 'true');
+  assert.strictEqual(els.videoClipText.textContent, '8s');
+  low.value = '9'; context.movedClip = low; run('syncVideoClips(movedClip)');
+  assert.strictEqual(els.videoClipSeconds.value, '9-9');
+  els.videoClipFixed.checked = false; els.videoClipSeconds.value = '';
+  run('syncVideoClips()');
+  assert(!high.hidden && !high.disabled && els.videoClipSeconds.value === '', 'turning fixed off restores the range');
+  assert.strictEqual(els.videoClipFixedButton['aria-pressed'], 'false');
+  context.testSyncVideoForm = () => run('syncVideoClips()');
+  run('var savedSyncVideoForm = syncVideoForm; syncVideoForm = testSyncVideoForm');
+  els.videoClipFixedButton.listeners.click();
+  assert(els.videoClipFixed.checked && high.hidden && els.videoClipSeconds.value === '8-8', 'toggle selects the model’s usual fixed length');
+  els.videoClipFixedButton.listeners.click();
+  assert(!els.videoClipFixed.checked && !high.hidden && els.videoClipSeconds.value === '', 'toggle returns to full range');
+  run('syncVideoForm = savedSyncVideoForm');
+  box.querySelectorAll = originalInputs; box.querySelector = originalPart;
+}
 
 // Names, places and defaults (the second batch of form changes).
 assert(html.includes('<option value="llm">LLM</option>') && html.includes('<option value="direct">Exact prompt</option>') && /id="videoPromptMode" name="prompt_mode"/.test(html));
-assert((html.match(/>What writes the prompts</g) || []).length === 2 && !html.includes('Who writes the prompts'));
+assert((html.match(/>Prompt source</g) || []).length === 2 && (html.match(/>Model</g) || []).length >= 2 && !html.includes('What writes the prompts'));
+assert(!html.includes('Write prompt uses the text only') && !script.includes('call it '), 'writer and reference naming hints removed');
+assert(/<details class="h3-help"><summary>OpenH3-IR<\/summary><div class="hint">Before review/.test(html), 'OpenH3 explanation opens from its heading');
+assert(/\.count-stepper \{[^}]*align-items: stretch/.test(html) && /\.count-stepper button \{[^}]*width: 48px;/.test(html), 'stepper buttons are wider and stretch to the input height');
 assert(script.includes("const ROLE_LABELS = { image_to_prompt: 'Image to prompt', prompt_enhancer: 'Prompt Enhancer' };"));
 assert(!html.includes('id="imageResolution"') && /id="imageGeneration"[\s\S]*?id="imageAspect"[\s\S]*?<\/details>/.test(html), 'Resolution in Generation');
-assert(/<summary class="section-title">Other<\/summary>\s*<label for="imageSeed">Seed<\/label>/.test(html) && /<summary class="section-title">Other<\/summary>\s*<label for="videoSeed">Seed<\/label>/.test(html), 'the seed under Other');
+assert(/id="imageHow">[\s\S]*?id="imageReview"[\s\S]*?id="imageSeed"/.test(html) && /id="videoHow">[\s\S]*?id="review"[\s\S]*?id="videoSeed"/.test(html), 'review and seed under Other');
+for (const [field, down, up, min, max, step] of [['runs', 'runsDown', 'runsUp', 1, 10, 1], ['imageCount', 'imageCountDown', 'imageCountUp', 1, 20, 1], ['duration', 'durationDown', 'durationUp', 5, 600, 5]]) {
+  const input = context.document.getElementById(field), events = [];
+  input.value = String(min);
+  input.stepDown = n => { input.value = String(Math.max(min, Number(input.value) - n)); };
+  input.stepUp = n => { input.value = String(Math.min(max, Number(input.value) + n)); };
+  input.dispatchEvent = e => events.push(e.type);
+  els[down].listeners.click();
+  assert.strictEqual(input.value, String(min));
+  els[up].listeners.click();
+  assert.strictEqual(input.value, String(min + step));
+  input.value = String(max); els[up].listeners.click();
+  assert.strictEqual(input.value, String(max));
+  assert.deepStrictEqual(events, ['input', 'change', 'input', 'change', 'input', 'change']);
+  input.value = '3';
+  assert.strictEqual(input.value, '3', 'count remains directly editable');
+  if (field === 'duration') {
+    input.value = '13'; els[up].listeners.click(); assert.strictEqual(input.value, '18', 'five-second step preserves fine adjustment');
+    els[down].listeners.click(); assert.strictEqual(input.value, '13');
+  }
+}
+for (const [field, writer] of [['prompt', 'writeVideoPrompt'], ['imagePrompt', 'writeImagePrompt']]) {
+  els[field].value = '  '; els[field].readOnly = false;
+  els[field].listeners.input();
+  assert(els[writer].disabled, 'empty and whitespace prompts disable the writer');
+  els[field].value = 'an idea'; els[field].listeners.input();
+  assert(!els[writer].disabled, 'typing enables the writer');
+  els[field].readOnly = true; els[field].listeners.input();
+  assert(els[writer].disabled, 'writing keeps the writer disabled');
+  els[field].readOnly = false; els[field].value = ''; els[field].listeners.input();
+}
 assert(/<div class="go-under">\s*<label class="check preview-run not-shorts"><input type="checkbox" name="try_first"><span>Preview run<\/span><\/label>\s*<button type="button" class="start-later" id="goLater"/.test(html) && (html.match(/name="try_first"/g) || []).length === 1, 'Preview run under the button, left of Start later');
 assert(/<select id="avatarSize" name="avatar_size">/.test(html), 'Shorts has a resolution');
 assert(/<div id="imageToPromptSlot"><\/div>/.test(html) && /imageRole\(\) === 'image_to_prompt' \? \$\('imageToPromptSlot'\)/.test(script), "image to prompt's image right under the choice");
@@ -1285,27 +1348,48 @@ assert(els.comfyFacts.innerHTML.includes('Generating the image · 3/8') && els.c
 (async () => {
   {
     const savedFetch = context.fetch;
-    let resolve;
+    const savedInterval = context.setInterval, savedClear = context.clearInterval, savedNow = context.performance.now;
+    let resolve, update, now = 0, cleared = false, started;
+    const postStarted = new Promise(done => { started = done; });
+    context.performance.now = () => now;
+    context.setInterval = fn => { update = fn; return 42; };
+    context.clearInterval = id => { if (id === 42) cleared = true; };
     context.fetch = (url, options) => {
+      if (url.startsWith('/api/write-prompt?')) return Promise.resolve({ ok: true, json: async () => ({ ok: true, seconds: 100, model: 'gemma-4-12b' }) });
       assert.strictEqual(url, '/api/write-prompt');
       assert.strictEqual(JSON.parse(options.body).pipeline, 'video');
+      assert.strictEqual(JSON.parse(options.body).model, 'gemma-4-12b');
+      started();
       return new Promise(done => { resolve = done; });
     };
     els.prompt.value = 'a harbour';
     const writing = run("writePrompt('video')");
     assert(els.prompt.readOnly && els.writeVideoPrompt.disabled, 'prompt locked while writing');
+    await postStarted;
+    assert(!els.videoPromptEta.hidden && els.videoPromptEta.textContent.includes('left'), 'estimated time shown during writing');
+    assert.strictEqual(els.videoPromptProgress.style.width, '0%');
+    now = 50000; update();
+    assert.strictEqual(els.videoPromptProgress.style.width, '50%');
+    now = 100000; update();
+    assert.strictEqual(els.videoPromptProgress.style.width, '95%');
+    assert.strictEqual(els.videoPromptEta.textContent, 'Taking longer than estimated');
+    now = 150000; update();
+    assert.strictEqual(els.videoPromptProgress.style.width, '95%', 'progress stays capped while overdue');
     resolve({ ok: true, json: async () => ({ ok: true, prompt: 'A cinematic harbour.' }) });
     await writing;
     assert.strictEqual(els.prompt.value, 'A cinematic harbour.');
     assert.strictEqual(els.videoPromptMode.value, 'direct');
     assert(!els.prompt.readOnly && !els.writeVideoPrompt.disabled);
-    context.fetch = async () => ({ ok: false, json: async () => ({ ok: false, error: 'model failed' }) });
+    assert(cleared && els.videoPromptEta.hidden && els.videoPromptProgress.hidden, 'progress timer and UI are cleared');
+    context.fetch = async url => String(url).includes('?') ? { ok: true, json: async () => ({ ok: true, seconds: 100, model: 'gemma-4-12b' }) }
+      : { ok: false, json: async () => ({ ok: false, error: 'model failed' }) };
     els.imagePrompt.value = 'a tree';
     await run("writePrompt('image')");
     assert.strictEqual(els.imagePrompt.value, 'a tree', 'failure preserves the input');
     assert.strictEqual(els.imagePromptWriteError.textContent, 'model failed');
     assert(!els.imagePromptWriteError.hidden && !els.imagePrompt.readOnly);
     context.fetch = savedFetch;
+    context.setInterval = savedInterval; context.clearInterval = savedClear; context.performance.now = savedNow;
   }
   {
     const savedNavigator = context.navigator, savedCreateElement = context.document.createElement;

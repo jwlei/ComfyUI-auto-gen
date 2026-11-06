@@ -4,7 +4,7 @@ import time
 from core.eta_keys import SEPARATOR, Timings, options_in_env, render_keys
 from pipelines.video.media import RENDER_AREA
 from pipelines.video.comfy import DEFAULT_WORKFLOW, workflow_model
-from pipelines.video.planner import clip_seconds, shot_count
+from pipelines.video.planner import clip_seconds, fixed_film_seconds, shot_count
 from pipelines.video.run_state import STAGES, RunState
 
 # Used until a finished step has been timed.
@@ -52,6 +52,8 @@ class RunEta:
             self.film_seconds = 0
         clip = re.fullmatch(r"(\d+)-(\d+)", str(_option(argv, "--clip-seconds", "")))
         self.clip_range = (int(clip.group(1)), int(clip.group(2))) if clip else None
+        if "--fixed-clips" in argv:
+            self.film_seconds = fixed_film_seconds(self.film_seconds, self.video_model, self.clip_range)
         self.shots = shot_count(self.film_seconds, self.video_model, self.clip_range)
         self.size_share = _size_share(argv)
         self.size = _option(argv, "--size", None)

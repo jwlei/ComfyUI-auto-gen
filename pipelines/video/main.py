@@ -95,6 +95,8 @@ def parse_args(argv=None):
                         help="OpenH3-IR creativity (default: balanced).")
     parser.add_argument("--clip-seconds", type=parse_clip_seconds, default=None, metavar="MIN-MAX",
                         help="How long each clip is, such as 5-8, within what the video model makes (its own range otherwise).")
+    parser.add_argument("--fixed-clips", action="store_true",
+                        help="Use a fixed --clip-seconds N-N and round the film to whole clips.")
     parser.add_argument("--first-only", action="store_true", help="Render the first clip and stop, to see it before rendering the rest.")
     parser.add_argument("--resume", metavar="RUN", help="Continue a saved run, with its original options.")
     parser.add_argument("--redo", type=int, metavar="SHOT", help="With --resume: render this shot again (chained: and every shot after it).")
@@ -108,6 +110,8 @@ def parse_args(argv=None):
         parser.error("--plan-only writes a new plan: --resume already has one.")
     if args.audio and args.narration:
         parser.error("--audio and --narration both give the film its audio: choose one.")
+    if args.fixed_clips and (not args.clip_seconds or args.clip_seconds[0] != args.clip_seconds[1]):
+        parser.error("--fixed-clips needs --clip-seconds N-N.")
     if len(args.ref_video_role) > len(args.ref_video) or len(args.ref_audio_role) > len(args.ref_audio):
         parser.error("--ref-video-role and --ref-audio-role go with a --ref-video or --ref-audio each.")
     if args.no_image and args.reference:
@@ -268,6 +272,14 @@ def plan_run(args, stages):
         state.seconds = math.ceil(media.duration(state.audio_path))
         if not planner.MIN_FILM_SECONDS <= state.seconds <= planner.MAX_FILM_SECONDS:
             raise RuntimeError(f"The audio is {state.seconds}s, and a film has to be {planner.MIN_FILM_SECONDS}-{planner.MAX_FILM_SECONDS} seconds long.")
+    if args.fixed_clips and planner.clip_seconds(video_model, args.clip_seconds)[:2] != args.clip_seconds:
+        raise RuntimeError("The fixed clip length is outside this video model's supported range.")
+    rounded = planner.fixed_film_seconds(state.seconds, video_model, args.clip_seconds) if args.fixed_clips else state.seconds
+    if rounded != state.seconds:
+        print(f"🎞️ Fixed clip length adjusts the film from {state.seconds}s to {rounded}s."
+              + (" The audio will be trimmed or padded with silence." if audio else ""))
+        state.seconds = rounded
+    state.fixed_clip = args.fixed_clips
     brief = args.prompt + (f"\n\nThe film is narrated, and the shots follow this narration in order: {args.narration}" if args.narration else "")
     print(f"🗂️ Run folder: {state.id}")
 
@@ -456,7 +468,7 @@ def stitch_film(state):
     output = os.path.join(paths.OUTPUT_DIR, f"{state.film_name}.mp4")
     media.stitch(clips, state.parts_dir, output, state.width, state.height, state.start == "chain")
     if state.has_audio:
-        media.with_audio(output, state.audio_path)
+        media.with_audio(output, state.audio_path, pad=state.fixed_clip)
     state.update(final=output)
     return output
 

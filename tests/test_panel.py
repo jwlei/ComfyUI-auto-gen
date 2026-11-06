@@ -55,6 +55,9 @@ class PanelTest(unittest.TestCase):
         self.addCleanup(closing.stop)
         self.temp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.temp, ignore_errors=True)
+        timing_path = mock.patch.object(webapp, "PROMPT_WRITER_TIMINGS", os.path.join(self.temp, "writer_timings.json"))
+        timing_path.start()
+        self.addCleanup(timing_path.stop)
         self.comfy = fake_comfy(self.temp)
         self.addCleanup(close, self.comfy)
         self.claude = fake_claude()
@@ -113,6 +116,32 @@ class PanelTest(unittest.TestCase):
     def texts_rendered(self):
         return [p["prompt"]["121"]["inputs"]["text"] for p in self.comfy.prompts]
 
+    def test_fixed_clip_form_and_legacy_queue(self):
+        fixed, error = video_panel.build_options({"duration": "30", "clip_seconds": "8-8", "clip_fixed": "on"})
+        self.assertIsNone(error)
+        self.assertIn("--fixed-clips", fixed)
+        ordinary, error = video_panel.build_options({"duration": "30", "clip_seconds": "8-8"})
+        self.assertIsNone(error)
+        self.assertNotIn("--fixed-clips", ordinary)
+        self.assertIsNotNone(video_panel.build_options({"clip_seconds": "5-8", "clip_fixed": "on"})[1])
+        item = {"pipeline": "video", "argv": ["-m", "pipelines.video.main", "--clip-seconds", "8-8", "--fixed-clips"]}
+        self.assertEqual(webapp.legacy_queue_form(item)[0]["clip_fixed"], "1")
+        item["argv"].remove("--fixed-clips")
+        self.assertNotIn("clip_fixed", webapp.legacy_queue_form(item)[0])
+
+    def test_fixed_clip_only_continues_matching_plan(self):
+        state = types.SimpleNamespace(id="old", shots=[{"seconds": 8}] * 4, final=None, inputs="same", brief="idea",
+                                      seconds=32, workflow=None, llm="gemini", h3_mode="off",
+                                      h3_creativity="balanced", start="chain", fixed_clip=True)
+        flags = ["--duration", "30", "--start", "chain", "--clip-seconds", "8-8", "--fixed-clips"]
+        with mock.patch.object(video_panel, "busy_runs", return_value=set()), \
+                mock.patch.object(video_panel.media, "inputs_fingerprint", return_value="same"), \
+                mock.patch.object(video_panel, "list_runs", return_value=[state]):
+            find = lambda chosen: video_panel.run_to_continue("idea", chosen, {}, {"max_images": 1}, [])
+            self.assertIs(find(flags), state)
+            self.assertIsNone(find(["--duration", "32", "--start", "chain"]))
+            self.assertIsNone(find(["--duration", "30", "--start", "chain", "--clip-seconds", "10-10", "--fixed-clips"]))
+
     def test_write_prompt_validation_lifecycle_and_exclusivity(self):
         from core import h3_refiner
         for data in ({}, {"pipeline": "shorts", "prompt": "idea"}, {"pipeline": "video", "prompt": " "},
@@ -121,6 +150,7 @@ class PanelTest(unittest.TestCase):
         entered, release = threading.Event(), threading.Event()
         refiner = mock.MagicMock()
         refiner.__enter__.return_value = refiner
+        refiner.model_id = "gemma-4-12b"
 
         def write(text, side):
             entered.set()
@@ -153,11 +183,82 @@ class PanelTest(unittest.TestCase):
             refiner.write_prompt.assert_called_once_with("idea", "video")
             refiner.__exit__.assert_called_once()
             self.assertFalse(webapp.run_queue.blocked())
+            estimate = self.client.get("/api/write-prompt?pipeline=video").get_json()
+            self.assertTrue(estimate["ok"])
+            self.assertGreater(estimate["seconds"], 0)
+            self.assertEqual(self.client.get("/api/write-prompt?pipeline=shorts").status_code, 400)
+            with open(webapp.PROMPT_WRITER_TIMINGS, encoding="utf-8") as file:
+                self.assertIn("gemma-4-12b | video", json.load(file)["steps"])
         with mock.patch.object(h3_refiner, "Refiner", side_effect=RuntimeError("model failed")):
             result = self.client.post("/api/write-prompt", json={"pipeline": "image", "prompt": "x"})
             self.assertEqual(result.status_code, 500)
             self.assertIn("model failed", result.get_json()["error"])
             self.assertFalse(webapp.run_queue.blocked())
+
+    def test_prompt_writer_estimates_learn_per_model_and_pipeline(self):
+        from core import h3_refiner
+        refiner = mock.MagicMock()
+        refiner.__enter__.return_value = refiner
+        refiner.model_id = "gemma-4-12b"
+        refiner.write_prompt.return_value = "written"
+        clock = mock.Mock(wraps=time)
+        clock.monotonic.side_effect = [10, 110, 200, 400, 500, 530]
+        with mock.patch.object(h3_refiner, "selected_model", return_value="gemma-4-12b"), \
+                mock.patch.object(h3_refiner, "Refiner", return_value=refiner), \
+                mock.patch.object(webapp, "time", clock):
+            estimate = lambda side: self.client.get(f"/api/write-prompt?pipeline={side}").get_json()["seconds"]
+            post = lambda side, model="gemma-4-12b": self.client.post(
+                "/api/write-prompt", json={"pipeline": side, "prompt": "idea", "model": model})
+            self.assertEqual(estimate("video"), 180)
+            self.assertEqual(post("video").status_code, 200)
+            self.assertEqual(estimate("video"), 100)
+            self.assertEqual(estimate("image"), 180)
+            self.assertEqual(post("video").status_code, 200)
+            self.assertEqual(estimate("video"), 130)
+            self.assertEqual(post("image").status_code, 200)
+            self.assertEqual(estimate("image"), 30)
+            with open(webapp.PROMPT_WRITER_TIMINGS, encoding="utf-8") as file:
+                saved = json.load(file)
+            self.assertEqual(saved["steps"], {"gemma-4-12b | video": 130, "gemma-4-12b | image": 30})
+        with mock.patch.object(h3_refiner, "selected_model", return_value="qwen3-14b"), \
+                mock.patch.object(h3_refiner, "Refiner", return_value=refiner):
+            self.assertEqual(self.client.get("/api/write-prompt?pipeline=video").get_json()["seconds"], 300)
+            self.assertEqual(self.client.post("/api/write-prompt", json={"pipeline": "video", "prompt": "idea",
+                                                                          "model": "qwen3-14b"}).status_code, 409)
+            refiner.write_prompt.side_effect = RuntimeError("failed")
+            self.assertEqual(self.client.post("/api/write-prompt", json={"pipeline": "video", "prompt": "idea"}).status_code, 500)
+            with open(webapp.PROMPT_WRITER_TIMINGS, encoding="utf-8") as file:
+                self.assertEqual(json.load(file), saved)
+
+    def test_prompt_writer_invalid_timing_and_save_failure_are_logged(self):
+        from core import h3_refiner
+        with open(webapp.PROMPT_WRITER_TIMINGS, "w", encoding="utf-8") as file:
+            json.dump({"steps": {"gemma-4-12b | video": float("inf")}}, file)
+        refiner = mock.MagicMock()
+        refiner.__enter__.return_value = refiner
+        refiner.model_id = "gemma-4-12b"
+        refiner.write_prompt.return_value = "written"
+        with mock.patch.object(h3_refiner, "selected_model", return_value="gemma-4-12b"), \
+                mock.patch.object(h3_refiner, "Refiner", return_value=refiner), \
+                self.assertLogs(webapp.app.logger, level="WARNING") as logs:
+            self.assertEqual(self.client.get("/api/write-prompt?pipeline=video").get_json()["seconds"], 180)
+            with mock.patch.object(webapp.os, "replace", side_effect=OSError("disk full")):
+                reply = self.client.post("/api/write-prompt", json={"pipeline": "video", "prompt": "idea"})
+            self.assertEqual(reply.get_json()["prompt"], "written")
+        self.assertTrue(any("Invalid prompt writer timing" in entry for entry in logs.output))
+        self.assertTrue(any("disk full" in entry for entry in logs.output))
+
+    def test_prompt_writer_choices_exclude_claude_and_use_valid_default(self):
+        with mock.patch.dict(os.environ, {"LLM_PROVIDER": "claude", "GEMINI_API_KEY": ""}):
+            html = self.client.get("/").get_data(as_text=True)
+            for name in ("llm", "imageLlm"):
+                select = html.split(f'id="{name}"', 1)[1].split("</select>", 1)[0]
+                self.assertNotIn('value="claude"', select)
+                self.assertIn('value="local"', select)
+                self.assertIn(">Local model</option>", select)
+            self.assertIn('const IMAGE_DEFAULTS = { llm: "local"', html)
+            self.assertIn('const VIDEO_DEFAULTS = { llm: "local"', html)
+            self.assertIn("claude", dict(video_panel.planner.LLMS))
 
     def test_local_qwen_rejects_attached_images_before_queuing(self):
         with mock.patch.object(video_panel.h3_refiner, "selected_model", return_value="qwen3-14b"):

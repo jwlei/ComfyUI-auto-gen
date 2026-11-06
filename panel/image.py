@@ -318,7 +318,7 @@ def generate():
     if role:
         found = next((option for option in takes.get("options") or [] if option["id"] == role), None)
         if not found:
-            return {"ok": False, "error": f"This workflow has no {'prompt enhancer' if role == 'prompt_enhancer' else 'image to prompt'} of its own: choose Gemini or Claude, or another workflow."}, 400
+            return {"ok": False, "error": f"This workflow has no {'prompt enhancer' if role == 'prompt_enhancer' else 'image to prompt'} of its own: choose Gemini or the local model, or another workflow."}, 400
         if found.get("problem"):
             return {"ok": False, "error": f"{found['label']} can't run: {found['problem']}"}, 400
         # Image to prompt needs the picture it describes.
@@ -648,7 +648,7 @@ def delete_image_set(run_id):
 
 def context():
     return {
-        "image_llms": [{"name": name, "label": label, "ready": planner.llm_configured(name)} for name, label in planner.LLMS],
+        "image_llms": [{"name": name, "label": label, "ready": planner.llm_configured(name)} for name, label in planner.LLMS if name != "claude"],
         "image_stages": STAGES,
         "image_most": image_planner.MAX_IMAGES,
         "image_aspects": media.ASPECTS,

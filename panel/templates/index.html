@@ -187,6 +187,10 @@
   .range-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
   .range-head label { margin-bottom: 0; }
   .range-head output { font-size: .85rem; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .clip-length-actions { display: flex; align-items: center; gap: 8px; }
+  .clip-fixed { width: 26px; height: 26px; margin: 0; padding: 5px; background: transparent; color: var(--muted); border: 1px solid var(--line); }
+  .clip-fixed svg { display: block; width: 100%; height: 100%; }
+  .clip-fixed[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
   .range { position: relative; height: 26px; margin-top: 2px; }
   .range::before, .range .fill { content: ""; position: absolute; top: 11px; height: 4px; border-radius: 2px; }
   .range::before { left: 0; right: 0; background: var(--line); }
@@ -466,15 +470,25 @@
   body.on-video { --accent: #4c8dff; }
   body.on-image { --accent: #2fbf71; }
   .pipeline-form textarea { min-height: 84px; resize: vertical; }
-  .prompt-label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .prompt-label-row label { margin-bottom: 4px; }
-  .prompt-label-row button { width: auto; margin: 0; padding: 4px 9px; font-size: .75rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+  .prompt-label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0 6px; }
+  .prompt-label-row label { margin: 0; }
+  .prompt-actions { display: flex; align-items: center; gap: 5px; }
+  .prompt-actions button { width: auto; height: 26px; margin: 0; padding: 3px 7px; background: transparent; border: 1px solid var(--line); color: var(--muted); font-size: .75rem; }
+  .prompt-actions .prompt-write { width: 26px; padding: 5px; }
+  .prompt-actions .prompt-write svg { display: block; width: 100%; height: 100%; }
+  .prompt-actions button:disabled { opacity: .35; cursor: not-allowed; }
+  .count-stepper { display: flex; align-items: stretch; justify-content: center; gap: 8px; }
+  .count-stepper button { width: 48px; margin: 0; padding: 0; font-size: 1.1rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+  .count-stepper input[type=number] { width: 65px; text-align: center; appearance: textfield; -moz-appearance: textfield; }
+  .count-stepper input::-webkit-inner-spin-button, .count-stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .h3-help { margin-top: 12px; }
+  .h3-help summary { color: var(--muted); font-size: .8rem; font-weight: 500; }
   .prompt-writing { position: relative; overflow: hidden; border-radius: 8px; }
   .prompt-writing textarea { display: block; }
-  .prompt-writing.busy textarea { opacity: .5; background: var(--panel-2); }
-  .prompt-writing.busy::after { content: ""; position: absolute; top: 0; left: 0; height: 3px; width: 35%; background: var(--accent); animation: prompt-progress 1.4s ease-in-out infinite alternate; }
-  @keyframes prompt-progress { from { transform: translateX(0); } to { transform: translateX(185%); } }
-  @media (prefers-reduced-motion: reduce) { .prompt-writing.busy::after { animation: none; width: 100%; } }
+  .prompt-writing.busy textarea { opacity: .5; background: var(--panel-2); padding-top: 30px; }
+  .prompt-progress { position: absolute; top: 0; left: 0; height: 3px; width: 0; background: var(--accent); transition: width 1s linear; }
+  .prompt-eta { position: absolute; top: 6px; right: 10px; font-size: .7rem; color: var(--muted); pointer-events: none; }
+  @media (prefers-reduced-motion: reduce) { .prompt-progress { transition: none; } }
   /* Side by side, the fields line up by their boxes, not their labels: a label that wraps doesn't push its box down. */
   .pipeline-form .row > div { display: flex; flex-direction: column; justify-content: flex-end; }
   /* A dashed box to drop into, with a real button in it rather than the browser's own. */
@@ -485,7 +499,6 @@
     background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; transition: background .15s, border-color .15s, color .15s;
   }
   .pipeline-form input[type=file]:hover::file-selector-button { background: var(--accent); border-color: var(--accent); color: #fff; }
-  #duration { padding: 0; margin-top: 8px; height: 22px; background: none; border: 0; outline: 0; accent-color: var(--accent); }
   /* One row per image: its thumbnail, the file, what it is, and Remove. */
   .image-box { min-width: 0; }
   .seed-line { display: flex; gap: 8px; align-items: center; }
@@ -1144,7 +1157,11 @@
       </div>
 
       <label for="runs">How many videos</label>
-      <input id="runs" name="runs" type="number" min="1" max="10" value="1" inputmode="numeric">
+      <div class="count-stepper">
+        <button type="button" id="runsDown" aria-label="Fewer videos">−</button>
+        <input id="runs" name="runs" type="number" min="1" max="10" value="1" inputmode="numeric">
+        <button type="button" id="runsUp" aria-label="More videos">+</button>
+      </div>
       <label for="avatarSize">Resolution</label>
       <select id="avatarSize" name="avatar_size">
         {% for value, label in avatar_sizes %}{% set sides = value.split('x') %}<option value="{{ value }}"{% if value == default_avatar_size %} selected{% endif %}>{{ label }} · {{ "%.3f"|format(sides[0]|int * sides[1]|int / 1000000) }} MP</option>{% endfor %}
@@ -1298,15 +1315,21 @@
 
     <div id="durationBox">
     <div class="range-head" style="margin-top:12px"><label for="duration">Film length</label><output id="durationText"></output></div>
-    <input id="duration" name="duration" type="range" min="{{ film_limits[0] }}" max="{{ film_limits[1] }}" step="5" value="{{ film_limits[2] }}">
+    <div class="count-stepper">
+      <button type="button" id="durationDown" aria-label="Reduce film length by 5 seconds">−</button>
+      <input id="duration" name="duration" type="number" min="{{ film_limits[0] }}" max="{{ film_limits[1] }}" step="1" value="{{ film_limits[2] }}" inputmode="numeric">
+      <button type="button" id="durationUp" aria-label="Increase film length by 5 seconds">+</button>
     </div>
-    <div class="range-head" style="margin-top:12px"><label>Clip length</label><output id="videoClipText"></output></div>
+    </div>
+    <div class="range-head" style="margin-top:12px"><label>Clip length</label><span class="clip-length-actions"><output id="videoClipText"></output><button type="button" class="clip-fixed" id="videoClipFixedButton" aria-label="Fixed clip length" aria-pressed="false" title="Fixed clip length"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></svg></button></span></div>
     <div class="range" id="videoClipRange">
       <div class="fill"></div>
       <input type="range" min="5" max="10" value="5" aria-label="Shortest clip in seconds">
       <input type="range" min="5" max="10" value="10" aria-label="Longest clip in seconds">
     </div>
     <input id="videoClipSeconds" name="clip_seconds" hidden>
+    <input id="videoClipFixed" name="clip_fixed" type="checkbox" hidden>
+    <div class="hint" id="videoClipFixedHint" hidden>Film length is rounded to whole clips. Audio may be trimmed or padded with silence.</div>
 
     <label for="sizePreset">Resolution</label>
     <select id="sizePreset">
@@ -1324,27 +1347,25 @@
   </details>
 
   <details class="section" id="videoPromptSection">
-    <summary class="section-title">Prompt <button type="button" class="clear-prompt" id="clearVideoPrompt" aria-label="Clear video prompt">Clear</button></summary>
-    <label for="videoPromptMode">Prompts</label>
+    <summary class="section-title">Prompt</summary>
+    <label for="videoPromptMode">Prompt source</label>
     <select id="videoPromptMode" name="prompt_mode">
       <option value="llm">LLM</option>
       <option value="direct">Exact prompt</option>
     </select>
-    <div class="prompt-label-row"><label for="prompt" id="videoPromptLabel">What should happen</label><button type="button" id="writeVideoPrompt">Write prompt</button></div>
-    <div class="prompt-writing" id="videoPromptWriting"><textarea id="prompt" name="prompt" placeholder="e.g. A storm rolls in over the harbour and the fishing boats race home"></textarea></div>
-    <div class="err" id="videoPromptWriteError" role="alert" hidden></div>
-    <div class="hint">Write prompt uses the text only; it cannot see attached references or the selected duration.</div>
-    <div class="hint" id="videoPromptHint">A sentence or two is enough.</div>
     <div id="videoLlmBox">
-    <label for="llm">What writes the prompts</label>
+    <label for="llm">Model</label>
     <select id="llm" name="llm">
       {% for llm in llms %}<option value="{{ llm.name }}" {% if not llm.ready %}disabled{% endif %}>{{ llm.label }}{% if not llm.ready %} (no key in .env){% endif %}</option>{% endfor %}
     </select>
-    <div class="hint">Local model uses the model in Settings. Qwen cannot analyze attached images; choose Gemma for those.</div>
     </div>
+    <div class="prompt-label-row"><label for="prompt" id="videoPromptLabel">Prompt</label><span class="prompt-actions"><button type="button" id="clearVideoPrompt" aria-label="Clear video prompt">Clear</button><button type="button" class="prompt-write" id="writeVideoPrompt" aria-label="Write video prompt" title="Write prompt" disabled></button></span></div>
+    <div class="prompt-writing" id="videoPromptWriting"><textarea id="prompt" name="prompt" placeholder="e.g. A storm rolls in over the harbour and the fishing boats race home"></textarea><div class="prompt-progress" id="videoPromptProgress" hidden></div><div class="prompt-eta" id="videoPromptEta" role="status" hidden></div></div>
+    <div class="err" id="videoPromptWriteError" role="alert" hidden></div>
+    <div class="hint" id="videoPromptHint">A sentence or two is enough.</div>
     <div id="videoH3Box" hidden>
-      <label for="videoH3Mode">OpenH3-IR</label>
-      <select id="videoH3Mode" name="h3_enhance">
+      <details class="h3-help"><summary>OpenH3-IR</summary><div class="hint">Before review uses the original images; before each clip uses its actual start frame. Local enhancement can take several minutes per clip.</div></details>
+      <select id="videoH3Mode" name="h3_enhance" aria-label="OpenH3-IR mode">
         <option value="off">Off</option>
         <option value="review">Enhance before review</option>
         <option value="render">Enhance before each clip</option>
@@ -1357,14 +1378,8 @@
           <option value="bold">Bold</option>
           <option value="extreme">Extreme</option>
         </select>
-        <div class="hint">Before review uses the original images; before each clip uses its actual start frame. Local enhancement can take several minutes per clip.</div>
       </div>
     </div>
-    <label class="check">
-      <input type="checkbox" name="review" id="review">
-      <span>Let me read the prompts before rendering
-      </span>
-    </label>
   </details>
 
   <details class="section" id="videoOptions" hidden>
@@ -1374,6 +1389,7 @@
 
   <details class="section" id="videoHow">
     <summary class="section-title">Other</summary>
+    <label class="check"><input type="checkbox" name="review" id="review"><span>Let me read the prompts before rendering</span></label>
     <label for="videoSeed">Seed</label>
     <div class="seed-line">
       <input id="videoSeed" name="seed" inputmode="numeric" autocomplete="off" placeholder="Random" pattern="[0-9]*">
@@ -1450,7 +1466,11 @@
     </div>
 
     <label for="imageCount">How many images</label>
-    <input id="imageCount" name="count" type="number" min="1" max="{{ image_most }}" value="1" inputmode="numeric">
+    <div class="count-stepper">
+      <button type="button" id="imageCountDown" aria-label="Fewer images">−</button>
+      <input id="imageCount" name="count" type="number" min="1" max="{{ image_most }}" value="1" inputmode="numeric">
+      <button type="button" id="imageCountUp" aria-label="More images">+</button>
+    </div>
     <div id="imageSizeBox">
       <div class="row">
         <div>
@@ -1484,30 +1504,23 @@
   </details>
 
   <details class="section" id="imagePromptSection">
-    <summary class="section-title">Prompt <button type="button" class="clear-prompt" id="clearImagePrompt" aria-label="Clear image prompt">Clear</button></summary>
-    <label for="imagePromptMode">Prompts</label>
+    <summary class="section-title">Prompt</summary>
+    <label for="imagePromptMode">Prompt source</label>
     <select id="imagePromptMode" name="prompt_mode">
       <option value="llm">LLM</option>
       <option value="direct">Exact prompt</option>
     </select>
-    <div class="prompt-label-row"><label for="imagePrompt" id="imagePromptLabel">What you want</label><button type="button" id="writeImagePrompt">Write prompt</button></div>
-    <div class="prompt-writing" id="imagePromptWriting"><textarea id="imagePrompt" name="prompt"></textarea></div>
-    <div class="err" id="imagePromptWriteError" role="alert" hidden></div>
-    <div class="hint">Write prompt uses the text only; it cannot see attached images.</div>
-    <div class="hint" id="imagePromptHint"></div>
     <div id="imageLlmBox">
-      <label for="imageLlm">What writes the prompts</label>
+      <label for="imageLlm">Model</label>
       <select id="imageLlm" name="llm">
         {% for llm in image_llms %}<option value="{{ llm.name }}" {% if not llm.ready %}disabled{% endif %}>{{ llm.label }}{% if not llm.ready %} (no key in .env){% endif %}</option>{% endfor %}
       </select>
-      <div class="hint">Local model uses the model in Settings. Qwen cannot analyze attached images; choose Gemma for those.</div>
       <div id="imageToPromptSlot"></div>
-      <label class="check" id="imageReviewBox">
-        <input type="checkbox" name="review" id="imageReview">
-        <span>Let me read the prompts before rendering
-        </span>
-      </label>
     </div>
+    <div class="prompt-label-row"><label for="imagePrompt" id="imagePromptLabel">Prompt</label><span class="prompt-actions"><button type="button" id="clearImagePrompt" aria-label="Clear image prompt">Clear</button><button type="button" class="prompt-write" id="writeImagePrompt" aria-label="Write image prompt" title="Write prompt" disabled></button></span></div>
+    <div class="prompt-writing" id="imagePromptWriting"><textarea id="imagePrompt" name="prompt"></textarea><div class="prompt-progress" id="imagePromptProgress" hidden></div><div class="prompt-eta" id="imagePromptEta" role="status" hidden></div></div>
+    <div class="err" id="imagePromptWriteError" role="alert" hidden></div>
+    <div class="hint" id="imagePromptHint"></div>
     <div class="hint" id="imageHowDirect" hidden>Your prompt goes in as it is, so each image differs only by its seed.</div>
   </details>
 
@@ -1519,6 +1532,7 @@
 
   <details class="section" id="imageHow">
     <summary class="section-title">Other</summary>
+    <label class="check" id="imageReviewBox"><input type="checkbox" name="review" id="imageReview"><span>Let me read the prompts before rendering</span></label>
     <label for="imageSeed">Seed</label>
     <div class="seed-line">
       <input id="imageSeed" name="seed" inputmode="numeric" autocomplete="off" placeholder="Random" pattern="[0-9]*">
@@ -2670,17 +2684,35 @@ function videoClips() {
 }
 // The slider spans what the model makes; at its full span nothing is chosen, and the model's own usual length holds.
 function syncVideoClips(moved) {
-  const [shortest, longest] = modelClips(), box = $('videoClipRange'), [low, high] = box.querySelectorAll('input');
+  const [shortest, longest, usual] = modelClips(), box = $('videoClipRange'), [low, high] = box.querySelectorAll('input');
+  const fixed = $('videoClipFixed').checked;
   for (const input of [low, high]) { input.min = shortest; input.max = longest; }
   if (!moved) {
     const chosen = /^(\d+)-(\d+)$/.exec($('videoClipSeconds').value || '');
-    low.value = chosen ? chosen[1] : shortest;
-    high.value = chosen ? chosen[2] : longest;
+    low.value = fixed ? Math.max(shortest, Math.min(longest, chosen ? +chosen[1] : usual)) : (chosen ? chosen[1] : shortest);
+    high.value = fixed ? low.value : (chosen ? chosen[2] : longest);
   }
+  if (fixed) high.value = low.value;
+  high.hidden = fixed;
+  high.disabled = fixed;
+  low.setAttribute('aria-label', fixed ? 'Fixed clip length in seconds' : 'Shortest clip in seconds');
   const [from, to] = syncRange('videoClipRange', moved);
-  $('videoClipSeconds').value = from <= shortest && to >= longest ? '' : `${from}-${to}`;
-  $('videoClipText').textContent = `${from}-${to}s`;
+  $('videoClipSeconds').value = !fixed && from <= shortest && to >= longest ? '' : `${from}-${to}`;
+  $('videoClipText').textContent = fixed ? `${from}s` : `${from}-${to}s`;
+  $('videoClipFixedButton').setAttribute('aria-pressed', String(fixed));
+  $('videoClipFixedHint').hidden = !fixed;
 }
+$('videoClipFixedButton').addEventListener('click', () => {
+  const fixed = $('videoClipFixed');
+  fixed.checked = !fixed.checked;
+  if (fixed.checked) {
+    const [, , usual] = videoClips();
+    $('videoClipSeconds').value = `${usual}-${usual}`;
+  } else $('videoClipSeconds').value = '';
+  syncVideoForm();
+  saveVideoForm();
+  fixed.dispatchEvent(new Event('change', { bubbles: true }));
+});
 function shotCount(seconds) {
   const [shortest, longest, usual] = videoClips();
   const count = Math.max(Math.ceil(seconds / longest), Math.round(seconds / usual), 1);
@@ -2720,7 +2752,6 @@ function syncVideoForm() {
   const direct = $('videoPromptMode').value === 'direct';
   syncH3Controls('video', !!workflowH3[$('videoWorkflow').value]);
   $('videoLlmBox').classList.toggle('hidden', direct);
-  $('videoPromptLabel').textContent = direct ? 'The prompt' : 'What should happen';
   $('videoPromptHint').textContent = direct ? 'Every clip gets it as you wrote it, each on its own seed.' : 'A sentence or two is enough.';
   syncImageInput();
   syncOptions('videoOptions', 'videoOptionsBox', (workflowTakes[$('videoWorkflow').value] || {}).options || [], $('videoWorkflow').value);
@@ -2728,7 +2759,10 @@ function syncVideoForm() {
   syncSize();
   syncAudio();
   const seconds = +$('duration').value, [shortest, longest] = videoClips();
-  $('durationText').textContent = `${fmt(seconds)} · about ${clipCount(shotCount(seconds))} of ${shortest}-${longest}s`;
+  const adjusted = $('videoClipFixed').checked
+    ? Math.min(Math.floor(+$('duration').max / shortest), Math.max(1, Math.floor(seconds / shortest + .5))) * shortest : seconds;
+  $('durationText').textContent = $('duration').value && Number.isInteger(seconds) && seconds >= +$('duration').min && seconds <= +$('duration').max
+    ? `${fmt(adjusted)}${adjusted !== seconds ? ' rounded' : ''} · about ${clipCount(shotCount(adjusted))} of ${shortest === longest ? shortest : `${shortest}-${longest}`}s` : '';
 }
 $('formVideo').addEventListener('change', () => { syncVideoForm(); saveVideoForm(); });
 $('duration').addEventListener('input', syncVideoForm);
@@ -2888,8 +2922,6 @@ function removeSource(box) {
   clearSource(last, last === open[0]);
   sourcesShown = Math.max(1, sourcesShown - 1);
 }
-// What the prompt calls image n, for the model the form is for now.
-function imageName(number) { return ((imageModel() || {}).image_name || 'image {}').replace('{}', number); }
 function syncImageSources() {
   const { min_images: low, max_images: high } = imageTakes();
   const shown = sourcesShown = Math.min(high, Math.max(low, 1, sourcesShown));
@@ -2904,8 +2936,8 @@ function syncImageSources() {
     if (seed) seed.disabled = box.hidden;
     if (box.hidden && input.value) clearSource(box, i === 0);
     const optional = i >= low ? ', optional' : '';
-    box.querySelector('label').textContent = compose ? `Image ${i + 1} (reference, call it ${imageName(i + 1)}${optional})`
-      : i ? `Image ${i + 1} (optional: call it ${imageName(i + 1)} in the prompt)`
+    box.querySelector('label').textContent = compose ? `Image ${i + 1} (reference${optional})`
+      : i ? `Image ${i + 1} (optional)`
       : low ? 'Image 1 to edit' : 'Image 1 to edit (optional: without one it makes them from text)';
     // A box opened by + can be closed again; the first only empties.
     const clear = box.querySelector('[data-clear]');
@@ -3554,7 +3586,7 @@ for (const box of ['shortsOptionsBox', 'videoOptionsBox', 'imageOptionsBox']) {
   $(box).addEventListener('input', () => rememberOptions($(box)));
 }
 function syncImageOptions() { syncOptions('imageOptions', 'imageOptionsBox', imageTakes().options || [], baseImageTakes().name); }
-// The workflow writing its own prompts, beside Gemini and Claude: its prompt enhancer, or image to prompt.
+// The workflow writing its own prompts: its prompt enhancer, or image to prompt.
 const ROLE_LABELS = { image_to_prompt: 'Image to prompt', prompt_enhancer: 'Prompt Enhancer' };
 function syncImageLlm() {
   const select = $('imageLlm');
@@ -3586,11 +3618,12 @@ function syncImageForm() {
   syncImageSize();
   const direct = $('imagePromptMode').value === 'direct';
   const editing = !!chosenSources();
+  const mode = imageMode();
   $('imageLlmBox').classList.toggle('hidden', direct);
   // The workflow's prompt enhancer writes them in ComfyUI first, to read before rendering; image to prompt can't.
-  $('imageReviewBox').classList.toggle('hidden', !!imageRole() && imageRole() !== 'prompt_enhancer');
+  $('imageReviewBox').classList.toggle('hidden', direct || mode === 'expand' || mode === 'areas' || (!!imageRole() && imageRole() !== 'prompt_enhancer'));
   $('imageHowDirect').hidden = !direct;
-  $('imagePromptLabel').textContent = direct ? 'The prompt' : 'What you want';
+  $('imagePromptLabel').textContent = 'Prompt';
   $('imagePrompt').placeholder = direct
     ? (editing ? 'e.g. Change her coat to a red wool trench coat. Keep her face, pose and the background the same.' : 'e.g. Photo of a lighthouse at dusk, long exposure, wet rocks in the foreground.')
     : (editing ? 'e.g. Recreate this with different outfits and hairstyles' : 'e.g. A lighthouse in every season');
@@ -3601,7 +3634,6 @@ function syncImageForm() {
     ? (count > 1 ? `The same prompt ${count} times, each on a new seed.` : 'Goes to the model as you wrote it.')
     : (count > 1 ? `A sentence or two is enough. The LLM writes ${count} prompts that differ from each other.` : 'A sentence or two is enough.') + tooMany;
   // Painted areas carry their own words; an expansion only says what the new parts show, if anything.
-  const mode = imageMode();
   $('imagePromptSection').hidden = mode === 'areas';
   if (mode === 'expand') {
     $('imageLlmBox').classList.add('hidden');
@@ -3673,6 +3705,7 @@ const ICONS = {
   config: ICON_SVG('<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>'),
   category: ICON_SVG('<circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/>'),
 };
+$('writeVideoPrompt').innerHTML = $('writeImagePrompt').innerHTML = ICONS.enhanced;
 function nsfwButton(kind, id, tagged) {
   const label = tagged ? 'Remove NSFW tag' : 'Mark as NSFW';
   return `<button type="button" class="icon-btn nsfw-button" data-nsfw-${kind}="${esc(id)}" aria-label="${label}" title="${label} (tap twice)">${ICONS.category}</button>`;
@@ -3740,6 +3773,7 @@ async function sameAgain(id, position = null) {
   $('imageWorkflow').value = [...$('imageWorkflow').options].some(o => o.value === s.workflow && !o.disabled) ? s.workflow : '';
   $('imagePromptMode').value = s.direct ? 'direct' : 'llm';
   $('imagePrompt').value = s.prompt || '';
+  syncPromptWriter('image');
   $('imageCount').value = s.count;
   $('imageAspect').value = 'custom';
   $('imageSize').value = s.size;
@@ -3793,6 +3827,7 @@ async function sameAgainFilm(id) {
   $('videoWorkflow').value = [...$('videoWorkflow').options].some(o => o.value === s.workflow && !o.disabled) ? s.workflow : '';
   syncVideoForm();
   $('prompt').value = s.prompt || '';
+  syncPromptWriter('video');
   $('start').value = s.start;
   $('videoH3Mode').value = s.h3_enhance || 'off';
   $('videoH3Creativity').value = s.h3_creativity || 'balanced';
@@ -3801,6 +3836,8 @@ async function sameAgainFilm(id) {
   $('size').value = s.size;
   syncSize();
   $('duration').value = s.seconds;
+  $('videoClipFixed').checked = !!s.clip_fixed;
+  $('videoClipSeconds').value = s.clip_fixed && s.clip_seconds ? `${s.clip_seconds}-${s.clip_seconds}` : '';
   try {
     imageBoxes().forEach(clearImage);
     imagesShown = Math.max(1, s.images);
@@ -6259,18 +6296,41 @@ $('goLater').addEventListener('click', () => {
 });
 
 const PROMPT_FIELDS = { shorts: 'topic', video: 'prompt', image: 'imagePrompt' };
+function syncPromptWriter(side) {
+  const field = $(PROMPT_FIELDS[side]);
+  $(side === 'video' ? 'writeVideoPrompt' : 'writeImagePrompt').disabled = field.readOnly || !field.value.trim();
+  $(side === 'video' ? 'clearVideoPrompt' : 'clearImagePrompt').disabled = field.readOnly;
+}
+for (const side of ['video', 'image']) $(PROMPT_FIELDS[side]).addEventListener('input', () => syncPromptWriter(side));
 async function writePrompt(side) {
   const field = $(PROMPT_FIELDS[side]), button = $(side === 'video' ? 'writeVideoPrompt' : 'writeImagePrompt');
   const box = $(side + 'PromptWriting'), error = $(side + 'PromptWriteError'), original = field.value;
+  const bar = $(side + 'PromptProgress'), eta = $(side + 'PromptEta');
   error.hidden = true;
   if (!original.trim()) { error.textContent = 'Enter an idea first.'; error.hidden = false; return; }
   button.disabled = true;
   field.readOnly = true;
+  syncPromptWriter(side);
   box.classList.add('busy');
   box.setAttribute('aria-busy', 'true');
+  bar.hidden = eta.hidden = false;
+  bar.style.width = '0%';
+  eta.textContent = 'Estimating…';
+  let timer;
   try {
+    const estimateResponse = await fetch('/api/write-prompt?pipeline=' + encodeURIComponent(side));
+    const estimate = await estimateResponse.json();
+    if (!estimateResponse.ok || !estimate.ok || !Number.isFinite(estimate.seconds) || estimate.seconds <= 0) throw new Error(estimate.error || 'Could not estimate prompt writing.');
+    const start = performance.now();
+    const update = () => {
+      const elapsed = (performance.now() - start) / 1000, remaining = estimate.seconds - elapsed;
+      bar.style.width = `${Math.min(95, Math.max(0, elapsed / estimate.seconds * 100))}%`;
+      eta.textContent = remaining > 0 ? `${fmtEta(remaining)} left` : 'Taking longer than estimated';
+    };
+    update();
+    timer = setInterval(update, 1000);
     const response = await fetch('/api/write-prompt', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pipeline: side, prompt: original }) });
+      body: JSON.stringify({ pipeline: side, prompt: original, model: estimate.model }) });
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.error || 'Could not write the prompt.');
     if (field.value !== original) throw new Error('The prompt changed while writing; it was not replaced.');
@@ -6286,8 +6346,11 @@ async function writePrompt(side) {
     error.textContent = e.message || 'Could not write the prompt.';
     error.hidden = false;
   } finally {
-    button.disabled = false;
+    clearInterval(timer);
+    bar.hidden = eta.hidden = true;
+    bar.style.width = '0%';
     field.readOnly = false;
+    syncPromptWriter(side);
     box.classList.remove('busy');
     box.setAttribute('aria-busy', 'false');
   }
@@ -6299,9 +6362,20 @@ function clearPrompt(side) {
   if (!field.value) return;
   field.value = '';
   field.dispatchEvent(new Event('input', { bubbles: true }));
+  if (side !== 'shorts') syncPromptWriter(side);
 }
 for (const [id, side] of [['clearShortsPrompt', 'shorts'], ['clearVideoPrompt', 'video'], ['clearImagePrompt', 'image']]) {
   $(id).addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); clearPrompt(side); });
+}
+for (const [id, down, up, steps] of [['runs', 'runsDown', 'runsUp', 1], ['imageCount', 'imageCountDown', 'imageCountUp', 1], ['duration', 'durationDown', 'durationUp', 5]]) {
+  for (const [button, direction] of [[down, -1], [up, 1]]) {
+    $(button).addEventListener('click', () => {
+      const field = $(id);
+      if (direction < 0) field.stepDown(steps); else field.stepUp(steps);
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      field.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  }
 }
 function setPipeline(side, remember = true, preservePrompt = false) {
   if (!preservePrompt && choosingFor) { clearPrompt(choosingFor.side); stopChoosing(); }

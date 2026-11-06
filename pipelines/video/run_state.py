@@ -41,6 +41,7 @@ class RunState:
     image_count: int = 1  # 0 for a film from text alone, several for a workflow that takes references
     inputs: str = None  # Fingerprint of the images and audio it was planned from, for Generate to recognise them
     has_audio: bool = False  # The film has an audio track of its own, in the run's folder
+    fixed_clip: bool = False
     options: dict = None  # The workflow's own options as chosen, such as {"steps": "30"} (core/workflow_options.py)
     # Reference videos and audio clips every clip gets, in the run's folder: [{file, role, sound}] and [{file, role}]
     ref_videos: list = field(default_factory=list)

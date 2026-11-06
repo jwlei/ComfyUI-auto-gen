@@ -13,7 +13,7 @@ from pipelines.video import h3_prompt, roles, wan_prompt
 
 # Who can write the plan: (name, what the panel calls it).
 LLMS = (("gemini", "Gemini (free tier)"), ("claude", "Claude Opus 5.5 (API)"),
-        ("local", "Local model (Settings)"))
+        ("local", "Local model"))
 
 DEFAULT_CLAUDE_MODEL = "claude-opus-5-5"
 # Its default is 'medium'. A film's worth of prompts that have to fit together earns more thought.
@@ -133,6 +133,15 @@ def clip_seconds(video_model=None, chosen=None):
         if low <= high:
             return low, high, min(high, max(low, (low + high + 1) // 2))
     return shortest, longest, usual
+
+
+def fixed_film_seconds(seconds, video_model=None, chosen=None):
+    """Round to the nearest whole number of fixed-length clips within the film limit."""
+    shortest, longest, _ = clip_seconds(video_model, chosen)
+    if not chosen or chosen[0] != chosen[1] or shortest != longest or chosen[0] != shortest:
+        return seconds
+    count = min(MAX_FILM_SECONDS // shortest, max(1, (2 * seconds + shortest) // (2 * shortest)))
+    return count * shortest
 
 
 def shot_count(seconds, video_model=None, chosen=None):

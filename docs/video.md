@@ -8,7 +8,7 @@ command line.
 
 ```
 image + "a storm rolls in over the harbour"
-  → Gemini or Claude writes the shot list (one request for the whole film)
+  → Gemini or a local model writes the shot list (one request for the whole film)
   → ComfyUI renders each shot (LTX-2.3: 5-10 seconds a clip, MiniMax H3: 5-15, Wan: 3-5)
   → ffmpeg joins the clips into output/<title>_<workflow>.mp4 (the workflow without video_; LTX23_I2V_T2V for the built-in)
   → optionally, YouTube
@@ -56,10 +56,11 @@ the prompts are written and opens them for you. Change any of them, then press *
 **Write prompt:** enter an idea and press the button beside the prompt field to rewrite it locally using the model
 selected in Settings. On success it replaces your text and selects Exact prompt. It needs an idle, reachable ComfyUI
 and temporarily unloads its models; queued panel generations wait until the writer finishes. The text is kept if it fails.
+The progress bar and remaining time are estimates, learned separately for each model and for video and image prompts.
 The writer receives only the text in the prompt box, not attached references or the selected duration. Its video
 instructions describe shot composition, motion, sound and user-supplied dialogue and text; it cannot inspect references.
 
-Alternatively, under **Prompts → LLM**, choose **Local model (Settings)** to plan a separate prompt per clip using
+Alternatively, select **LLM** under **Prompt source** and **Local model** under **Model** to plan a separate prompt per clip using
 the existing workflow-specific planner. Gemma can analyze attached images; Qwen rejects them because it is text-only.
 The local model unloads before rendering and needs an idle, reachable ComfyUI. Large plans can take substantial
 time and may exceed the local model's context or output limits.
@@ -138,7 +139,12 @@ numbered before the audio clips. Every prompt has to name each one, or the missi
 | MiniMax H3 | 5-15 s | It was trained on 124-362 frames at 24 fps. |
 | Wan 2.2 | 3-5 s | It was trained on 81 frames at 16 fps. |
 
-The film length under the prompt says how many clips that comes to on the workflow you chose.
+Film length under Generation shows how many clips that comes to on the workflow you chose. The buttons adjust it by
+five seconds; type a whole number in the middle for finer control.
+The lock beside Clip length switches between a range and one fixed length. A fixed length rounds the film to the
+nearest whole number of clips (ties round up, within the film limit). If audio determines the length, it is trimmed
+when the film is shorter or padded with silence when it is longer.
+On the command line, use `--clip-seconds 8-8 --fixed-clips` for fixed eight-second clips.
 
 A workflow with one image input, like LTX23_I2V_T2V, renders from image 1 alone. Only the LLM sees image 2 there, so
 it reaches the clips as words in the prompts: expect a description of that place or person, not a copy of it.

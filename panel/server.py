@@ -61,6 +61,7 @@ FOLDER_PIPELINES = {"output": "shorts", "uploaded": "shorts", "video": "video", 
 SHORTS_TIMINGS = os.path.join(LOGS_DIR, "stage_timings_shorts.json")
 VIDEO_TIMINGS = os.path.join(LOGS_DIR, "stage_timings_video.json")
 IMAGE_TIMINGS = os.path.join(LOGS_DIR, "stage_timings_image.json")
+PROMPT_WRITER_TIMINGS = os.path.join(LOGS_DIR, "prompt_writer_timings.json")
 ETAS = {"shorts": lambda argv, env: ShortsEta(argv, env, SHORTS_TIMINGS),
         "video": lambda argv, env: VideoEta(argv, VIDEO_TIMINGS, env),
         "image": lambda argv, env: ImageEta(argv, env, IMAGE_TIMINGS)}
@@ -1484,7 +1485,7 @@ FAILURES = (
     (r"ComfyUI rejected the workflow|prompt_outputs_failed_validation|Prompt outputs failed validation",
      "ComfyUI refused the workflow as sent: something it expects is missing or out of range. The lines below say what."),
     (r"\b429\b|RESOURCE_EXHAUSTED|exceeded your current quota|rate limit",
-     "The LLM's quota is used up for now (Gemini's free tier allows 20 a day per model). Choose Claude, or try again later."),
+     "The LLM's quota is used up for now (Gemini's free tier allows 20 a day per model). Choose another available provider, or try again later."),
     (r"\b503\b|UNAVAILABLE|overloaded|high demand",
      "The LLM was too busy to answer. Continue to try again: what was done is kept."),
     (r"has no credentials|invalid api.?key|Unauthorized|\b401\b",
@@ -1816,6 +1817,8 @@ def legacy_queue_form(item):
                     h3_enhance=flag("--h3-enhance", "off"), h3_creativity=flag("--h3-creativity", "balanced"),
                     audio_mode="file" if "--audio" in argv else "text" if "--narration" in argv else "none",
                     narration=flag("--narration"), voice=flag("--voice"))
+        if "--fixed-clips" in argv:
+            form["clip_fixed"] = "1"
         images = ([item["image"]] if item.get("image") else []) + [
             argv[i + 1] for i, value in enumerate(argv[:-1]) if value == "--reference"]
         for i, path in enumerate(images):
@@ -2078,11 +2081,26 @@ def api_settings():
     return {"ok": True, "settings": settings.load(), "disk": disk_usage()}
 
 
-@app.route("/api/write-prompt", methods=["POST"])
+@app.route("/api/write-prompt", methods=["GET", "POST"])
 @password_required
 def write_prompt():
     from core import h3_refiner
 
+    if request.method == "GET":
+        side = request.args.get("pipeline")
+        if side not in ("image", "video"):
+            return {"ok": False, "error": "Choose an image or video prompt."}, 400
+        try:
+            model = h3_refiner.selected_model()
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}, 500
+        timings = eta_keys.Timings(PROMPT_WRITER_TIMINGS, {})
+        estimate = timings.step(f"{model} | {side}")
+        if estimate is not None and (not math.isfinite(estimate) or estimate <= 0):
+            app.logger.warning("Invalid prompt writer timing for %s / %s: %s", model, side, estimate)
+            estimate = None
+        return {"ok": True, "model": model, "seconds": estimate if estimate is not None else
+                (300 if model == "qwen3-14b" else 180)}
     data = request.get_json(silent=True)
     if not isinstance(data, dict) or data.get("pipeline") not in ("image", "video"):
         return {"ok": False, "error": "Choose an image or video prompt."}, 400
@@ -2096,8 +2114,27 @@ def write_prompt():
         _writing_prompt = True
     try:
         url = (os.getenv("COMFYUI_URL") or "http://127.0.0.1:8188").rstrip("/")
-        with h3_refiner.Refiner(url, require_compiler=False) as refiner:
+        started = time.monotonic()
+        refiner = h3_refiner.Refiner(url, require_compiler=False)
+        if data.get("model") is not None and data["model"] != refiner.model_id:
+            return {"ok": False, "error": "The selected model changed. Try writing the prompt again."}, 409
+        with refiner:
             prompt = refiner.write_prompt(text.strip(), data["pipeline"])
+        timings = eta_keys.Timings(PROMPT_WRITER_TIMINGS, {})
+        key = f"{refiner.model_id} | {data['pipeline']}"
+        old = timings.step(key)
+        if old is not None and (not math.isfinite(old) or old <= 0):
+            app.logger.warning("Discarding invalid prompt writer timing for %s: %s", key, old)
+            timings.timed_steps.discard(key)
+        timings.learn_step(key, time.monotonic() - started)
+        try:
+            os.makedirs(os.path.dirname(PROMPT_WRITER_TIMINGS), exist_ok=True)
+            temporary = PROMPT_WRITER_TIMINGS + ".tmp"
+            with open(temporary, "w", encoding="utf-8") as file:
+                json.dump({"steps": {key: timings.steps[key] for key in sorted(timings.timed_steps)}, "renders": timings.renders}, file, indent=2)
+            os.replace(temporary, PROMPT_WRITER_TIMINGS)
+        except OSError as e:
+            app.logger.warning("Could not save local prompt writer timings: %s", e)
         return {"ok": True, "prompt": prompt}
     except (RuntimeError, OSError, ValueError) as e:
         return {"ok": False, "error": str(e)}, 500

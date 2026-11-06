@@ -101,6 +101,10 @@ def build_options(form):
         if not match or not 1 <= int(match.group(1)) <= int(match.group(2)) <= 60:
             return None, "Clip length must be like 5-8, in seconds."
         flags += ["--clip-seconds", clip]
+    if form.get("clip_fixed"):
+        if not clip or match.group(1) != match.group(2):
+            return None, "A fixed clip length needs one matching clip length."
+        flags.append("--fixed-clips")
 
     start = form.get("start") or "chain"
     if start not in ("chain", "image"):
@@ -349,9 +353,16 @@ def run_to_continue(prompt, flags, env, takes, images, audio=None, references=()
     busy = busy_runs()
     inputs = media.inputs_fingerprint(images, [flags[i + 1] for i, flag in enumerate(flags) if flag == "--image-role"], audio, references)
     seconds, start = int(option(flags, "--duration")), option(flags, "--start")
+    fixed = "--fixed-clips" in flags
+    clip = option(flags, "--clip-seconds", "")
+    fixed_seconds = int(clip.split("-")[0]) if fixed else None
+    if fixed:
+        seconds = planner.fixed_film_seconds(seconds, workflow_model(env.get("COMFYUI_WORKFLOW")), (fixed_seconds, fixed_seconds))
     for state in reversed(list_runs()):
         if (state.id not in busy and state.shots and not state.final and state.inputs == inputs and state.brief == prompt
                 and (audio or state.seconds == seconds) and state.workflow == env.get("COMFYUI_WORKFLOW")
+                and state.fixed_clip == fixed
+                and (not fixed or all(shot["seconds"] == fixed_seconds for shot in state.shots))
                 and (state.llm == "local") == (option(flags, "--llm") == "local")
                 and state.h3_mode == option(flags, "--h3-enhance", "off")
                 and state.h3_creativity == option(flags, "--h3-creativity", "balanced")
@@ -415,6 +426,7 @@ def settings_of(state):
     return {"prompt": state.brief, "seconds": state.seconds, "start": state.start, "llm": state.llm, "workflow": workflow,
             "size": f"{state.width}x{state.height}", "options": state.options or {}, "images": len(files["image"]),
             "h3_enhance": state.h3_mode, "h3_creativity": state.h3_creativity, "image_roles": state.image_roles,
+            "clip_fixed": state.fixed_clip, "clip_seconds": state.shots[0]["seconds"] if state.fixed_clip and state.shots else None,
             "references": [{"kind": "video", "role": video["role"]} for video in state.ref_videos]
                           + [{"kind": "audio", "role": audio["role"]} for audio in state.ref_audios],
             "track": bool(files["track"])}
@@ -572,10 +584,13 @@ def captions():
 
 
 def context():
+    default_llm = planner.default_llm()
+    if default_llm == "claude" or not planner.llm_configured(default_llm):
+        default_llm = "gemini" if planner.llm_configured("gemini") else "local"
     return {
         "stages": STAGES,
-        "llms": [{"name": name, "label": label, "ready": planner.llm_configured(name)} for name, label in planner.LLMS],
-        "default_llm": planner.default_llm(),
+        "llms": [{"name": name, "label": label, "ready": planner.llm_configured(name)} for name, label in planner.LLMS if name != "claude"],
+        "default_llm": default_llm,
         "film_limits": [planner.MIN_FILM_SECONDS, planner.MAX_FILM_SECONDS, DEFAULT_FILM_SECONDS],
         "most_images": MOST_IMAGES,
         "most_media": MOST_MEDIA,
