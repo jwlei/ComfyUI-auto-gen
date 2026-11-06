@@ -49,6 +49,13 @@
   .queue-head .when { color: var(--muted); font-size: .78rem; }
   .queue-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
   .queue-item .what { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .queue-item.run-card { display: block; margin-top: 6px; padding: 9px 11px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; }
+  .queue-item.run-card .queue-item-top { display: flex; align-items: center; gap: 10px; }
+  .queue-item.run-card .what { font-weight: 600; }
+  .queue-item.run-card .hint { margin-top: 2px; font-weight: 400; }
+  .queue-item.run-card .queue-item-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+  .queue-item.run-card .queue-item-actions .when { margin-right: auto; }
+  .queue .queue-item.run-card .queue-item-actions button { background: var(--panel); }
   /* Grab it to move the job up or down the queue. No touch scrolling on it, so a finger drags instead. */
   .queue-item .grip { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 36px; margin-left: -6px;
     padding: 0; background: none; border: 0; color: var(--muted); cursor: grab; touch-action: none; }
@@ -75,10 +82,15 @@
   .queue-item .hint { margin-top: 0; }
   .queue-item .when { color: var(--muted); font-size: .78rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .queue button { width: auto; margin: 0; padding: 4px 10px; font-size: .78rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+  .queue .queue-head button[data-queue-toggle] { width: 30px; height: 30px; padding: 5px; font-size: .7rem; }
+  .queue .queue-head button[data-queue-toggle] svg { width: 14px; height: 14px; }
+  .queue-item .grip[hidden] { display: none; }
+  .queue-item .what[role="button"] { cursor: pointer; }
   .queue .results { margin-top: 6px; }
   /* A stopped run in a box of its own: what it is, how far it got, then what you can do with it. */
-  .queue .start-item { flex: none; color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
-  .queue .run-item { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 5px; color: var(--accent); }
+  .queue .stopped-actions .continue-item { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+  .queue .run-item { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 5px; color: var(--text); }
+  .queue .queue-item-actions .continue-item { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
   .queue .run-item svg { width: 16px; height: 16px; }
   button.queue-request { opacity: .75; cursor: wait; }
   button.queue-request-done { color: var(--accent); }
@@ -91,11 +103,16 @@
   @keyframes work-arrive { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
   @media (prefers-reduced-motion: reduce) { .queue-item.leaving, #currentWork.arrive { animation: none; } }
   .stopped-run { margin-top: 6px; padding: 9px 11px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; }
+  .stopped-run.highlight { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
   .stopped-run .what { overflow-wrap: anywhere; font-weight: 600; }
   .stopped-run .hint { margin-top: 2px; }
   .stopped-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
   .stopped-actions .when { margin-right: auto; color: var(--muted); font-size: .78rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .queue .stopped-run button { background: var(--panel); }
+  .queue .stopped-actions .icon-btn:not(.continue-item) { color: var(--muted); }
+  .queue .queue-item-actions button, .queue .stopped-actions button {
+    flex: none; width: 34px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  }
   .queue .failed { color: var(--err); }
   /* One row per line: a muted timestamp gutter, then the text colour-coded by kind. */
   .ln { display: grid; grid-template-columns: 5.2em minmax(0, 1fr); gap: 10px; padding: 1px 0; }
@@ -371,7 +388,7 @@
   .comfy-now { margin-top: 12px; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; }
   .bar { height: 6px; background: #0a0b0f; border-radius: 4px; overflow: hidden; margin-top: 8px; }
   .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .4s; }
-  .gpu { margin: -6px 0 12px; font-variant-numeric: tabular-nums; font-size: .72rem; white-space: nowrap; }
+  .gpu { margin: -6px 0 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; font-size: .72rem; white-space: nowrap; }
   .gpu .mi { width: 1.15em; height: 1.15em; vertical-align: -.22em; margin-right: 2px; }
   .gpu:empty, #stageDetail:empty { display: none; }
   .q-group { font-size: .72rem; color: var(--muted); margin: 9px 0 2px; }
@@ -609,6 +626,12 @@
   .image-set { padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
   .image-set:last-child { border-bottom: 0; margin-bottom: 0; }
   .image-set h3 { margin: 0; font-size: .85rem; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+  .image-set-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+  .image-set-heading h3 { flex: 1; min-width: 0; }
+  .image-set-heading .nsfw-button { flex: none; width: 34px; height: 28px; padding: 0; margin: 0; display: inline-flex; align-items: center; justify-content: center; background: var(--panel-2); color: var(--muted); }
+  body.nsfw-view .videos-card #imageSets, body.nsfw-view .videos-card #videos { display: block !important; }
+  body.nsfw-view .videos-card #videos { margin-top: 12px; }
+  body.nsfw-view .videos-card .vhead, body.nsfw-view .videos-card .cnav { display: none !important; }
   /* A run that made nothing: a small word at the end of its title's line, and why under a fold. */
   .run-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
   .run-head .what { min-width: 0; }
@@ -723,6 +746,7 @@
   .current-work { display: block; width: auto; margin: 0 0 8px; padding: 0; background: none; border: 0; border-radius: 0; color: var(--text);
     font-size: .95rem; font-weight: 600; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
   .current-work[hidden] { display: none; }
+  .current-work-size { margin: -5px 0 8px; color: var(--muted); font-size: .75rem; }
   /* A right-pointing chevron, drawn with two borders so no font can turn it into another glyph. */
   .current-work::after { content: ""; display: inline-block; width: .42em; height: .42em; margin-left: .5em; vertical-align: .1em;
     border-top: 2px solid var(--muted); border-right: 2px solid var(--muted); transform: rotate(45deg); }
@@ -749,6 +773,8 @@
   /* Each heading folds what's under it away. */
   summary.section-title { min-width: 0; overflow-wrap: anywhere; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; user-select: none; }
   summary.section-title::-webkit-details-marker { display: none; }
+  summary.section-title .clear-prompt { width: auto; margin: 0 0 0 auto; padding: 3px 8px; border: 1px solid var(--line); background: transparent;
+    color: var(--muted); font-size: .7rem; font-weight: 600; text-transform: none; letter-spacing: normal; }
   summary.section-title::after { content: "\203A"; font-size: 1.2rem; line-height: 1; color: var(--muted); transform: rotate(90deg); transition: transform .15s; }
   details.section:not([open]) > summary.section-title::after { transform: none; }
   details.section:not([open]) { padding-bottom: 4px; }
@@ -946,6 +972,7 @@
   </div>
   <div class="hint gpu" id="gpuLine"></div>
   <button type="button" class="current-work" id="currentWork" aria-haspopup="dialog" title="What it renders with" hidden></button>
+  <div class="current-work-size" id="currentWorkSize" hidden></div>
   <div class="progress" id="runProgress" hidden>
     <div class="strip-head"><b id="runProgressText"></b><span id="runProgressRight"></span></div>
     <div class="bar"><div id="runProgressBar"></div></div>
@@ -1048,7 +1075,7 @@
     </details>
 
     <details class="section" id="shortsPrompt">
-      <summary class="section-title">Prompt</summary>
+      <summary class="section-title">Prompt <button type="button" class="clear-prompt" id="clearShortsPrompt" aria-label="Clear topic">Clear</button></summary>
       <label for="topic">Topic</label>
       <input id="topic" name="topic" placeholder="e.g. Why the Sahara was once green" autocomplete="off">
       <div class="hint">Leave empty for an AI pick. Topics already made aren't repeated.</div>
@@ -1204,7 +1231,7 @@
   </details>
 
   <details class="section" id="videoPromptSection">
-    <summary class="section-title">Prompt</summary>
+    <summary class="section-title">Prompt <button type="button" class="clear-prompt" id="clearVideoPrompt" aria-label="Clear video prompt">Clear</button></summary>
     <label for="videoPromptMode">Prompts</label>
     <select id="videoPromptMode" name="prompt_mode">
       <option value="llm">LLM</option>
@@ -1343,7 +1370,7 @@
   </details>
 
   <details class="section" id="imagePromptSection">
-    <summary class="section-title">Prompt</summary>
+    <summary class="section-title">Prompt <button type="button" class="clear-prompt" id="clearImagePrompt" aria-label="Clear image prompt">Clear</button></summary>
     <label for="imagePromptMode">Prompts</label>
     <select id="imagePromptMode" name="prompt_mode">
       <option value="llm">LLM</option>
@@ -1401,7 +1428,7 @@
 <div class="card videos-card" id="videosCard" data-page="output">
   <div class="choose-banner" id="chooseBanner" hidden><span id="chooseBannerText"></span><button type="button" class="ghost" id="chooseCancel">Cancel</button></div>
   <div class="output-filter-line">
-    <select id="outputFilter" aria-label="Show the output of one workflow"><option value="">All workflows</option></select>
+    <select id="outputFilter" aria-label="Filter output"><option value="">All workflows</option><option value="__nsfw__">NSFW</option></select>
   </div>
   <div class="vhead">
     <div class="tabs only-shorts">
@@ -1444,7 +1471,7 @@
   <div class="panel-dialog-body settings-body">
   <div class="settings-actions">
     <button type="button" id="restartPanel" title="Start the panel again, to load new code. Not while a run or upload is going."><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span>Restart panel</span></button>
-    <button type="button" id="restartComfy" title="Close ComfyUI and start it again, which also frees its memory. Not while a run is going."><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx=".5"/><path d="M9 2.5v3M15 2.5v3M9 18.5v3M15 18.5v3M2.5 9h3M2.5 15h3M18.5 9h3M18.5 15h3"/></svg><span>Restart ComfyUI</span></button>
+    <button type="button" id="restartComfy" title="Start fresh: closes local ComfyUI processes, including work started outside the panel. Not while a panel run is going."><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx=".5"/><path d="M9 2.5v3M15 2.5v3M9 18.5v3M15 18.5v3M2.5 9h3M2.5 15h3M18.5 9h3M18.5 15h3"/></svg><span>Restart ComfyUI</span></button>
     <button type="button" id="shutdown" title="Shut down: force-stops everything, then the panel's server. Start it again with start_webapp.pyw or the ComfyUI auto-gen shortcut."><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/></svg><span>Shut down</span></button>
   </div>
   <div class="hint settings-note" id="settingsNote" hidden></div>
@@ -1909,18 +1936,24 @@ function unclaimedVideos() {
 
 // --- Output, one workflow at a time if you like ---
 let outputFilter = '';
-function filtered(list) { return outputFilter ? list.filter(item => item.model === outputFilter) : list; }
+const NSFW_FILTER = '__nsfw__';
+function filtered(list) {
+  return list.filter(item => outputFilter === NSFW_FILTER ? !!item.nsfw : !item.nsfw && (!outputFilter || item.model === outputFilter));
+}
 // The filter offers the workflows there is output from, here.
 function syncFilter(list) {
-  const models = [...new Set(list.map(item => item.model).filter(Boolean))].sort();
-  const select = $('outputFilter'), key = models.join('|');
-  if (outputFilter && !models.includes(outputFilter)) outputFilter = '';
+  const models = [...new Set(list.filter(item => !item.nsfw).map(item => item.model).filter(Boolean))].sort();
+  const select = $('outputFilter'), key = pipeline + '|' + models.join('|');
+  if (outputFilter && outputFilter !== NSFW_FILTER && !models.includes(outputFilter)) outputFilter = '';
+  if (pipeline === 'shorts' && outputFilter === NSFW_FILTER) outputFilter = '';
   if (select.dataset.key !== key) {
     select.dataset.key = key;
-    select.innerHTML = '<option value="">All workflows</option>' + models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+    select.innerHTML = '<option value="">All workflows</option>' + (pipeline !== 'shorts' ? '<option value="__nsfw__">NSFW</option>' : '')
+      + models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
   }
   select.value = outputFilter;
-  select.hidden = models.length < 2;
+  select.hidden = pipeline === 'shorts' && models.length < 2;
+  document.body.classList.toggle('nsfw-view', outputFilter === NSFW_FILTER);
 }
 $('outputFilter').addEventListener('change', () => {
   outputFilter = $('outputFilter').value;
@@ -1928,9 +1961,9 @@ $('outputFilter').addEventListener('change', () => {
   renderVideos();
   renderImageSets();
 });
-function visibleFilms() { return filtered(lastVideos[folder] || []); }
+function visibleFilms() { return filtered(lastVideos[outputFilter === NSFW_FILTER ? 'video' : folder] || []); }
 function renderVideos() {
-  if (pipeline !== 'image') syncFilter(lastVideos[folder] || []);
+  syncFilter(pipeline === 'image' ? imageSets : (lastVideos[folder] || []));
   const videos = visibleFilms();
   $('countOutput').textContent = lastVideos.output.length;
   $('countUploaded').textContent = lastVideos.uploaded.length;
@@ -1940,12 +1973,12 @@ function renderVideos() {
     $('uploadAll').textContent = busy ? 'Queue upload all' : 'Upload all';
   }
 
-  const key = folder + '|' + outputFilter + '|' + videos.map(v => v.name + v.mtime + (v.topic || v.title || '')).join(',');
+  const key = folder + '|' + outputFilter + '|' + !!choosingFor + '|' + videos.map(v => v.name + v.mtime + (v.topic || v.title || '')).join(',');
   // Keep players that already exist so a poll does not interrupt playback.
   if ($('videos').dataset.key !== key) {
     const was = (slides()[currentSlide()] || {}).dataset;
     $('videos').classList.add('as-list');
-    $('videos').innerHTML = videos.length ? videos.map(filmHtml).join('')
+    $('videos').innerHTML = videos.length && !(choosingFor && outputFilter === NSFW_FILTER) ? videos.map(v => filmHtml(v, outputFilter === NSFW_FILTER ? 'video' : folder)).join('')
       : `<div class="empty">${folder === 'uploaded' ? 'Nothing uploaded yet.' : folder === 'video' ? 'No films yet. Press Generate to make one.' : 'No videos waiting. Press Generate to make one.'}</div>`;
     $('videos').dataset.key = key;
     const back = was && slides().findIndex(s => s.dataset.name === was.name);
@@ -2009,7 +2042,7 @@ async function startUpload(fields, button) {
 }
 function privacyNote() { return `as ${$('privacy').value} (change it under Publish)`; }
 
-// Deleting takes two taps: the first turns the button red and asks, the second, within a few seconds, deletes.
+// The first tap turns the button red and asks; the second, within a few seconds, confirms.
 const ARMED_MS = 3000;
 function disarm(button) {
   clearTimeout(button._disarm);
@@ -2038,17 +2071,20 @@ $('videos').addEventListener('click', async e => {
   const play = e.target.closest && e.target.closest('[data-play-film]');
   if (play) {
     e.preventDefault();
-    openFilm(play.dataset.playFilm);
+    openFilm(play.dataset.playFilm, play.dataset.filmFolder || folder);
     return;
   }
   const d = e.target.dataset || {};
-  if (d.downloadFilm) {
-    downloadFile(`/download/${folder}/${encodeURIComponent(d.downloadFilm)}`);
+  const filmFolder = d.filmFolder || folder;
+  if (d.nsfwVideo) {
+    await tagOutput('video', d.nsfwVideo, outputFilter !== NSFW_FILTER, e.target);
+  } else if (d.downloadFilm) {
+    downloadFile(`/download/${filmFolder}/${encodeURIComponent(d.downloadFilm)}`);
   } else if (d.againFilm) {
     await sameAgainFilm(d.againFilm);
   } else if (d.del) {
     if (!secondTap(e.target)) return;
-    const body = await (await fetch(`/delete/${folder}/` + encodeURIComponent(d.del), { method: 'POST' })).json();
+    const body = await (await fetch(`/delete/${filmFolder}/` + encodeURIComponent(d.del), { method: 'POST' })).json();
     if (body.warning) alert(body.warning);
     if (!body.ok) alert(body.error || 'Could not delete it.');
     poll();
@@ -2184,6 +2220,7 @@ function imageBoxHtml(number) {
     <div class="image-line">
       <label class="thumb" for="${name}" title="Choose another image"><img class="preview hidden" alt="Image ${number}"></label>
       <input id="${name}" name="${name}" type="file" accept="image/*">${role}
+      ${outputPickerButton(number)}
       <button type="button" class="hidden" data-clear="1" aria-label="Remove image ${number}" title="Remove">✕</button>
     </div>
   </div>`;
@@ -2236,7 +2273,7 @@ function syncImageInput() {
     if (box.hidden && input.value) clearImage(box);
     box.querySelector('label').textContent = imageLabel(i + 1, low, high);
     // An empty box after the first was opened by +, so it can be closed again.
-    box.querySelector('button').classList.toggle('hidden', !i && !input.files.length);
+    box.querySelector('[data-clear]').classList.toggle('hidden', !i && !input.files.length);
   });
   const last = imageBoxes()[shown - 1];
   $('addImage').hidden = shown >= room || !last || !last.querySelector('input').files.length;
@@ -2459,8 +2496,11 @@ function syncComfyButton(c) {
 $('restartComfy').addEventListener('click', async () => {
   if (comfyOff) {
     $('restartComfy').disabled = true;
-    const body = await (await fetch('/comfyui/start', { method: 'POST' })).json();
-    if (!body.ok) { settingsNote(body.error || 'Could not start it.', true); $('restartComfy').disabled = false; }
+    try {
+      const body = await (await fetch('/comfyui/start', { method: 'POST' })).json();
+      if (!body.ok) { settingsNote(body.error || 'Could not start it.', true); $('restartComfy').disabled = false; }
+      else { settingsNote(''); poll(); }
+    } catch (error) { settingsNote('Could not reach the panel. Try again.', true); $('restartComfy').disabled = false; }
     return;
   }
   if (!confirmTap('restartComfy', 'Restart ComfyUI')) return;
@@ -2551,8 +2591,12 @@ $('duration').addEventListener('input', syncVideoForm);
 $('videoClipRange').addEventListener('input', e => { syncVideoClips(e.target); syncVideoForm(); saveVideoForm(); });
 $('imageBoxes').addEventListener('change', e => showImage(e.target.closest('.image-box')));
 $('imageBoxes').addEventListener('click', e => {
-  if (!e.target.dataset.clear) return;
-  removeImage(e.target.closest('.image-box'));
+  const button = e.target.closest && e.target.closest('button');
+  if (!button) return;
+  const box = button.closest('.image-box');
+  if (button.dataset.pick) { chooseFromOutput(box, 'video'); return; }
+  if (!button.dataset.clear) return;
+  removeImage(box);
   syncImageInput();
 });
 $('addImage').addEventListener('click', () => {
@@ -2652,6 +2696,9 @@ let paint = null;
 // How many boxes are open: one to start with, and + adds the next, as on the Video side.
 let sourcesShown = 1;
 const GALLERY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>';
+function outputPickerButton(number) {
+  return `<button type="button" class="pick-output" data-pick="1" aria-label="Select image ${number} from Output" title="Select from Output">${GALLERY_ICON}</button>`;
+}
 function sourceHtml(number) {
   const name = number === 1 ? 'image' : `image_${number}`;
   return `
@@ -2661,7 +2708,7 @@ function sourceHtml(number) {
       <label class="thumb" for="source_${number}" title="Choose another image"><img class="preview hidden" alt="Image ${number}"></label>
       <input id="source_${number}" name="${name}" type="file" accept="image/*">
       <input type="hidden" name="source_seed" class="source-seed" value="">
-      <button type="button" class="pick-output" data-pick="1" aria-label="Choose image ${number} from your images" title="Choose one of your images">${GALLERY_ICON}</button>
+      ${outputPickerButton(number)}
       <button type="button" class="hidden" data-clear="1" aria-label="Remove image ${number}" title="Remove">✕</button>
     </div>
   </div>`;
@@ -2726,49 +2773,72 @@ function syncImageSources() {
 function chosenSources() { return sourceBoxes().filter(box => !box.hidden && box.querySelector('input').files.length).length; }
 
 // --- One of your images in a box: Output opens to choose it, and a tap there puts it in the box ---
-// The box an image is being chosen for, while Output is open to choose it. Its seed goes with it: an edit never
-// starts from the noise that made the image.
+// The box and side to return to after choosing an image.
 let choosingFor = null;
-function chooseFromOutput(box) {
-  choosingFor = box;
-  $('chooseBannerText').textContent = `Tap an image to use it as image ${sourceBoxes().indexOf(box) + 1}.`;
+function chooseFromOutput(box, side = 'image') {
+  const boxes = side === 'video' ? imageBoxes() : sourceBoxes();
+  if (!boxes.includes(box) || box.hidden || box.querySelector('input').disabled) return;
+  choosingFor = { box, side, filter: outputFilter };
+  $('chooseBannerText').textContent = `Tap an image to use it as image ${boxes.indexOf(box) + 1}.`;
   $('chooseBanner').hidden = false;
+  if (pipeline !== 'image') {
+    outputFilter = '';
+    setPipeline('image', false, true);
+    renderImageSets();
+  }
   if (WIDE.matches) $('videosCard').scrollIntoView({ behavior: 'smooth' }); else showPage('output');
 }
 function stopChoosing() {
   choosingFor = null;
   $('chooseBanner').hidden = true;
 }
-function backToGenerate() {
-  $('imageGeneration').open = true;
+function backToGenerate(side = 'image') {
+  if (choosingFor) desktopGenerateActive = false;
+  if (pipeline !== side) {
+    if (choosingFor) outputFilter = choosingFor.filter;
+    setPipeline(side, false, true);
+  }
+  $(side === 'video' ? 'videoGeneration' : 'imageGeneration').open = true;
   if (WIDE.matches) $('optionsCard').scrollIntoView({ behavior: 'smooth' }); else showPage('generate');
 }
 async function chooseThis(id, position) {
-  const box = choosingFor;
+  const choice = choosingFor;
+  if (!choice) return;
+  backToGenerate(choice.side);
   stopChoosing();
-  backToGenerate();
-  if (box) await useOutput(box, id, position);
+  await useOutput(choice.box, id, position, choice.side);
 }
 $('chooseCancel').addEventListener('click', () => {
+  if (!choosingFor) return;
+  backToGenerate(choosingFor.side);
   stopChoosing();
-  backToGenerate();
 });
-async function useOutput(box, id, position) {
+async function useOutput(box, id, position, side = 'image') {
+  const input = box.querySelector('input[type="file"]'), previous = input.files[0];
   try {
-    putFile(box.querySelector('input[type="file"]'), await runFile(`/image-runs/${encodeURIComponent(id)}/files/${position}`, `image_${position}.png`));
+    const file = await runFile(`/image-runs/${encodeURIComponent(id)}/files/${position}`, `image_${position}.png`);
     let seed = '';
-    try {
-      const detail = await (await fetch(`/image-runs/${encodeURIComponent(id)}`)).json();
+    if (side === 'image') {
+      const response = await fetch(`/image-runs/${encodeURIComponent(id)}`);
+      if (!response.ok) throw new Error('Could not load image details.');
+      const detail = await response.json();
       const shot = detail.ok && detail.shots[position - 1];
-      if (shot && shot.used_seed !== null && shot.used_seed !== undefined) seed = String(shot.used_seed);
-    } catch (e) {}
-    box.querySelector('.source-seed').value = seed;
+      if (!shot) throw new Error('Could not find image details.');
+      if (shot.used_seed !== null && shot.used_seed !== undefined) seed = String(shot.used_seed);
+    }
+    const boxes = side === 'video' ? imageBoxes() : sourceBoxes();
+    if (!boxes.includes(box) || box.hidden || input.disabled || input.files[0] !== previous || pipeline !== side) {
+      showFormError('The image box changed before the image was loaded. Choose it again.');
+      return;
+    }
+    putFile(input, file);
+    if (side === 'image') box.querySelector('.source-seed').value = seed;
   } catch (e) {
     showFormError('Could not fetch that image. Try again.');
     return;
   }
-  showSource(box, sourceBoxes()[0] === box);
-  syncImageForm();
+  if (side === 'video') { showImage(box); syncVideoForm(); }
+  else { showSource(box, sourceBoxes()[0] === box); syncImageForm(); }
   queuePlan();
 }
 $('addSource').addEventListener('click', () => {
@@ -3455,7 +3525,27 @@ const ICONS = {
   again: ICON_SVG('<path d="M4 12a8 8 0 0 1 13.7-5.7L20 8.5"/><path d="M20 4v4.5h-4.5"/><path d="M20 12a8 8 0 0 1-13.7 5.7L4 15.5"/><path d="M4 20v-4.5h4.5"/>'),
   play: ICON_SVG('<path d="M7 4.5v15l12-7.5z" fill="currentColor"/>'),
   config: ICON_SVG('<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>'),
+  hide: ICON_SVG('<path d="M3 3l18 18"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.8 5.2A10.7 10.7 0 0 1 12 5c5.5 0 9 7 9 7a15 15 0 0 1-3 3.8M6.2 6.2A16 16 0 0 0 3 12s3.5 7 9 7a10 10 0 0 0 4.2-.9"/>'),
+  show: ICON_SVG('<path d="M3 12s3.5-7 9-7 9 7 9 7-3.5 7-9 7-9-7-9-7z"/><circle cx="12" cy="12" r="3"/>'),
 };
+function nsfwButton(kind, id, tagged) {
+  const label = tagged ? 'Remove NSFW tag' : 'Mark as NSFW';
+  return `<button type="button" class="icon-btn nsfw-button" data-nsfw-${kind}="${esc(id)}" aria-label="${label}" title="${label}">${tagged ? ICONS.show : ICONS.hide}</button>`;
+}
+async function tagOutput(kind, id, nsfw, button) {
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/output/nsfw', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, id, nsfw }) });
+    const data = await response.json();
+    if (!response.ok || !data.ok) { alert(data.error || 'Could not change the NSFW tag.'); return; }
+    await poll();
+  } catch (error) {
+    alert('Could not change the NSFW tag. Check the connection and try again.');
+  } finally {
+    button.disabled = false;
+  }
+}
 function imageSetHtml(set) {
   const id = encodeURIComponent(set.id);
   const picture = (p, extra = '') => `<a href="/image-runs/${id}/files/${p.position}?v=${p.version}" data-view-set="${esc(set.id)}" data-view-position="${p.position}" title="${esc(p.title)}"${extra}><img loading="lazy" alt="${esc(p.title)}" src="/image-runs/${id}/thumbnails/${p.position}?v=${p.version}">`;
@@ -3477,13 +3567,12 @@ function imageSetHtml(set) {
     </div>`;
   return `
   <div class="image-set">
-    <h3>${esc(set.label)}</h3>
+    <div class="image-set-heading"><h3>${esc(set.label)}</h3>${nsfwButton('image', set.id, !!set.nsfw)}</div>
     <div class="meta">${[set.model && esc(set.model), set.total > 1 && `${set.images.length} of ${set.total}`, esc(set.size), esc(set.when)].filter(Boolean).join(' · ')}</div>${lorasLine(set.loras)}
     ${row}
   </div>`;
 }
 function renderImageSets() {
-  if (pipeline === 'image') syncFilter(imageSets);
   const sets = filtered(imageSets);
   const key = outputFilter + JSON.stringify(sets.map(set => [set.id, set.label, set.total, set.images, set.model, set.loras]));
   // Only when it changed, so a poll doesn't reload the pictures.
@@ -3537,7 +3626,9 @@ async function sameAgain(id, position = null) {
 }
 // A file a run was given, back as a file for a form's box.
 async function runFile(url, name) {
-  const blob = await (await fetch(url)).blob();
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Could not load ${name}.`);
+  const blob = await response.blob();
   return new File([blob], name, { type: blob.type || 'application/octet-stream' });
 }
 function putFile(input, file) {
@@ -3777,14 +3868,14 @@ function showViewerMedia(video) {
   if (!video) { $('viewerVideo').pause(); $('viewerVideo').removeAttribute('src'); }
 }
 // A film in the viewer, playing; a swipe goes to the one beside it in Output.
-function openFilm(name) {
+function openFilm(name, filmFolder = folder) {
   const films = visibleFilms(), at = films.findIndex(v => v.name === name);
   if (at < 0) return;
-  const film = films[at], url = `/videos/${folder}/${encodeURIComponent(name)}`;
-  viewing = { film: true, name, run: film.run || null };
+  const film = films[at], url = `/videos/${filmFolder}/${encodeURIComponent(name)}`;
+  viewing = { film: true, name, run: film.run || null, folder: filmFolder };
   showViewerMedia(true);
   // A film has Upscale (Video's only) and Prompts (its run's, if still saved), not the image editing.
-  const canUpscale = folder === 'video', canPrompt = !!film.run;
+  const canUpscale = filmFolder === 'video', canPrompt = !!film.run;
   $('viewerTools').hidden = !canUpscale && !canPrompt;
   $('viewerVariations').hidden = $('viewerEdit').hidden = true;
   $('viewerUpscale').hidden = !canUpscale;
@@ -3792,7 +3883,7 @@ function openFilm(name) {
   $('viewerRes').textContent = '';
   $('viewerVideo').src = url;
   $('viewerTitle').textContent = `${film.title || film.topic || film.name}${films.length > 1 ? ` · ${at + 1} of ${films.length}` : ''}`;
-  $('viewerDownload').href = `/download/${folder}/${encodeURIComponent(name)}`;
+  $('viewerDownload').href = `/download/${filmFolder}/${encodeURIComponent(name)}`;
   if (!$('imageViewer').open) $('imageViewer').showModal();
   $('viewerVideo').play().catch(() => {});  // A browser may want a tap first
 }
@@ -3836,7 +3927,7 @@ function stepViewer(by) {
     video.classList.remove('from-right', 'from-left');
     void video.offsetWidth;
     video.classList.add(by > 0 ? 'from-right' : 'from-left');
-    openFilm(next.name);
+    openFilm(next.name, viewing.folder);
     return true;
   }
   const set = imageSets.find(s => s.id === viewing.id);
@@ -3973,16 +4064,36 @@ $('imageViewer').addEventListener('click', e => { if (e.target === $('imageViewe
 $('viewerClose').addEventListener('click', closeViewer);
 $('viewerDelete').addEventListener('click', async () => {
   if (!viewing || !secondTap($('viewerDelete'))) return;
+  const original = viewing;
   const { id, position, film, name } = viewing;
-  const url = film ? `/delete/${folder}/${encodeURIComponent(name)}` : `/image-runs/${encodeURIComponent(id)}/delete/${position}`;
+  const set = !film && imageSets.find(s => s.id === id);
+  const pictures = set ? set.images : [];
+  const index = pictures.findIndex(p => p.position === position);
+  const next = index < 0 ? null : pictures[index + 1] || pictures[index - 1];
+  const url = film ? `/delete/${viewing.folder}/${encodeURIComponent(name)}` : `/image-runs/${encodeURIComponent(id)}/delete/${position}`;
   let body;
+  $('viewerDelete').disabled = true;
   try {
     body = await (await fetch(url, { method: 'POST' })).json();
   } catch (e) {
     body = { error: 'Could not reach the panel. Try again.' };
+  } finally {
+    $('viewerDelete').disabled = false;
   }
   if (!body.ok) { alert(body.error || 'Could not delete it.'); return; }
-  closeViewer();
+  if (!film && Array.isArray(body.images)) {
+    const updated = imageSets.find(s => s.id === id);
+    if (updated) updated.images = body.images;
+    if (viewing && !viewing.film && viewing.id === id) {
+      const current = viewing === original || viewing.position === position ? next && next.position : viewing.position;
+      const nextPosition = current && current - (current > position ? 1 : 0);
+      if (updated && body.images.some(p => p.position === nextPosition)) openViewer(id, nextPosition);
+      else closeViewer();
+    }
+    renderImageSets();
+  } else if (viewing === original) {
+    closeViewer();
+  }
   poll();
 });
 $('imageSets').addEventListener('click', async e => {
@@ -4000,7 +4111,8 @@ $('imageSets').addEventListener('click', async e => {
   } else if (d.downloadSet) {
     const set = imageSets.find(s => s.id === d.downloadSet);
     if (set) downloadImages(set.id, set.images.map(p => p.position));
-  } else if (d.shots) openShots(d.shots);
+  } else if (d.nsfwImage) await tagOutput('image', d.nsfwImage, outputFilter !== NSFW_FILTER, e.target);
+  else if (d.shots) openShots(d.shots);
   else if (d.deleteSet) {
     if (!secondTap(e.target)) return;
     await stopJob(`/image-runs/${encodeURIComponent(d.deleteSet)}/delete`);
@@ -4011,21 +4123,21 @@ $('imageSets').addEventListener('click', async e => {
 // preload="none": a browser allows about 6 connections per site, and films loading
 // their metadata can hold them all, which freezes the status poll.
 // A film or a Short: a row as an image set's, its poster opening the player. A Short ready to go has Upload first.
-function filmHtml(v) {
+function filmHtml(v, filmFolder = folder) {
   const name = esc(v.name), url = encodeURIComponent(v.name);
-  const icon = (data, label, svg, extra = '') => `<button type="button" class="icon-btn${extra}" ${data} title="${label}" aria-label="${label}">${svg}</button>`;
+  const icon = (data, label, svg, extra = '') => `<button type="button" class="icon-btn${extra}" ${data} data-film-folder="${filmFolder}" title="${label}" aria-label="${label}">${svg}</button>`;
   const actions = '<div class="image-set-actions">'
-    + (folder === 'output' ? icon(`data-up="${name}" data-topic="${esc(v.topic || '')}"`, 'Upload to YouTube', ICONS.upload) : '')
+    + (filmFolder === 'output' ? icon(`data-up="${name}" data-topic="${esc(v.topic || '')}"`, 'Upload to YouTube', ICONS.upload) : '')
     + icon(`data-download-film="${name}"`, 'Download', ICONS.download)
     + (v.run ? icon(`data-again-film="${esc(v.run)}"`, 'The same again: its settings in Generate, to change first', ICONS.again) : '')
     + (v.run ? icon(`data-shots="${esc(v.run)}"`, 'Shots', ICONS.prompts) : '')
     + icon(`data-del="${name}"`, 'Delete', ICONS.trash, ' del') + '</div>';
   return `
   <div class="image-set film" data-name="${name}">
-    <h3>${v.title || v.topic ? esc(v.title || v.topic) : folder === 'video' ? name : '<span style="color:var(--muted)">No topic recorded</span>'}</h3>
+    <div class="image-set-heading"><h3>${v.title || v.topic ? esc(v.title || v.topic) : filmFolder === 'video' ? name : '<span style="color:var(--muted)">No topic recorded</span>'}</h3>${filmFolder === 'video' ? nsfwButton('video', v.name, !!v.nsfw) : ''}</div>
     <div class="meta" title="${name}">${[v.model && esc(v.model), v.created, `${v.size_mb} MB`].filter(Boolean).join(' · ')}</div>${lorasLine(v.loras)}
     <div class="image-set-row album">
-      <a href="/videos/${folder}/${url}" class="album-cover film-cover" data-play-film="${name}" title="Play"><img loading="lazy" alt="" src="${v.run && folder === 'video' ? `/runs/${encodeURIComponent(v.run)}/image` : `/posters/${folder}/${url}`}" onerror="this.onerror=null;this.src='/posters/${folder}/${url}'"><span class="play">▶</span></a>
+      <a href="/videos/${filmFolder}/${url}" class="album-cover film-cover" data-play-film="${name}" data-film-folder="${filmFolder}" title="Play"><img loading="lazy" alt="" src="${v.run && filmFolder === 'video' ? `/runs/${encodeURIComponent(v.run)}/image` : `/posters/${filmFolder}/${url}`}" onerror="this.onerror=null;this.src='/posters/${filmFolder}/${url}'"><span class="play">▶</span></a>
       <div class="album-side">${actions}</div>
     </div>
   </div>`;
@@ -4073,7 +4185,7 @@ let shotsRun = null, shotsDirty = false;
 function shotHtml(run, shot, i) {
   const number = i + 1;
   const clip = shot.rendered ? `<video controls preload="none" playsinline src="/runs/${esc(run.id)}/clips/${number}"></video>` : '';
-  const redo = shot.rendered && !run.busy ? `<button type="button" data-redo="${number}">Render again</button>` : '';
+  const redo = shot.rendered && !run.busy && !run.pending ? `<button type="button" data-redo="${number}">Render again</button>` : '';
   return `
   <div class="shot">
     <div class="shot-title"><b>${number}. ${esc(shot.title)}</b><span>${shot.seconds}s · ${shot.rendered ? 'rendered' : 'not rendered yet'}</span></div>
@@ -4088,8 +4200,8 @@ function imageShotHtml(run, shot, i) {
   const number = i + 1, url = `/image-runs/${encodeURIComponent(run.id)}`;
   const picture = shot.rendered ? `<a href="${url}/files/${number}?v=${shot.version}" target="_blank" rel="noopener"><img class="shot-image" loading="lazy" alt="Image ${number}" src="${url}/thumbnails/${number}?v=${shot.version}"></a>` : '';
   const icon = (data, label, svg, extra = '') => `<button type="button" class="icon-btn${extra}" ${data} title="${label}" aria-label="${label}">${svg}</button>`;
-  const left = run.busy ? '' : (shot.rendered ? icon(`data-redo="${number}"`, 'Make again', ICONS.again) : '')
-    + icon('data-save="1"', 'Save the prompts', ICONS.save) + icon(`data-delete-image="${number}"`, 'Delete', ICONS.trash, ' del');
+  const left = run.busy ? '' : (shot.rendered && !run.pending ? icon(`data-redo="${number}"`, 'Make again', ICONS.again) : '')
+    + icon('data-save="1"', 'Save the prompts', ICONS.save) + (run.pending ? '' : icon(`data-delete-image="${number}"`, 'Delete', ICONS.trash, ' del'));
   const enhanced = shot.enhanced_prompt ? icon(`data-fold="enhancedFold_${number}" aria-expanded="false"`, 'What the prompt enhancer wrote', ICONS.enhanced)
     + `<div class="seed-fold" id="enhancedFold_${number}" hidden><div class="hint">What the prompt enhancer wrote</div><div class="fold-text">${esc(shot.enhanced_prompt)}</div></div>` : '';
   return `
@@ -4109,8 +4221,9 @@ function imageShotHtml(run, shot, i) {
 }
 function imageShotsHtml(run) {
   const left = run.shots.filter(shot => !shot.rendered).length;
-  const note = run.busy ? '<div class="hint">This run is going or queued, so its prompts can\'t change right now.</div>' : '';
-  const go = !left || run.busy ? '' : `<button type="button" data-render="1">${left === run.shots.length ? 'Make the images' : `Make the ${left} left`}</button>`;
+  const note = run.busy ? '<div class="hint">This run is going or queued, so its prompts can\'t change right now.</div>'
+    : run.pending ? '<div class="hint">Save changes here, then start this run from Pending.</div>' : '';
+  const go = !left || run.busy || run.pending ? '' : `<button type="button" data-render="1">${left === run.shots.length ? 'Make the images' : `Make the ${left} left`}</button>`;
   return `
   <div class="shots-head">
     <div class="shots-head-line">
@@ -4133,9 +4246,10 @@ function shotsHtml(run) {
   if (run.is_image) return imageShotsHtml(run);
   const left = run.shots.filter(shot => !shot.rendered).length;
   const note = run.busy ? 'This run is going or queued, so its prompts can\'t change right now.'
+    : run.pending ? 'Save changes here, then start this run from Pending.'
     : (run.start === 'chain' ? 'A continuous take: rendering a shot again also renders every shot after it, because they start from it.'
     : 'Separate moments: rendering a shot again leaves the others as they are.') + ' A shot keeps its seed unless you change it or shuffle it, and an empty one is new each time.';
-  const go = run.finished || run.busy ? '' : `<button type="button" data-render="1">${left === run.shots.length ? 'Render the film' : left ? `Render the ${left} left` : 'Stitch the film'}</button>`;
+  const go = run.finished || run.busy || run.pending ? '' : `<button type="button" data-render="1">${left === run.shots.length ? 'Render the film' : left ? `Render the ${left} left` : 'Stitch the film'}</button>`;
   const save = run.busy ? '' : '<button type="button" class="plain" data-save="1">Save prompts</button>';
   return `
   <div class="shots-head">
@@ -4291,7 +4405,6 @@ const STAGE_HINTS = {
   'Plan': 'The LLM is writing each shot.',
   'Clips': 'ComfyUI is rendering each clip.',
   'Prompts': 'The LLM is writing a prompt per image.',
-  'Images': 'ComfyUI is making each image.',
   'Topic & script': 'Gemini is writing the scenes.',
   'Voice': 'Gemini is reading the script.',
   'Stock footage': 'Downloading stock clips.',
@@ -4531,6 +4644,7 @@ function renderQueue(el, q, doneIn, moving = false, idle = false) {
   if (el._leaving || el._dragging) return;  // Drawn once it has gone, or been dropped
   if (el.querySelectorAll('.queue-request, .queue-request-done').length) return;
   const waiting = moving ? q.items.slice(1) : q.items;
+  if (waiting.length < 2 || !waiting.some(item => String(item.id) === el._selected)) el._selected = null;
   // What left since: it slides up out of the queue, towards Status, and the rest close up behind it.
   const gone = [...el.querySelectorAll('.queue-item[data-id]:not(.leaving)')].filter(node => !waiting.some(item => String(item.id) === node.dataset.id));
   if (el.dataset.lane !== 'run' && gone.length && !el.hidden) {
@@ -4555,17 +4669,19 @@ function renderQueue(el, q, doneIn, moving = false, idle = false) {
     : doneIn ? `<span class="when">All done around ${clockIn(doneIn)}</span>` : '')
     + (el.dataset.lane === 'run' ? `<button type="button" class="icon-btn" data-queue-toggle="1" aria-label="${q.held || q.stopAfter ? 'Resume queue' : 'Pause after current'}" title="${q.held || q.stopAfter ? 'Resume queue' : 'Stop after the current image or video'}">${q.held || q.stopAfter ? ICONS.play : '❚❚'}</button>` : '');
   const canRunNow = el.dataset.lane === 'run' && q.held && idle;
-  const grip = item => waiting.length < 2 ? '' : `<button type="button" class="grip" data-grip="${item.id}" aria-label="Move ${esc(item.label)}: drag, or use the arrow keys" title="Drag to move">
+  const grip = item => waiting.length < 2 ? '' : `<button type="button" class="grip" data-grip="${item.id}"${String(item.id) === el._selected ? '' : ' hidden disabled'} aria-label="Move ${esc(item.label)}: drag, or use the arrow keys" title="Drag to move">
         <svg viewBox="0 0 12 18" width="12" height="18" aria-hidden="true" fill="currentColor">${[3, 9, 15].map(y => `<circle cx="3" cy="${y}" r="1.6"/><circle cx="9" cy="${y}" r="1.6"/>`).join('')}</svg></button>`;
   const items = waiting.map((item, i) => `
-    <div class="queue-item" data-id="${esc(String(item.id))}" data-motion-key="queue-${esc(String(item.id))}">
-      ${grip(item)}<div class="what">${i + 1}. ${esc(item.label)}<div class="hint">${el.dataset.lane === 'run' ? `${SIDE_NAMES[item.pipeline] || 'Shorts'} · ` : ''}${esc(item.detail)}</div></div>
-      ${canRunNow ? `<button type="button" class="run-item" data-run="${item.id}" aria-label="Run this generation now" title="Run this now">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.8a.8.8 0 0 1 1.2-.7l8 5a1 1 0 0 1 0 1.7l-8 5A.8.8 0 0 1 4 13.1z" fill="currentColor"/></svg></button>`
-        : item.estimate ? `<span class="when">${fmtEta(item.estimate)}</span>` : ''}
+    <div class="queue-item${el.dataset.lane === 'run' ? ' run-card' : ''}" data-id="${esc(String(item.id))}" data-motion-key="queue-${esc(String(item.id))}">
+      ${el.dataset.lane === 'run' ? '<div class="queue-item-top">' : ''}${grip(item)}<div class="what"${waiting.length > 1 ? ` role="button" tabindex="0" aria-pressed="${String(item.id) === el._selected}" aria-label="Select ${esc(item.label)} to reorder"` : ''}>${i + 1}. ${esc(item.label)}<div class="hint">${el.dataset.lane === 'run' ? `${SIDE_NAMES[item.pipeline] || 'Shorts'} · ` : ''}${esc(queueDetail(item))}</div></div>${el.dataset.lane === 'run' ? '</div><div class="queue-item-actions">' : ''}
+      ${!canRunNow && item.estimate ? `<span class="when">${fmtEta(item.estimate)}</span>` : ''}
+      ${el.dataset.lane === 'run' && item.resume && item.pipeline !== 'shorts' ? `<button type="button" class="icon-btn" data-shots="${esc(item.resume)}" aria-label="Prompts" title="View prompts">${ICONS.prompts}</button>` : ''}
+      ${canRunNow ? `<button type="button" class="run-item${item.continuation ? ' continue-item' : ''}" data-run="${item.id}" aria-label="Run this generation now" title="Run this now">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.8a.8.8 0 0 1 1.2-.7l8 5a1 1 0 0 1 0 1.7l-8 5A.8.8 0 0 1 4 13.1z" fill="currentColor"/></svg></button>` : ''}
       ${el.dataset.lane === 'run' ? `<button type="button" class="icon-btn" data-edit="${item.id}" aria-label="Go to setup" title="Edit this queued job">${ICONS.config}</button>` : ''}
-      ${el.dataset.lane === 'run' ? `<button type="button" data-pause="${item.id}" aria-label="Pause: move to Pending" title="Pause: take it out of the queue and make it pending">❚❚</button>` : ''}
-      <button type="button" data-remove="${item.id}" aria-label="Remove from the queue" title="Remove from the queue (tap twice)">✕</button>
+      ${el.dataset.lane === 'run' ? `<button type="button" class="icon-btn" data-pause="${item.id}" aria-label="Pause: move to Pending" title="Pause: take it out of the queue and make it pending">❚❚</button>` : ''}
+      <button type="button"${el.dataset.lane === 'run' ? ' class="icon-btn"' : ''} data-remove="${item.id}" aria-label="Remove from the queue" title="Remove from the queue (tap twice)">✕</button>
+      ${el.dataset.lane === 'run' ? '</div>' : ''}
     </div>`).join('');
   // Resume under what it lets go, where a thumb ends up after reading the list.
   const foot = q.held && el.dataset.lane !== 'run' ? `<div class="queue-foot"><button type="button" data-resume="1">Resume</button></div>` : '';
@@ -4578,6 +4694,12 @@ function renderQueue(el, q, doneIn, moving = false, idle = false) {
 }
 // Every run and upload that has ended, in one list, newest first.
 const FINISHED_SHOWN = 5;  // The last five; a restart starts it empty
+function queueDetail(item) {
+  const detail = (item.detail || '').split(' · ').filter(part => part !== 'renders straight away' && part !== 'renders at once');
+  const size = item.facts && item.facts.resolution;
+  if (size && !detail.includes(size)) detail.push(size);
+  return detail.join(' · ');
+}
 function renderFinished(runs, uploads, madeNow = []) {
   // Whole jobs, and what the one going now has made so far, such as each image of a set.
   const all = [...runs, ...madeNow].map(r => ({ ...r, type: SIDE_NAMES[r.pipeline] || 'Shorts', side: r.pipeline || 'shorts' }))
@@ -4588,11 +4710,13 @@ function renderFinished(runs, uploads, madeNow = []) {
   $('finishedToggle').disabled = !all.length;
   if (!all.length) {
     $('finishedToggle').textContent = 'Finished';
+    $('finishedList').innerHTML = '';
+    $('finishedList').dataset.html = '';
     return;
   }
   const failed = all.filter(r => r.outcome === 'failed').length;
   const title = `Finished (${all.length})${failed ? ` · <span class="failed">${failed} failed</span>` : ''}`;
-  const list = all.map(r => `<button type="button" class="result ${esc(r.outcome)}" style="--side:${SIDE_COLOURS[r.side] || SIDE_COLOURS.shorts}" data-goto="${esc(r.side)}"${r.tab ? ` data-tab="${r.tab}"` : ''}>`
+  const list = all.map(r => `<button type="button" class="result ${esc(r.outcome)}" style="--side:${SIDE_COLOURS[r.side] || SIDE_COLOURS.shorts}" data-goto="${esc(r.side)}"${r.tab ? ` data-tab="${r.tab}"` : ''}${r.run_id ? ` data-run-id="${esc(r.run_id)}"` : ''}${r.job_id != null ? ` data-job-id="${esc(String(r.job_id))}"` : ''}${r.position ? ` data-position="${r.position}"` : ''}${r.film ? ` data-film="${esc(r.film)}"` : ''}${r.outcome === 'failed' && r.type !== 'Upload' ? ' data-failed="1"' : ''}>`
     + `<span class="result-mark">${RESULT_MARKS[r.outcome]}</span><span class="result-type">${r.type}</span>`
     + `<span class="result-label">${esc(r.label)}${r.note ? ` (${esc(r.note)})` : ''}</span><span class="when">${r.at}</span></button>`).join('');
   if ($('finishedToggle').innerHTML !== title) $('finishedToggle').innerHTML = title;
@@ -4656,7 +4780,38 @@ function goToOutput(side, tab) {
 }
 $('finishedList').addEventListener('click', e => {
   const result = e.target.closest && e.target.closest('[data-goto]');
-  if (result) goToOutput(result.dataset.goto, result.dataset.tab);
+  if (!result) return;
+  const d = result.dataset;
+  if (d.failed) {
+    closePanel();
+    if (DESK.matches) setRunTab('queue');
+    if (!WIDE.matches) showPage('status');
+    const section = $('failedRuns'), fold = section.querySelector('.stopped-fold');
+    const row = [...section.querySelectorAll('.stopped-run')].find(item => d.runId ? item.dataset.runId === d.runId : item.dataset.jobId === d.jobId);
+    if (!row || !fold) { alert('This failed run no longer has a saved entry under Failed.'); return; }
+    fold.open = true;
+    section._open = true;
+    row.classList.add('highlight');
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => row.classList.remove('highlight'), 3000);
+    return;
+  }
+  if (d.goto === 'image' && d.runId) {
+    const set = imageSets.find(item => item.id === d.runId);
+    const picture = set && (d.position ? set.images.find(item => item.position === +d.position) : set.images[0]);
+    if (picture) { closePanel(); openViewer(d.runId, picture.position); return; }
+  }
+  if (d.film || (d.goto === 'video' && d.runId)) {
+    const targetFolder = d.goto === 'video' ? 'video' : d.tab || 'output';
+    const film = (lastVideos[targetFolder] || []).find(item => d.film ? item.name === d.film : item.run === d.runId);
+    if (film) {
+      goToOutput(d.goto, d.tab);
+      outputFilter = '';
+      openFilm(film.name);
+      return;
+    }
+  }
+  goToOutput(d.goto, d.tab);
 });
 function whyHtml(outcome) {
   return `<details class="why"><summary>Why</summary><div class="why-text">${esc(outcome.why)}</div></details>`;
@@ -4734,36 +4889,44 @@ function renderRunSections(draw) {
     }
   });
 }
-function renderStopped(runs, parked = []) {
+function renderStopped(runs, parked = [], results = []) {
   const failed = runs.filter(run => run.outcome && run.outcome.outcome === 'failed');
   const idle = runs.filter(run => !failed.includes(run));
   const tag = run => run.outcome ? `<span class="run-tag">${esc(run.outcome.outcome === 'failed' ? 'Failed' : run.outcome.outcome)}</span>` : '';
   const runRow = (run, isFailed = false) => `
-    <div class="stopped-run" data-motion-key="run-${esc(run.id)}">
+    <div class="stopped-run" data-run-id="${esc(run.id)}" data-motion-key="run-${esc(run.id)}">
       <div class="run-head"><div class="what">${esc(run.label)}</div>${tag(run)}</div>
-      <div class="hint">${SIDE_NAMES[run.pipeline] || 'Shorts'} · ${esc(run.detail)}</div>
+      <div class="hint">${SIDE_NAMES[run.pipeline] || 'Shorts'} · ${esc(run.detail)}${run.size && !String(run.detail).includes(run.size) ? ` · ${esc(run.size)}` : ''}</div>
       ${run.when ? `<div class="hint">${esc(run.when)}</div>` : ''}
       ${run.outcome ? whyHtml(run.outcome) : ''}
       <div class="stopped-actions">
         <span class="when">${fmtEta(run.estimate)}</span>
-        ${run.pipeline !== 'shorts' ? `<button type="button" data-shots="${esc(run.id)}">Prompts</button>` : ''}
-        ${isFailed ? `<button type="button" class="icon-btn" data-config="${esc(run.id)}" data-pipeline="${esc(run.pipeline)}" aria-label="Change configuration" title="Back to Generate with its settings, to change them">${ICONS.config}</button>
-        <button type="button" class="icon-btn" data-continue="${esc(run.id)}" aria-label="Retry" title="Retry from where it got to">${ICONS.again}</button>`
-          : `<button type="button" data-continue="${esc(run.id)}">${run.pipeline !== 'shorts' && !run.clips ? 'Render' : 'Continue'}</button>`}
-        <button type="button" class="icon-btn" data-discard="${esc(run.id)}" data-pipeline="${esc(run.pipeline)}" data-clips="${run.clips}" aria-label="Discard this run" title="Discard what it has still to do: anything it made stays (tap twice)">✕</button>
+        ${run.pipeline !== 'shorts' ? `<button type="button" class="icon-btn" data-shots="${esc(run.id)}" aria-label="Prompts" title="View prompts">${ICONS.prompts}</button>` : ''}
+        <button type="button" class="icon-btn" data-config="${esc(run.id)}" data-pipeline="${esc(run.pipeline)}" aria-label="Change settings" title="Back to Generate with its settings, to change them">${ICONS.config}</button>
+        ${isFailed ? `<button type="button" class="icon-btn" data-continue="${esc(run.id)}" aria-label="Retry" title="Retry from where it got to">${ICONS.again}</button>`
+          : `<button type="button" class="icon-btn start-item continue-item" data-continue="${esc(run.id)}" aria-label="${run.pipeline !== 'shorts' && !run.clips ? 'Render' : 'Continue'}" title="${run.pipeline !== 'shorts' && !run.clips ? 'Render' : 'Continue'}">${ICONS.play}</button>`}
+        <button type="button" class="icon-btn" data-discard="${esc(run.id)}" data-pipeline="${esc(run.pipeline)}" data-clips="${run.clips}" aria-label="Discard this run" title="Discard what it has still to do: anything it made stays (tap twice)">${ICONS.trash}</button>
       </div>
     </div>`;
   // Waiting to be started: put there by Start later or Pause, and not in the queue until you start it.
   const parkedRow = item => `
     <div class="stopped-run" data-motion-key="queue-${esc(String(item.id))}">
       <div class="run-head"><div class="what">${esc(item.label)}</div></div>
-      <div class="hint">${SIDE_NAMES[item.pipeline] || 'Shorts'} · ${esc(item.detail)}</div>
+      <div class="hint">${SIDE_NAMES[item.pipeline] || 'Shorts'} · ${esc(queueDetail(item))}</div>
       <div class="stopped-actions">
         ${item.estimate ? `<span class="when">${fmtEta(item.estimate)}</span>` : ''}
+        ${item.resume && item.pipeline !== 'shorts' ? `<button type="button" class="icon-btn" data-shots="${esc(item.resume)}" aria-label="Prompts" title="View prompts">${ICONS.prompts}</button>` : ''}
         <button type="button" class="icon-btn" data-edit="${item.id}" aria-label="Go to setup" title="Edit this pending job">${ICONS.config}</button>
-        ${item.editing ? '<span class="when">Editing</span>' : `<button type="button" class="icon-btn start-item" data-start="${item.id}" aria-label="Start" title="Start: at the end of the queue, or now if nothing is queued">${ICONS.play}</button>`}
-        <button type="button" class="icon-btn" data-remove="${item.id}" aria-label="Remove it" title="Remove it (tap twice)">✕</button>
+        ${item.editing ? '<span class="when">Editing</span>' : `<button type="button" class="icon-btn start-item${item.continuation ? ' continue-item' : ''}" data-start="${item.id}" aria-label="Start" title="Start: at the end of the queue, or now if nothing is queued">${ICONS.play}</button>`}
+        <button type="button" class="icon-btn" data-remove="${item.id}" aria-label="Remove it" title="Remove it (tap twice)">${ICONS.trash}</button>
       </div>
+    </div>`;
+  const unsavedFailures = results.filter(result => result.outcome === 'failed' && !result.run_id && result.job_id != null);
+  const unsavedRow = result => `
+    <div class="stopped-run" data-job-id="${esc(String(result.job_id))}">
+      <div class="run-head"><div class="what">${esc(result.label)}</div><span class="run-tag">Failed</span></div>
+      <div class="hint">${SIDE_NAMES[result.pipeline] || 'Shorts'} · No saved run to retry</div>
+      ${result.note ? whyHtml({ why: result.note }) : ''}
     </div>`;
   const fold = (id, title, rows) => {
     const el = $(id);
@@ -4777,7 +4940,7 @@ function renderStopped(runs, parked = []) {
     }
   };
   fold('stoppedRuns', 'Pending', [...parked.map(parkedRow), ...idle.map(run => runRow(run))]);
-  fold('failedRuns', 'Failed', failed.map(run => runRow(run, true)));
+  fold('failedRuns', 'Failed', [...failed.map(run => runRow(run, true)), ...unsavedFailures.map(unsavedRow)]);
 }
 // Open or shut stays as it was left, through the redraws.
 for (const id of ['stoppedRuns', 'failedRuns']) {
@@ -4842,6 +5005,15 @@ async function sendOrder(el) {
 }
 function dragQueue(el) {
   let drag = null;
+  const select = target => {
+    if (!target.closest || target.closest('button')) return false;
+    const row = target.closest('.queue-item');
+    if (!row || !row.querySelector('.what[role="button"]')) return false;
+    el._selected = el._selected === row.dataset.id ? null : row.dataset.id;
+    renderQueue(el, ...el._last);
+    return true;
+  };
+  el.addEventListener('click', e => { select(e.target); });
   el.addEventListener('pointerdown', e => {
     const grip = e.target.closest && e.target.closest('.grip');
     if (!grip || e.button > 0) return;
@@ -4873,6 +5045,12 @@ function dragQueue(el) {
   // However the drag ends, even if the browser takes the pointer away, the queue is drawn again after it.
   el.addEventListener('lostpointercapture', drop);
   el.addEventListener('keydown', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && select(e.target)) {
+      e.preventDefault();
+      const row = [...el.querySelectorAll('.queue-item[data-id]')].find(item => item.dataset.id === e.target.closest('.queue-item').dataset.id);
+      if (row) row.querySelector('.what').focus();
+      return;
+    }
     const grip = e.target.closest && e.target.closest('.grip');
     if (!grip || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
     e.preventDefault();
@@ -4887,10 +5065,14 @@ function dragQueue(el) {
 for (const id of ['runQueue', 'uploadQueue']) {
   dragQueue($(id));
   $(id).addEventListener('click', async e => {
-    const button = e.target.closest && e.target.closest('button[data-run], button[data-pause], button[data-remove], button[data-resume], button[data-queue-toggle], button[data-edit]');
+    const button = e.target.closest && e.target.closest('button[data-run], button[data-pause], button[data-remove], button[data-resume], button[data-queue-toggle], button[data-edit], button[data-shots]');
     const d = button ? button.dataset : {}, lane = $(id).dataset.lane;
     if (d.edit) {
       await editQueued(d.edit, button);
+      return;
+    }
+    if (d.shots) {
+      await openShots(d.shots);
       return;
     }
     if (d.queueToggle) {
@@ -5079,6 +5261,7 @@ function renderStrips(data) {
 
 // --- Status polling ---
 let stoppedCount = 0, wasRunning = false, uploadRunning = false, runsQueued = 0, queueHeld = false, uploadsQueued = 0, submitting = false;
+let lastRunActionId = null;
 // A paused queue with nothing running starts what is pressed straight away; otherwise it joins the queue.
 const goLabel = running => running || (runsQueued && !queueHeld) ? 'Add to queue' : 'Generate';
 // Longer than a status takes, shorter than anyone would wait for one.
@@ -5132,6 +5315,12 @@ async function pollOnce() {
   serverStarted = data.server_started;
 
   const running = data.running;
+  const actionId = running && data.queue.current ? data.queue.current.id : null;
+  if (!running || actionId !== lastRunActionId) {
+    disarm($('stop'));
+    disarm($('skip'));
+  }
+  lastRunActionId = actionId;
   if (wasRunning && !running) {
     refreshPlan();  // That run just improved the timings
     // The prompts you asked to read before rendering are ready.
@@ -5162,9 +5351,9 @@ async function pollOnce() {
   safely(() => renderUpload(data.upload));
   safely(() => renderRunSections(() => {
     safely(() => renderQueue($('runQueue'), { ...queue, items: ready, running, pipeline: data.pipeline, stopAfter: data.stop_after }, queue.held ? 0 : queueAhead, nextUp, !running && !queue.current));
-    safely(() => renderStopped(data.stopped_runs, parked));
+    safely(() => renderStopped(data.stopped_runs, parked, queue.results));
   }));
-  safely(() => renderFinished(queue.results, upq.results, data.made_now || []));
+  safely(() => renderFinished(data.finished_results || queue.results, upq.results, data.made_now || []));
   $('dot').className = 'dot' + (running || nextUp ? ' on' : '');
   $('jumpDot').className = $('dot').className;
   safely(() => renderStrips(data));
@@ -5172,8 +5361,11 @@ async function pollOnce() {
   if (!submitting) $('go').textContent = $('goStick').textContent = queueEdit ? 'Save to queue' : goLabel(running);
   workItem = running ? queue.current : nextUp ? queue.items[0] : null;
   lastStatus = data;
+  const workSize = workItem && workItem.facts && workItem.facts.resolution;
   showWork(running ? `${SIDE_NAMES[data.pipeline] || 'Shorts'}: ${(queue.current || {}).label || 'Starting'}`
     : nextUp ? `${SIDE_NAMES[queue.items[0].pipeline] || 'Shorts'}: ${queue.items[0].label}` : '');
+  $('currentWorkSize').hidden = !workItem || !workSize;
+  $('currentWorkSize').textContent = workSize || '';
   // A job on the other side still has the GPU, so the switch says so.
   for (const [id, side] of [['switchShorts', 'shorts'], ['switchVideo', 'video'], ['switchImage', 'image']]) {
     $(id).querySelector('.dot').classList.toggle('hidden', !(running && data.pipeline === side && side !== pipeline));
@@ -5210,8 +5402,8 @@ async function pollOnce() {
   safely(() => renderQuota(data.quota));
 
   lastVideos = data.videos;
-  safely(() => renderVideos());
   imageSets = data.image_sets || [];
+  safely(() => renderVideos());
   safely(() => renderImageSets());
 }
 
@@ -5534,9 +5726,23 @@ $('goLater').addEventListener('click', () => {
   startJob(`/generate/${pipeline}`, true);
 });
 
-function setPipeline(side, remember = true) {
+const PROMPT_FIELDS = { shorts: 'topic', video: 'prompt', image: 'imagePrompt' };
+function clearPrompt(side) {
+  const field = $(PROMPT_FIELDS[side]);
+  if (!field.value) return;
+  field.value = '';
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+}
+for (const [id, side] of [['clearShortsPrompt', 'shorts'], ['clearVideoPrompt', 'video'], ['clearImagePrompt', 'image']]) {
+  $(id).addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); clearPrompt(side); });
+}
+function setPipeline(side, remember = true, preservePrompt = false) {
+  if (!preservePrompt && choosingFor) { clearPrompt(choosingFor.side); stopChoosing(); }
   // Each side opens with its headings folded.
-  if (side !== pipeline) for (const section of document.querySelectorAll('details.section')) section.open = false;
+  if (side !== pipeline) {
+    if (!preservePrompt) clearPrompt(pipeline);
+    if (!preservePrompt) for (const section of document.querySelectorAll('details.section')) section.open = false;
+  }
   pipeline = side;
   document.body.classList.toggle('on-shorts', side === 'shorts');
   document.body.classList.toggle('on-video', side === 'video');
@@ -5558,6 +5764,7 @@ function setPipeline(side, remember = true) {
     if (window.history && history.replaceState) history.replaceState(null, '', `/${side}`);
   }
   renderVideos();
+  renderImageSets();
   refreshPlan();
 }
 for (const id of ['switchShorts', 'switchVideo', 'switchImage']) $(id).addEventListener('click', () => setPipeline($(id).dataset.pipeline));
@@ -5567,13 +5774,14 @@ async function stopJob(url) {
   poll();
 }
 $('stop').addEventListener('click', async () => {
-  const held = runsQueued ? ` The ${runsQueued} queued after it will wait until you press Resume.` : '';
-  if (!confirm(`Stop all? This kills the current run and its ffmpeg renders, and cancels its ComfyUI clips. You can continue it later under Pending, without the clip being rendered now.${held}`)) return;
-  await stopJob('/stop');
+  disarm($('skip'));
+  if (!secondTap($('stop'))) return;
+  const data = await queueRequest($('stop'), async () => (await fetch('/stop', { method: 'POST' })).json(), 'Stopped', 'Stopping…');
+  if (data) poll();
 });
 $('skip').addEventListener('click', async () => {
-  const next = runsQueued ? 'The next in the queue starts now.' : 'Nothing else is queued, so nothing starts after it.';
-  if (!confirm(`Cancel this run and put it back under Pending? ${next} Finished clips are kept, but the clip rendering now starts over when you continue. It waits under Pending until you press Continue.`)) return;
+  disarm($('stop'));
+  if (!secondTap($('skip'))) return;
   const data = await queueRequest($('skip'), async () => (await fetch('/skip', { method: 'POST' })).json(), 'Pending', 'Stopping…');
   if (data) poll();
 });
@@ -5597,6 +5805,7 @@ const JUMPS = [...$('jump').querySelectorAll('a')];
 // A phone shows one section at a time, the one chosen in the footer. A desktop shows them all, with no footer.
 const PAGE_KEY = 'comfyui-auto-gen.page';
 function showPage(page) {
+  if (!WIDE.matches && !choosingFor && document.body.dataset.page === 'generate' && page !== 'generate') clearPrompt(pipeline);
   document.body.dataset.page = page;
   try { sessionStorage.setItem(PAGE_KEY, page); } catch (e) {}
   if (!WIDE.matches) window.scrollTo(0, 0);
@@ -5630,6 +5839,12 @@ $('jump').addEventListener('click', e => {
   if (!link || WIDE.matches) return;  // A desktop scrolls there instead
   e.preventDefault();
   const page = link.dataset.page;
+  if (choosingFor && page !== 'output') {
+    if (page !== 'generate') clearPrompt(choosingFor.side);
+    backToGenerate(choosingFor.side);
+    stopChoosing();
+    if (page === 'generate') return;
+  }
   if (page === document.body.dataset.page && SIDE_PAGES.includes(page)) {
     if ($('sideMenu').hidden || $('sideMenu').classList.contains('closing')) openSideMenu(link); else closeSideMenu();
     return;
@@ -5649,12 +5864,18 @@ document.addEventListener('click', e => {
   if (!$('sideMenu').hidden && !(e.target.closest && (e.target.closest('#sideMenu') || e.target.closest('#jump')))) closeSideMenu();
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSideMenu(); });
+let desktopGenerateActive = false;
 function markJump() {
   const line = 16;
   // A desktop lights the last section scrolled past, in the page's order rather than the footer's.
   const top = a => $(a.hash.slice(1)).getBoundingClientRect().top;
   const here = WIDE.matches ? JUMPS.filter(a => top(a) <= line).sort((a, b) => top(a) - top(b)).pop() || JUMPS[0]
     : JUMPS.find(a => a.dataset.page === document.body.dataset.page) || JUMPS[0];
+  if (WIDE.matches) {
+    const generate = !!here && here.hash === '#optionsCard';
+    if (desktopGenerateActive && !generate && !choosingFor) clearPrompt(pipeline);
+    desktopGenerateActive = generate;
+  } else desktopGenerateActive = false;
   JUMPS.forEach(a => a.classList.toggle('active', a === here));
   // The form's own button is in sight at its end, so this one would only repeat it.
   $('goBar').hidden = !here || here.hash !== '#optionsCard' || inView('formActions');

@@ -22,6 +22,7 @@ from fakes import (OBJECT_INFO, caption, captions_reply, close, edit_image_workf
 from PIL import Image, ImageDraw
 
 from panel import app as _all_pipelines  # noqa: F401
+from panel import image as image_panel
 from panel import server as webapp
 from pipelines.image import fibo2_prompt, media, models, paths, planner
 from pipelines.image.run_eta import RunEta
@@ -506,6 +507,29 @@ class PanelTest(unittest.TestCase):
         self.assertTrue(self.only_run().finished)
         self.assertEqual(len(self.claude.requests), 1)
 
+    def test_pending_continuation_can_edit_prompts_without_duplicate_jobs(self):
+        self.make(review="1")
+        run = self.only_run()
+        item = {"id": 900, "pipeline": "image", "resume": run.id, "later": True}
+        with webapp.run_queue.lock:
+            webapp.run_queue.items.append(item)
+        detail = self.client.get(f"/image-runs/{run.id}").get_json()
+        self.assertFalse(detail["busy"])
+        self.assertTrue(detail["pending"])
+        prompts = [shot["prompt"] for shot in detail["shots"]]
+        prompts[0] = "A revised image."
+        self.assertTrue(self.client.post(f"/image-runs/{run.id}/shots", json={"prompts": prompts}).get_json()["ok"])
+        self.assertEqual(RunState.load(run.id).shots[0]["prompt"], prompts[0])
+        self.assertEqual(self.client.post(f"/runs/{run.id}/continue").status_code, 409)
+        self.assertEqual(self.client.post(f"/image-runs/{run.id}/delete/1").status_code, 409)
+        with webapp.run_queue.lock:
+            item.pop("later")
+            webapp.run_queue.held = True
+        self.assertTrue(self.client.get(f"/image-runs/{run.id}").get_json()["busy"])
+        self.assertEqual(self.client.post(f"/image-runs/{run.id}/shots", json={"prompts": prompts}).status_code, 409)
+        with webapp.run_queue.lock:
+            webapp.run_queue.items.remove(item)
+
     # --- Size ---
 
     def test_the_size_asked_for_reaches_the_latent(self):
@@ -730,7 +754,13 @@ class PanelTest(unittest.TestCase):
         self.make()
         run = self.only_run()
         gone = run.image_path(run.shots[1])
-        self.assertTrue(self.client.post(f"/image-runs/{run.id}/delete/2").get_json()["ok"])
+        before = image_panel.image_files(run)
+        reply = self.client.post(f"/image-runs/{run.id}/delete/2").get_json()
+        self.assertTrue(reply["ok"])
+        self.assertEqual([p["position"] for p in reply["images"]], [1, 2])
+        self.assertEqual(reply["images"][1]["title"], before[2]["title"])
+        self.assertEqual(reply["images"][1]["version"], before[2]["version"])
+        self.assertNotEqual(reply["images"][1]["version"], before[1]["version"], "renumbered pictures cannot reuse the deleted image's cached URL")
         self.assertFalse(os.path.exists(gone))
         run = self.only_run()
         self.assertEqual((len(run.shots), run.finished), (2, True), "it isn't owed to the set any more")
@@ -740,7 +770,7 @@ class PanelTest(unittest.TestCase):
     def test_deleting_the_last_image_takes_the_set(self):
         self.make(count="1")
         run = self.only_run()
-        self.client.post(f"/image-runs/{run.id}/delete/1")
+        self.assertEqual(self.client.post(f"/image-runs/{run.id}/delete/1").get_json(), {"ok": True, "images": []})
         self.assertEqual(list_runs(), [])
         self.assertFalse(os.path.exists(run.output_dir))
 
@@ -897,6 +927,7 @@ class PanelTest(unittest.TestCase):
         with mock.patch.object(type(webapp.job), "running", new_callable=mock.PropertyMock, return_value=True),                 mock.patch.object(webapp.job, "pipeline", "image"), mock.patch.dict(webapp.job.progress, {"run_id": run.id}):
             made = webapp.made_in_this_run()
         self.assertEqual([entry["label"] for entry in made], [f"{run.title} · Version 1", f"{run.title} · Version 2"])
+        self.assertEqual([(entry["run_id"], entry["position"]) for entry in made], [(run.id, 1), (run.id, 2)])
         self.assertEqual({entry["pipeline"] for entry in made}, {"image"})
         self.assertEqual(webapp.made_in_this_run(), [], "and once it is done, the set's own line says so")
         # The same again: what it was made with, for Generate to start from.

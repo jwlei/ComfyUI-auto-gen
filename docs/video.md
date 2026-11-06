@@ -64,6 +64,7 @@ MiniMax H3, which starts no clip on it. Each image after it is optional, and you
 
 If your prompt says how to use an image, that wins. On H3 each character and place becomes a `<Subject>` of its own.
 
+You can upload an image or use the gallery button in any box to choose one of your generated images from Output.
 You start with one box, and **+** below it opens the next once it holds an image. ✕ removes an image and the ones after
 it move up. It goes up to 20 boxes, or as many as the workflow has Load Image nodes if that's fewer. A reference node
 whose inputs grow is different: wire one or two references in ComfyUI and the pipeline adds Load Image nodes up to 20,
@@ -119,13 +120,23 @@ its edges. The ETA scales with the pixel count.
 **While it runs:** you see each step with its ETA, which clip is rendering, ComfyUI's own progress, GPU use and the
 log. Generate adds more films to a queue, and each keeps the options it was queued with.
 The setup button on a queued generation moves it to Pending while you edit its settings and inputs.
+To reorder queued jobs, select an entry to reveal its drag handle; drag it or use the arrow keys.
+Queue and Pending entries show their resolution and a shortened prompt. Finished items open their output when available;
+failed items open and highlight their entry under Failed. A failure before a run was saved has no saved run to retry.
+Generate keeps the prompt after queuing so you can make variants. Use **Clear** beside Prompt to empty it, or leave
+Generate or switch sides to clear it automatically; the other settings stay in place.
 **Save to queue** replaces it at the front of the queue; **Cancel editing** leaves the original in Pending.
 Upscale jobs use their own settings dialog and follow the same Pending and queue replacement behavior.
 Continued runs cannot currently be edited this way.
+For a saved run in Pending, the settings icon opens its setup in Generate for a new or matching run;
+the original stays in Pending. The prompts icon also opens the saved prompts for a continued job in
+the queue or Pending.
+While a continuation is in Pending, its prompts and seeds can be edited; save them before starting it.
+It still reserves the saved run so it cannot be queued twice or discarded while pending.
 
-**Stop all** kills the run and cancels its clip in ComfyUI, leaving anything else you've queued there alone. What's
-queued in the panel waits for you to press Resume. **Skip, resume later** does the same but starts the next film in
-the queue straight away. **Continue** brings the skipped one back, behind whatever is queued by then.
+**Stop** stops the run and cancels its clip in ComfyUI; queued jobs wait until the queue is resumed.
+**Cancel** stops the run and starts the next queued job, leaving the run under Pending. Both require a second tap
+to confirm. **Continue** brings the cancelled run back behind whatever is queued by then.
 
 **Waiting to be rendered** lists plans not rendered yet and runs that were stopped, failed or cut off by a crash.
 **Continue** picks up from the last finished clip, and only the clip that was cut off starts again.

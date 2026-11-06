@@ -40,7 +40,7 @@ from werkzeug.exceptions import NotFound
 from core import batch_stop, eta_keys, workflow_options
 from core.paths import LOGS_DIR, PROJECT_ROOT, SAVED_WORKFLOWS_DIR, comfyui_client_id
 from core.quota import quota_summary
-from core.saved_workflows import list_saved, pipeline_of
+from core.saved_workflows import display_label, list_saved, pipeline_of
 from panel import settings, tailscale
 from pipelines.image.paths import OUTPUT_DIR as IMAGE_OUTPUT
 from pipelines.image.run_eta import RunEta as ImageEta
@@ -51,6 +51,7 @@ from pipelines.video import media as video_media
 from pipelines.video import planner as video_planner
 from pipelines.video import comfy as video_comfy
 from pipelines.video.comfy import workflow_model
+from pipelines.video.run_state import UPSCALED, films_of_runs, run_of_film
 from pipelines.video.run_eta import RunEta as VideoEta
 
 load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
@@ -248,6 +249,8 @@ class Job:
 
     def _track(self, line):
         p = self.progress
+        if self.pipeline == "video" and line.startswith("✅ Upscaled: "):
+            p["upscaled_file"] = os.path.basename(line.removeprefix("✅ Upscaled: ").strip())
         for kind, pattern in self.PATTERNS[self.pipeline]:
             m = pattern.search(line)
             if not m:
@@ -495,7 +498,19 @@ class JobQueue:
 
     def _record(self, item, outcome, note=None):
         notify_ended(item, outcome, note)
+        run_id = ((self.job.progress or {}).get("run_id") or item.get("resume")) if outcome != "skipped" and self is run_queue else None
+        state = PIPELINES[item["pipeline"]].load_run(run_id) if run_id and item.get("pipeline") in PIPELINES else None
+        film = os.path.basename(state.final) if state and getattr(state, "final", None) else None
+        if not state or (item.get("pipeline") in ("image", "video") and not state.shots):
+            run_id = None
+        argv = item.get("argv") or []
+        if outcome == "done" and "pipelines.video.upscale" in argv:
+            film = (self.job.progress or {}).get("upscaled_file")
+        position = None
+        if outcome == "done" and "pipelines.image.upscale" in argv and "--image" in argv[:-1] and argv[argv.index("--image") + 1].isdigit():
+            position = int(argv[argv.index("--image") + 1]) + 1
         self.results.append({"label": item["label"], "outcome": outcome, "note": note, "pipeline": item.get("pipeline"),
+                             "run_id": run_id, "film": film, "position": position, "job_id": item.get("id"),
                              "at": datetime.now().strftime("%H:%M"), "t": time.time()})
         del self.results[:-self.KEPT_RESULTS]
 
@@ -625,8 +640,10 @@ class JobQueue:
     def snapshot(self):
         with self.lock:
             self._advance()
-            public = lambda item: {**{key: item.get(key) for key in ("id", "label", "detail", "estimate", "videos", "pipeline", "later")},
+            public = lambda item: {**{key: item.get(key) for key in ("id", "label", "detail", "estimate", "videos", "pipeline", "later", "resume")},
                                    "editing": bool(item.get("edit_token")),
+                                   "continuation": bool(item.get("resume") and "--redo" not in (item.get("argv") or [])
+                                                        and not upscale_queue_settings(item)),
                                    "facts": run_facts(item)}
             return {"items": [public(item) for item in self.items],
                     "current": public(self.current) if self.current else None,
@@ -639,12 +656,19 @@ def run_facts(item):
     argv, env = item.get("argv") or [], item.get("env") or {}
     flag = lambda name: argv[argv.index(name) + 1] if name in argv[:-1] else None
     workflow = env.get("COMFYUI_WORKFLOW")
-    size = flag("--size") or env.get("AVATAR_SIZE")
+    size = item.get("resolution") or flag("--size") or env.get("AVATAR_SIZE")
+    if not size and item.get("resume") and item.get("pipeline") in ("image", "video") and not upscale_queue_settings(item):
+        state = PIPELINES[item["pipeline"]].load_run(item["resume"])
+        if state and getattr(state, "width", None) and getattr(state, "height", None):
+            size = f"{state.width}x{state.height}"
+    if not size and upscale_queue_settings(item):
+        size = f"{flag('--resolution')}p" if flag("--resolution") else f"{flag('--scale') or '2'}× upscale"
     if not size and flag("--aspect"):
-        size = f"{flag('--aspect')} at {flag('--megapixels') or '1'} MP"
+        aspect, megapixels = flag("--aspect"), flag("--megapixels") or "1"
+        size = f"{'Source aspect' if aspect == 'image' else aspect}" + (f" at {megapixels} MP" if megapixels != "image" else " · source size")
     if not size and item.get("pipeline", "shorts") == "shorts":
         size = (os.getenv("AVATAR_SIZE") or "736x1280").lower()
-    return {"workflow": os.path.splitext(os.path.basename(workflow))[0] if workflow else "Built-in",
+    return {"workflow": display_label(os.path.basename(workflow)) if workflow else "Built-in",
             "resolution": size or ("As the run was set up" if "--resume" in argv else "The workflow's own"),
             **({"prompt": item["prompt"]} if item.get("prompt") else {})}
 
@@ -738,6 +762,100 @@ def safe_video_path(folder, name):
     if os.path.dirname(path) != os.path.abspath(directory) or not os.path.exists(path):
         abort(404)
     return path
+
+
+NSFW_PATH = os.path.join(LOGS_DIR, "nsfw.json")
+_nsfw_lock = threading.Lock()
+
+
+def _read_nsfw():
+    try:
+        with open(NSFW_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return {"image": [], "video": [], "video_file": [], "video_sources": {}}
+    if not isinstance(data, dict) or any(not isinstance(data.get(key), list) or
+                                         not all(isinstance(value, str) for value in data[key])
+                                         for key in ("image", "video", "video_file")):
+        raise ValueError("Invalid NSFW tags file.")
+    sources = data.setdefault("video_sources", {})
+    if not isinstance(sources, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in sources.items()):
+        raise ValueError("Invalid NSFW video sources.")
+    return data
+
+
+def _video_nsfw_key(name, films=None):
+    run = run_of_film(name, films)
+    return ("video", run) if run else ("video_file", name)
+
+
+def _apply_nsfw(payload, tags, film_runs):
+    image_tags, video_tags, video_files = (set(tags[key]) for key in ("image", "video", "video_file"))
+    tagged_films = set()
+    for film in payload["videos"]["video"]:
+        kind, value = _video_nsfw_key(film["name"], film_runs)
+        source = UPSCALED.sub(".mp4", film["name"])
+        film["nsfw"] = (kind == "video" and value in video_tags) or source in video_files or tags["video_sources"].get(source) in video_tags
+        if film["nsfw"]:
+            tagged_films.add(film["name"])
+    for image_set in payload["image_sets"]:
+        image_set["nsfw"] = image_set["id"] in image_tags
+
+    def visible_result(result):
+        if result.get("pipeline") == "image":
+            return result.get("run_id") not in image_tags
+        if result.get("pipeline") == "video":
+            return result.get("run_id") not in video_tags and result.get("film") not in tagged_films
+        return True
+
+    payload["finished_results"] = [result for result in payload["queue"]["results"] if visible_result(result)]
+    payload["made_now"] = [result for result in payload["made_now"] if visible_result(result)]
+
+
+@app.route("/api/output/nsfw", methods=["POST"])
+@password_required
+def tag_nsfw():
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or body.get("kind") not in ("image", "video") or not isinstance(body.get("id"), str) or not isinstance(body.get("nsfw"), bool):
+        return {"ok": False, "error": "Invalid output tag."}, 400
+    kind, identifier = body["kind"], body["id"]
+    if kind == "image":
+        if not PIPELINES["image"].load_run(identifier):
+            return {"ok": False, "error": "That image batch no longer exists."}, 404
+        key, value = "image", identifier
+    else:
+        safe_video_path("video", identifier)
+        key, value = _video_nsfw_key(identifier)
+    try:
+        with _nsfw_lock:
+            tags = _read_nsfw()
+            if kind == "video":
+                source = UPSCALED.sub(".mp4", identifier)
+                if key == "video_file":
+                    value = source
+                    if not body["nsfw"] and source in tags["video_sources"]:
+                        key, value = "video", tags["video_sources"][source]
+                if key == "video":
+                    if body["nsfw"]:
+                        tags["video_sources"][source] = value
+                    else:
+                        tags["video_sources"] = {name: run for name, run in tags["video_sources"].items() if run != value}
+                    tags["video_file"] = [name for name in tags["video_file"] if name != source]
+            values = set(tags[key])
+            if body["nsfw"]:
+                values.add(value)
+            else:
+                values.discard(value)
+            tags[key] = sorted(values)
+            os.makedirs(os.path.dirname(NSFW_PATH), exist_ok=True)
+            temp = NSFW_PATH + ".tmp"
+            with open(temp, "w", encoding="utf-8") as f:
+                json.dump(tags, f, ensure_ascii=False, indent=2)
+            os.replace(temp, NSFW_PATH)
+    except (OSError, ValueError) as e:
+        app.logger.error("Could not save NSFW tags: %s", e)
+        return {"ok": False, "error": "Could not save NSFW tags. Check the panel log."}, 500
+    return {"ok": True}
 
 
 def saved_at(path):
@@ -1129,14 +1247,65 @@ def comfyui_processes():
     """The ComfyUI processes running on this PC, started by this server or not."""
     try:
         import psutil
-    except ImportError:
-        return []
+    except ImportError as e:
+        raise RuntimeError("Process inspection requires psutil; install the panel's requirements.") from e
     found = []
-    for process in psutil.process_iter(["cmdline"]):
-        line = " ".join(process.info.get("cmdline") or []).lower()
-        if "main.py" in line and "comfyui" in line and "python" in line and process.pid != os.getpid():
-            found.append(process)
+    for process in psutil.process_iter(["name", "cmdline"]):
+        if process.pid == os.getpid() or not (process.info.get("name") or "").lower().startswith("python"):
+            continue
+        args = process.info.get("cmdline")
+        if args is None:
+            raise RuntimeError(f"Cannot inspect Python process {process.pid}; ComfyUI may still be running.")
+        for arg in args[1:]:
+            path = arg.replace("\\", "/").lower()
+            if path.endswith("/main.py") and "comfyui" in path:
+                found.append(process)
+                break
+            if path == "main.py":
+                try:
+                    if "comfyui" in process.cwd().lower():
+                        found.append(process)
+                except psutil.NoSuchProcess:
+                    pass
+                except psutil.AccessDenied as e:
+                    raise RuntimeError(f"Cannot inspect Python process {process.pid}; ComfyUI may still be running.") from e
+                break
+            if path.endswith(".py") or path in ("-m", "-c"):
+                break
     return found
+
+
+def start_fresh_comfyui():
+    """Stops local ComfyUI processes before a manual start, without touching unrelated Python processes."""
+    try:
+        import psutil
+    except ImportError as e:
+        raise RuntimeError("Process inspection requires psutil; install the panel's requirements.") from e
+    global _comfyui_start_requested_at
+    with _comfyui_start_lock:
+        launcher = comfyui_launcher()
+        if not launcher:
+            raise RuntimeError("COMFYUI_LAUNCHER isn't set in .env, so the panel can't start ComfyUI.")
+        try:
+            processes = comfyui_processes()
+            for process in processes:
+                kill_tree(process.pid)
+            _, alive = psutil.wait_procs(processes, timeout=10)
+        except (psutil.Error, OSError) as e:
+            raise RuntimeError(f"Could not inspect or stop local ComfyUI processes: {e}") from e
+        if alive:
+            raise RuntimeError(f"Could not stop ComfyUI process(es): {', '.join(str(p.pid) for p in alive)}.")
+        url = (os.getenv("COMFYUI_URL") or "http://127.0.0.1:8188").rstrip("/")
+        if _port_open(url):
+            raise RuntimeError("The ComfyUI address is still in use after stopping local processes; no new instance was started.")
+        _comfyui_start_requested_at = 0.0
+        _comfyui_cache["at"] = 0.0
+        try:
+            launch_comfyui(launcher)
+        except OSError as e:
+            raise RuntimeError(f"Could not start ComfyUI: {e}") from e
+        _comfyui_start_requested_at = time.time()
+        _comfyui_cache["at"] = 0.0
 
 
 def apply_comfyui_priority():
@@ -1237,7 +1406,10 @@ def restart_blocked():
     Something a restart would cut short: a run or upload going, or a queue about to start one. A queue on hold
     isn't: it's saved, and comes back on hold.
     """
-    return job.running or uploads.running or any(queue.pending() and not queue.held for queue in (run_queue, upload_queue))
+    return job.running or uploads.running or any(
+        not queue.held and any(not item.get("later") for item in queue.pending())
+        for queue in (run_queue, upload_queue)
+    )
 
 
 _runs_cache = {"at": 0.0, "value": []}
@@ -1246,6 +1418,14 @@ _runs_cache = {"at": 0.0, "value": []}
 def busy_runs():
     """The saved runs a job has in hand: the one going, and those queued to continue."""
     busy = {item.get("resume") for item in run_queue.pending()}
+    if job.running:
+        busy.add(job.progress.get("run_id"))
+    return busy
+
+
+def active_runs():
+    """Runs going or in the active queue; pending continuations reserve their run but are not active."""
+    busy = {item.get("resume") for item in run_queue.pending() if not item.get("later")}
     if job.running:
         busy.add(job.progress.get("run_id"))
     return busy
@@ -1371,13 +1551,16 @@ def made_in_this_run():
         state = PIPELINES["image"].load_run(run_id)
         started = job.started_at.timestamp() if job.started_at else 0
         made = []
-        for shot in (state.done if state else []):
+        for position, shot in enumerate(state.shots if state else [], 1):
+            if not shot.get("file"):
+                continue
             made_at = os.path.getmtime(state.image_path(shot))
             # Only what this job made: a redo, or a set continued, kept the rest from before.
             if made_at < started:
                 continue
             made.append({"label": f"{state.title or state.brief} · {shot.get('title') or shot['number']}", "outcome": "done",
-                         "pipeline": "image", "at": datetime.fromtimestamp(made_at).strftime("%H:%M"), "t": made_at})
+                         "pipeline": "image", "run_id": state.id, "position": position,
+                         "at": datetime.fromtimestamp(made_at).strftime("%H:%M"), "t": made_at})
         return made
     except (OSError, ValueError, AttributeError, KeyError):
         return []  # Being written as we look: the next poll has it
@@ -2056,6 +2239,11 @@ def launcher_refresh():
 @password_required
 def status():
     payload, queue = run_queue.snapshot_with_job()
+    run_id = (payload.get("progress") or {}).get("run_id")
+    if queue.get("current") and run_id and payload.get("pipeline") in ("image", "video"):
+        state = PIPELINES[payload["pipeline"]].load_run(run_id)
+        if state and getattr(state, "width", None) and getattr(state, "height", None):
+            queue["current"]["facts"]["resolution"] = f"{state.width}x{state.height}"
     payload["server_started"] = STARTED_AT
     payload["stop_after"] = payload["running"] and batch_stop.requested()
     payload["queue"] = queue
@@ -2064,7 +2252,10 @@ def status():
     payload["upload"] = uploads.snapshot()
     payload["upload"]["queue"] = upload_queue.snapshot()
     payload["videos"] = {folder: list_videos(folder) for folder in FOLDERS}
-    payload["image_sets"] = [run for run in saved_runs() if run["pipeline"] == "image" and run["images"]]
+    payload["image_sets"] = [dict(run) for run in saved_runs() if run["pipeline"] == "image" and run["images"]]
+    with _nsfw_lock:
+        tags = _read_nsfw()
+    _apply_nsfw(payload, tags, films_of_runs())
     online = comfyui_online(wait=False)
     payload["comfyui"] = {"online": online, "listening": comfyui_listening(), "can_start": bool(comfyui_launcher()), "ram": ram_stats(),
                           "starting": not online and time.time() - _comfyui_start_requested_at < COMFYUI_STARTUP_WAIT,
@@ -2119,7 +2310,7 @@ def run_workflow():
                for option in offered if not option.get("role")]
     nodes = [{"id": node_id, "type": node.get("class_type", ""), "inputs": {name: _shown(value) for name, value in node.get("inputs", {}).items()}}
              for node_id, node in sorted(api.items(), key=lambda item: (not item[0].isdigit(), int(item[0]) if item[0].isdigit() else 0, item[0]))]
-    return {"name": os.path.splitext(os.path.basename(path))[0], "pipeline": pipeline, "options": options, "nodes": nodes,
+    return {"name": display_label(os.path.basename(path)), "pipeline": pipeline, "options": options, "nodes": nodes,
             "running": job.running, "api": api}
 
 
@@ -2198,7 +2389,7 @@ def workflows():
              if w.get("pipeline", pipeline_of(w["name"])) == pipeline and (pipeline == "image" or "problem" not in w)]
     # The image_, video_ or shorts_ in front only sorts them in ComfyUI: here the side already says it.
     for w in found:
-        w["label"] = re.sub(r"^(image|video|shorts?)_", "", w["label"], flags=re.I) or w["label"]
+        w["label"] = display_label(w["label"])
     if pipeline == "video":
         # How long its video model makes a clip, for the form to say.
         paths = {w["name"]: w.get("path") for w in saved_workflows()}
@@ -2213,11 +2404,14 @@ def workflows():
 @app.route("/comfyui/start", methods=["POST"])
 @password_required
 def comfyui_start():
-    """Only ComfyUI can list what's saved in it, and a run would only start it once one is under way."""
-    try:
-        start_comfyui()
-    except RuntimeError as e:
-        return {"ok": False, "error": str(e)}
+    """A manual start replaces any local ComfyUI instance; automatic starts don't."""
+    with run_queue.lock:
+        if restart_blocked():
+            return {"ok": False, "error": "A run or upload is going, or a queue is about to start one. Stop it or let it finish first."}, 409
+        try:
+            start_fresh_comfyui()
+        except RuntimeError as e:
+            return {"ok": False, "error": str(e)}, 500
     return {"ok": True}
 
 

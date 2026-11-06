@@ -9,6 +9,7 @@ from flask import request
 
 from core import seeds
 from core.paths import PROJECT_ROOT, WORKFLOWS_DIR
+from core.saved_workflows import display_label
 from panel.server import (read_outcome, form_options, PIPELINES, SHORTS_TIMINGS, _runs_cache, app, busy_runs, job, list_videos, password_required, saved_at,
                           run_queue, safe_video_path, saved_workflows, upload_queue, queue_form_snapshot)
 from pipelines.shorts.avatar_generator import avatar_clip_range, on_screen_range
@@ -44,9 +45,9 @@ def saved_workflow_path(name):
     """The file that makes a run use this saved workflow. Returns (path, error)."""
     entry = next((w for w in saved_workflows() if w["name"] == name), None)
     if not entry:
-        return None, f"ComfyUI has no saved workflow called {name} any more."
+        return None, f"ComfyUI has no saved workflow called {display_label(name)} any more."
     if "problem" in entry:
-        return None, f"{entry['label']} can't run: {entry['problem']}"
+        return None, f"{display_label(entry['label'])} can't run: {entry['problem']}"
     return entry["path"], None
 
 
@@ -65,6 +66,7 @@ def describe_stopped(state):
     parts.append(f"{folder_size(state.folder) / 2 ** 20:.0f} MB")
     return {"id": state.id, "pipeline": "shorts", "outcome": read_outcome(state.folder), "label": state.topic or f"Video {state.number}, no topic yet",
             "detail": " · ".join(parts), "when": saved_at(state.path), "clips": len(state.avatar_clips),
+            "size": state.env.get("AVATAR_SIZE") or os.getenv("AVATAR_SIZE") or "736x1280",
             "estimate": RunEta(resume_argv(state), state.env, SHORTS_TIMINGS).plan()["total"]}
 
 

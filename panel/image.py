@@ -9,8 +9,8 @@ from flask import abort, request, send_file
 from PIL import Image
 
 from core import seeds, workflow_options
-from core.saved_workflows import shorthand
-from panel.server import (read_outcome, IMAGE_TIMINGS, PIPELINES, _runs_cache, app, busy_runs, form_options, password_required, run_queue, saved_at, queue_form_snapshot,
+from core.saved_workflows import display_label, shorthand
+from panel.server import (read_outcome, IMAGE_TIMINGS, PIPELINES, _runs_cache, active_runs, app, busy_runs, form_options, password_required, run_queue, saved_at, queue_form_snapshot,
                           saved_workflows)
 from panel.video import clean_inputs, queue_label, shot_seeds
 from pipelines.image import media, models, regions
@@ -40,9 +40,9 @@ def chosen_workflow(form, image_count=None):
     if name:
         entry = next((entry for entry in entries if entry["name"] == name), None)
         if not entry:
-            return None, None, f"ComfyUI has no saved workflow called {name} any more."
+            return None, None, f"ComfyUI has no saved workflow called {display_label(name)} any more."
         if "problem" in entry:
-            return None, None, f"{entry['label']} can't run: {entry['problem']}"
+            return None, None, f"{display_label(entry['label'])} can't run: {entry['problem']}"
         return {"COMFYUI_WORKFLOW": entry["path"]}, entry["takes"], None
     entry = automatic([entry for entry in entries if "problem" not in entry], image_count or 0, form.get("image_mode") or "edit")
     if entry:
@@ -50,7 +50,7 @@ def chosen_workflow(form, image_count=None):
     if image_count is None:
         return {}, {"min_images": 0, "max_images": 1, "size": True}, None
     wanted = "edits an image" if image_count else "makes images from text"
-    why = "; ".join(f"{entry['label']}: {entry['problem']}" for entry in entries if "problem" in entry)
+    why = "; ".join(f"{display_label(entry['label'])}: {entry['problem']}" for entry in entries if "problem" in entry)
     return None, None, (f"No workflow that {wanted} can run. {why}" if why
                         else f"No workflow that {wanted} is saved in ComfyUI with a name starting image_.")
 
@@ -167,7 +167,8 @@ def image_files(state):
     files = []
     for position, shot in enumerate(state.shots or [], 1):
         if shot.get("file"):
-            files.append({"position": position, "title": shot["title"], "version": int(os.path.getmtime(state.image_path(shot)))})
+            version = f"{os.stat(state.image_path(shot)).st_mtime_ns}-{shot['number']}"
+            files.append({"position": position, "title": shot["title"], "version": version})
     return files
 
 
@@ -380,8 +381,12 @@ def generate():
     detail = [f"{count} {'image' if count == 1 else 'images'}", what, writer, *(["review the prompts first"] if plan_only else [])]
     if env.get("COMFYUI_WORKFLOW"):
         detail.append(os.path.splitext(os.path.basename(env["COMFYUI_WORKFLOW"]))[0])
-    # Titled like every side's: how much, with the prompt a tap away in what the title opens.
-    item = {"pipeline": "image", "label": f"{count} {'image' if count == 1 else 'images'}", "prompt": prompt, "detail": " · ".join(detail), "argv": argv, "env": env,
+    count_label = f"{count} {'image' if count == 1 else 'images'}"
+    chosen_size = None if mode in ("areas", "expand") else media.pick_size(
+        option(flags, "--size"), option(flags, "--aspect"), option(flags, "--megapixels"),
+        images[0].size if images else None, models.most_megapixels(takes.get("model"), "--compose" in flags))
+    item = {"pipeline": "image", "label": f"{count_label}: {queue_label(prompt)}" if prompt else count_label, "prompt": prompt, "detail": " · ".join(detail), "argv": argv, "env": env,
+            "resolution": f"{chosen_size[0]}x{chosen_size[1]}" if chosen_size else ("Expanded source size" if mode == "expand" else "Source image size"),
             "image": image_paths[0] if image_paths else None, "references": image_paths[1:] + region_files, "plan_only": plan_only, "first_only": "--first-only" in flags,
             "form": queue_form_snapshot(),
             "form_files": {**{("image" if i == 0 else f"image_{i + 1}"): path for i, path in enumerate(image_paths)},
@@ -428,12 +433,12 @@ def queue_saved_run(state, redo=None):
     return {"ok": True, "queued": queued}
 
 
-def load_idle_run(run_id):
+def load_idle_run(run_id, allow_pending=False):
     """The saved run, or the reply saying why it can't be touched now."""
     state = RunState.load(run_id)
     if not state or not state.shots:
         return None, ({"ok": False, "error": "That run is no longer saved."}, 404)
-    if run_id in busy_runs():
+    if run_id in (active_runs() if allow_pending else busy_runs()):
         return None, ({"ok": False, "error": "That run is going or queued. Stop it or take it out of the queue first."}, 409)
     return state, None
 
@@ -445,8 +450,11 @@ def image_run_detail(run_id):
     state = RunState.load(run_id)
     if not state or not state.shots:
         return {"ok": False, "error": "That run is no longer saved."}, 404
+    with run_queue.lock:
+        busy = run_id in active_runs()
+        pending = not busy and run_id in busy_runs()
     return {"ok": True, "id": state.id, "title": state.title, "brief": state.brief, "llm": state.llm, "direct": state.direct,
-            "busy": run_id in busy_runs(), "finished": state.finished, "is_image": True,
+            "busy": busy, "pending": pending, "finished": state.finished, "is_image": True,
             "size": f"{state.width}x{state.height}", "image_count": state.image_count, "settings": settings_of(state),
             "shots": [{"title": shot["title"], "prompt": shot["prompt"], "rendered": bool(shot.get("file")),
                        "seed": shot.get("seed"), "used_seed": shot.get("used_seed"), "enhanced_prompt": shot.get("enhanced_prompt"),
@@ -496,20 +504,21 @@ def image_thumbnail(run_id, position):
 @password_required
 def save_image_shots(run_id):
     """Saves changed prompts. An image already made stays as it is until you redo it."""
-    state, refused = load_idle_run(run_id)
-    if refused:
-        return refused
-    body = request.get_json(silent=True) or {}
-    prompts = body.get("prompts")
-    if not isinstance(prompts, list) or len(prompts) != len(state.shots) or not all(isinstance(p, str) and p.strip() for p in prompts):
-        return {"ok": False, "error": "Every image needs a prompt."}, 400
-    chosen, error = shot_seeds(body, len(state.shots))
-    if error:
-        return {"ok": False, "error": error}, 400
-    for shot, prompt, seed in zip(state.shots, prompts, chosen):
-        shot["prompt"] = prompt.strip()
-        shot["seed"] = seed
-    state.save()
+    with run_queue.lock:
+        state, refused = load_idle_run(run_id, allow_pending=True)
+        if refused:
+            return refused
+        body = request.get_json(silent=True) or {}
+        prompts = body.get("prompts")
+        if not isinstance(prompts, list) or len(prompts) != len(state.shots) or not all(isinstance(p, str) and p.strip() for p in prompts):
+            return {"ok": False, "error": "Every image needs a prompt."}, 400
+        chosen, error = shot_seeds(body, len(state.shots))
+        if error:
+            return {"ok": False, "error": error}, 400
+        for shot, prompt, seed in zip(state.shots, prompts, chosen):
+            shot["prompt"] = prompt.strip()
+            shot["seed"] = seed
+        state.save()
     return {"ok": True}
 
 
@@ -537,13 +546,15 @@ def delete_image(run_id, position):
     shot = state.shots[position - 1]
     if len(state.shots) == 1:
         state.remove()
+        images = []
     else:
         if shot.get("file"):
             os.remove(state.image_path(shot))
         del state.shots[position - 1]
         state.save()
+        images = image_files(state)
     _runs_cache["at"] = 0.0
-    return {"ok": True}
+    return {"ok": True, "images": images}
 
 
 def continue_run(run_id):

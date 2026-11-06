@@ -26,6 +26,7 @@ import ffmpeg
 from PIL import Image
 
 from panel import app as _both_pipelines  # noqa: F401
+from panel import image as image_panel, shorts as shorts_panel
 from panel import server as webapp
 from panel import video as video_panel
 from pipelines.shorts.paths import OUTPUT_DIR as SHORTS_READY, UPLOADED_DIR as SHORTS_UPLOADED
@@ -198,8 +199,9 @@ class PanelTest(unittest.TestCase):
         # A second film waits its turn, and Stop puts it on hold.
         self.assertEqual(self.generate(prompt="a second film").get_json(), {"ok": True, "queued": True})
         queue_status = self.status()["queue"]
-        self.assertEqual(queue_status["items"][0]["label"], "1 video", "titled like every side's")
+        self.assertEqual(queue_status["items"][0]["label"], "1 video: a second film")
         self.assertEqual(queue_status["items"][0]["facts"]["prompt"], "a second film", "the prompt is what the title opens")
+        self.assertEqual(queue_status["items"][0]["facts"]["resolution"], "64x64")
         # The first film's plan and clips were timed: the fakes are quick, so it is short, but it's there.
         self.assertGreater(queue_status["items"][0]["estimate"], 0)
 
@@ -373,6 +375,8 @@ class PanelTest(unittest.TestCase):
         # Stopped runs says it failed and why, until it makes its film; Output only lists what was made.
         self.wait_until(lambda: self.status()["stopped_runs"][0].get("outcome"), "the failure to be noted")
         failed = self.status()["stopped_runs"][0]
+        self.assertEqual(self.status()["queue"]["results"][-1]["run_id"], failed["id"])
+        self.assertEqual(failed["size"], "64x64")
         self.assertEqual(self.status()["videos"]["video"], [])
         self.assertEqual(failed["outcome"]["outcome"], "failed")
         self.assertIn("failed", failed["outcome"]["why"])
@@ -455,7 +459,7 @@ class PanelTest(unittest.TestCase):
     def test_a_runs_title_opens_its_workflow_and_resolution(self):
         image = {"pipeline": "image", "argv": ["--count", "3", "--size", "1272x2772"],
                  "env": {"COMFYUI_WORKFLOW": "C:/x/logs/workflows/image_krea2_SFW_NSFW.json"}}
-        self.assertEqual(webapp.run_facts(image), {"workflow": "image_krea2_SFW_NSFW", "resolution": "1272x2772"})
+        self.assertEqual(webapp.run_facts(image), {"workflow": "krea2_SFW_NSFW", "resolution": "1272x2772"})
         by_aspect = {"pipeline": "image", "argv": ["--aspect", "16:9", "--megapixels", "2"], "env": {}}
         self.assertEqual(webapp.run_facts(by_aspect), {"workflow": "Built-in", "resolution": "16:9 at 2 MP"})
         shorts = {"pipeline": "shorts", "argv": ["--runs", "3"], "env": {"AVATAR_SIZE": "576x1024", "COMFYUI_WORKFLOW": "w/avatar_lipsync.json"}}
@@ -631,6 +635,8 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(status["returncode"], 1)
         self.assertTrue(any("ANTHROPIC_API_KEY" in line["text"] for line in status["lines"]), status["lines"])
         self.assertEqual(list_runs(), [])
+        self.assertIsNone(status["queue"]["results"][-1]["run_id"])
+        self.assertIsNotNone(status["queue"]["results"][-1]["job_id"])
 
     def test_bad_forms_are_refused(self):
         for fields, expected in (
@@ -867,8 +873,9 @@ class PanelTest(unittest.TestCase):
 
     def test_the_workflow_of_the_last_run_can_be_looked_at(self):
         self.save_workflows()
+        self.comfy.saved["video_wan.json"] = saved_workflow()
         self.client.get("/api/workflows?pipeline=video")
-        path = os.path.join(webapp.SAVED_WORKFLOWS_DIR, "wan.json")
+        path = os.path.join(webapp.SAVED_WORKFLOWS_DIR, "video_wan.json")
         saved = webapp.job.workflow
         try:
             webapp.job.workflow = None
@@ -881,6 +888,70 @@ class PanelTest(unittest.TestCase):
             self.assertEqual(sampler["inputs"]["steps"], "7", "the options this run was started with")
         finally:
             webapp.job.workflow = saved
+
+    def test_workflow_display_names_keep_identifiers(self):
+        self.comfy.saved, self.comfy.object_info = {"video_Test Name.json": saved_workflow()}, OBJECT_INFO
+        reply = self.client.get("/api/workflows?pipeline=video").get_json()["workflows"]
+        self.assertEqual([(w["name"], w["label"]) for w in reply], [("video_Test Name.json", "Test Name")])
+        self.assertEqual(webapp.display_label("folder\\IMAGE_Test Name.json"), "folder\\Test Name")
+        self.assertEqual(webapp.display_label("shorts_name_shorts.json"), "name_shorts")
+        self.assertEqual(webapp.display_label("image_.json"), "image_")
+        self.assertEqual(webapp.display_label("other_name.json"), "other_name")
+        self.assertEqual(video_panel.chosen_workflow({"workflow": "video_missing.json"})[2],
+                         "ComfyUI has no saved workflow called missing any more.")
+        self.assertEqual(image_panel.chosen_workflow({"workflow": "image_missing.json"})[2],
+                         "ComfyUI has no saved workflow called missing any more.")
+        self.assertEqual(shorts_panel.saved_workflow_path("shorts_missing.json")[1],
+                         "ComfyUI has no saved workflow called missing any more.")
+
+    def test_nsfw_tags_are_persistent_and_hide_finished_output(self):
+        path = os.path.join(self.temp, "nsfw.json")
+        with mock.patch.object(webapp, "NSFW_PATH", path), \
+             mock.patch.object(webapp.PIPELINES["image"], "load_run", return_value=object()), \
+             mock.patch.object(webapp, "safe_video_path", return_value="film.mp4"), \
+             mock.patch.object(webapp, "_video_nsfw_key", return_value=("video", "run_video")):
+            post = lambda kind, identifier, nsfw: self.client.post("/api/output/nsfw",
+                                                                  json={"kind": kind, "id": identifier, "nsfw": nsfw})
+            self.assertTrue(post("image", "image_a", True).get_json()["ok"])
+            self.assertTrue(post("video", "film.mp4", True).get_json()["ok"])
+            tags = webapp._read_nsfw()
+            self.assertEqual(tags, {"image": ["image_a"], "video": ["run_video"], "video_file": [],
+                                    "video_sources": {"film.mp4": "run_video"}})
+            payload = {"videos": {"video": [{"name": "film.mp4"}, {"name": "upscaled.mp4"}]},
+                       "image_sets": [{"id": "image_a"}, {"id": "image_b"}],
+                       "queue": {"results": [{"pipeline": "image", "run_id": "image_a"},
+                                             {"pipeline": "video", "run_id": "run_video"},
+                                             {"pipeline": "shorts", "run_id": "run_short"}]},
+                       "made_now": [{"pipeline": "image", "run_id": "image_a"},
+                                    {"pipeline": "image", "run_id": "image_b"}]}
+            webapp._apply_nsfw(payload, tags, {})
+            self.assertTrue(all(film["nsfw"] for film in payload["videos"]["video"]))
+            self.assertEqual([s["nsfw"] for s in payload["image_sets"]], [True, False])
+            self.assertEqual([r["pipeline"] for r in payload["finished_results"]], ["shorts"])
+            self.assertEqual([r["run_id"] for r in payload["made_now"]], ["image_b"])
+            self.assertEqual(len(payload["queue"]["results"]), 3, "Failed and queue history remain intact")
+            self.assertTrue(post("video", "upscaled.mp4", False).get_json()["ok"])
+            self.assertTrue(post("image", "image_a", False).get_json()["ok"])
+            self.assertEqual(webapp._read_nsfw(), {"image": [], "video": [], "video_file": [], "video_sources": {}})
+            self.assertEqual(post("shorts", "short.mp4", True).status_code, 400)
+            self.assertEqual(self.client.post("/api/output/nsfw", json={"kind": "video", "id": "x", "nsfw": "yes"}).status_code, 400)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("{broken")
+            self.assertEqual(post("image", "image_a", True).status_code, 500)
+            with open(path, encoding="utf-8") as f:
+                self.assertEqual(f.read(), "{broken", "a corrupt tags file is not silently replaced")
+
+    def test_nsfw_video_keys_group_upscales_and_allow_unmatched_files(self):
+        film = types.SimpleNamespace(id="run_20260812_193000")
+        known = {"film.mp4": film}
+        self.assertEqual(webapp._video_nsfw_key("film.mp4", known), ("video", film.id))
+        self.assertEqual(webapp._video_nsfw_key("film_upscaled.mp4", known), ("video", film.id))
+        self.assertEqual(webapp._video_nsfw_key("orphan.mp4", known), ("video_file", "orphan.mp4"))
+        tags = {"image": [], "video": [film.id], "video_file": [], "video_sources": {"film.mp4": film.id}}
+        payload = {"videos": {"video": [{"name": "film_upscaled.mp4"}]}, "image_sets": [],
+                   "queue": {"results": []}, "made_now": []}
+        webapp._apply_nsfw(payload, tags, {})
+        self.assertTrue(payload["videos"]["video"][0]["nsfw"], "an upscale stays hidden if its source run is removed")
 
     def test_the_built_in_workflow_is_still_the_default(self):
         self.assertEqual(video_panel.chosen_workflow({}), ({}, video_panel.BUILT_IN_TAKES, None))
@@ -948,6 +1019,24 @@ class PanelTest(unittest.TestCase):
             f.write("{broken")
         self.assertEqual(webapp.JobQueue(webapp.Job(), lambda item: None, path=path).items, [])
 
+    def test_queue_snapshot_exposes_continued_run_for_prompts(self):
+        queue = webapp.JobQueue(webapp.Job(), lambda item: None)
+        queue.held = True
+        queue.items = [{"id": 3, "label": "continued", "pipeline": "video", "resume": "run_1",
+                        "argv": ["private"], "env": {"secret": "private"}},
+                       {"id": 4, "label": "new", "pipeline": "image", "argv": ["private"]},
+                       {"id": 5, "label": "upscale", "pipeline": "image", "resume": "image_1",
+                        "argv": ["-m", "pipelines.image.upscale", "--resume", "image_1"]},
+                       {"id": 6, "label": "redo", "pipeline": "video", "resume": "run_1",
+                        "argv": ["--resume", "run_1", "--redo", "1"]}]
+        with mock.patch.object(webapp, "run_facts", return_value={}):
+            items = queue.snapshot()["items"]
+        item = items[0]
+        self.assertEqual(item["resume"], "run_1")
+        self.assertEqual([entry["continuation"] for entry in items], [True, False, False, False])
+        self.assertNotIn("argv", item)
+        self.assertNotIn("env", item)
+
     def test_settings_are_saved_and_checked(self):
         path = os.path.join(self.temp, "settings.json")
         with mock.patch.object(webapp.settings, "PATH", path), mock.patch.object(webapp, "apply_comfyui_priority"):
@@ -1006,6 +1095,43 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(self.client.post("/restart/panel").status_code, 409)
         self.assertEqual(self.client.post("/restart/comfyui").status_code, 409)
 
+    def test_pending_continuation_can_edit_prompts_without_duplicate_jobs(self):
+        self.assertTrue(self.generate(review="1").get_json()["ok"])
+        self.wait_idle()
+        run_id = self.only_run().id
+        item = {"id": 900, "pipeline": "video", "resume": run_id, "later": True}
+        with webapp.run_queue.lock:
+            webapp.run_queue.items.append(item)
+        detail = self.client.get(f"/runs/{run_id}").get_json()
+        self.assertFalse(detail["busy"])
+        self.assertTrue(detail["pending"])
+        prompts = [shot["prompt"] for shot in detail["shots"]]
+        prompts[0] = "A revised first shot."
+        self.assertTrue(self.client.post(f"/runs/{run_id}/shots", json={"prompts": prompts}).get_json()["ok"])
+        self.assertEqual(RunState.load(run_id).shots[0]["prompt"], prompts[0])
+        self.assertEqual(self.client.post(f"/runs/{run_id}/continue").status_code, 409)
+        self.assertEqual(self.client.post(f"/runs/{run_id}/discard").status_code, 409)
+        self.assertFalse(webapp.restart_blocked())
+        with webapp.run_queue.lock:
+            item.pop("later")
+            webapp.run_queue.held = True
+        self.assertTrue(self.client.get(f"/runs/{run_id}").get_json()["busy"])
+        self.assertEqual(self.client.post(f"/runs/{run_id}/shots", json={"prompts": prompts}).status_code, 409)
+        with webapp.run_queue.lock:
+            webapp.run_queue.items.remove(item)
+
+    def test_pending_jobs_do_not_block_guarded_restart(self):
+        with mock.patch.object(webapp.run_queue, "pending", return_value=[{"id": 1, "later": True}]), \
+             mock.patch.object(webapp.upload_queue, "pending", return_value=[]), \
+             mock.patch.object(webapp.run_queue, "held", False), \
+             mock.patch.object(webapp.subprocess, "Popen"), mock.patch.object(webapp.threading, "Timer"):
+            self.assertFalse(webapp.restart_blocked())
+            self.assertTrue(self.client.post("/restart/panel").get_json()["ok"])
+        with mock.patch.object(webapp.run_queue, "pending", return_value=[{"id": 1, "later": True}, {"id": 2}]), \
+             mock.patch.object(webapp.upload_queue, "pending", return_value=[]), \
+             mock.patch.object(webapp.run_queue, "held", False):
+            self.assertTrue(webapp.restart_blocked())
+
     def test_shutdown_stops_everything_and_keeps_the_queue(self):
         self.comfy.script = ["hang"]
         self.assertTrue(self.generate().get_json()["ok"])
@@ -1059,6 +1185,63 @@ class PanelTest(unittest.TestCase):
                 with mock.patch.object(webapp.run_queue, "held", True):
                     self.assertEqual(self.client.post("/launcher/refresh", data=newer).get_json(), {"restarting": True})
             timer.assert_called_once()
+
+
+class ComfyFreshStartTest(unittest.TestCase):
+    def test_detects_only_comfyui_python_entry_points(self):
+        import psutil
+        def process(pid, name, args, cwd=""):
+            result = mock.Mock(pid=pid, info={"name": name, "cmdline": args})
+            result.cwd.return_value = cwd
+            return result
+        direct = process(1231, "python.exe", ["python.exe", "-s", r"ComfyUI\main.py"])
+        relative = process(1232, "pythonw.exe", ["pythonw.exe", "main.py"], r"C:\Projects\ComfyUI")
+        unrelated = process(1233, "python.exe", ["python.exe", r"C:\other\main.py", r"C:\ComfyUI\main.py"])
+        other = process(1234, "python.exe", ["python.exe", "main.py"], r"C:\Projects\other")
+        with mock.patch.object(psutil, "process_iter", return_value=[direct, relative, unrelated, other]):
+            self.assertEqual(webapp.comfyui_processes(), [direct, relative])
+
+    def test_manual_start_kills_and_waits_before_launch(self):
+        import psutil
+        client = webapp.app.test_client()
+        processes = [mock.Mock(pid=1231), mock.Mock(pid=1232)]
+        calls = []
+        with mock.patch.object(webapp, "restart_blocked", return_value=False), \
+                mock.patch.object(webapp, "comfyui_launcher", return_value="launcher"), \
+                mock.patch.object(webapp, "comfyui_processes", return_value=processes), \
+                mock.patch.object(webapp, "kill_tree", side_effect=lambda pid: calls.append(("kill", pid))), \
+                mock.patch.object(psutil, "wait_procs", side_effect=lambda procs, timeout: (calls.append(("wait", timeout)) or (procs, []))), \
+                mock.patch.object(webapp, "_port_open", return_value=False), \
+                mock.patch.object(webapp, "launch_comfyui", side_effect=lambda launcher: calls.append(("launch", launcher))), \
+                mock.patch.object(webapp, "_comfyui_start_requested_at", 0):
+            self.assertTrue(client.post("/comfyui/start").get_json()["ok"])
+        self.assertEqual(calls, [("kill", 1231), ("kill", 1232), ("wait", 10), ("launch", "launcher")])
+
+    def test_manual_start_refuses_active_or_unstoppable_processes(self):
+        import psutil
+        client = webapp.app.test_client()
+        with mock.patch.object(webapp, "restart_blocked", return_value=True), \
+                mock.patch.object(webapp, "start_fresh_comfyui") as start:
+            self.assertEqual(client.post("/comfyui/start").status_code, 409)
+            start.assert_not_called()
+        process = mock.Mock(pid=1231)
+        with mock.patch.object(webapp, "restart_blocked", return_value=False), \
+                mock.patch.object(webapp, "comfyui_launcher", return_value="launcher"), \
+                mock.patch.object(webapp, "comfyui_processes", return_value=[process]), \
+                mock.patch.object(webapp, "kill_tree"), mock.patch.object(psutil, "wait_procs", return_value=([], [process])), \
+                mock.patch.object(webapp, "launch_comfyui") as launch:
+            reply = client.post("/comfyui/start")
+            self.assertEqual(reply.status_code, 500)
+            self.assertIn("1231", reply.get_json()["error"])
+            launch.assert_not_called()
+        with mock.patch.object(webapp, "restart_blocked", return_value=False), \
+                mock.patch.object(webapp, "comfyui_launcher", return_value="launcher"), \
+                mock.patch.object(webapp, "comfyui_processes", return_value=[]), \
+                mock.patch.object(psutil, "wait_procs", return_value=([], [])), \
+                mock.patch.object(webapp, "_port_open", return_value=True), \
+                mock.patch.object(webapp, "launch_comfyui") as launch:
+            self.assertEqual(client.post("/comfyui/start").status_code, 500)
+            launch.assert_not_called()
 
 
 class QueueUpscaleEditTest(unittest.TestCase):

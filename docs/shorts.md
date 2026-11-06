@@ -281,9 +281,9 @@ each, so uploads still go during a render. A queued job keeps the options it was
 queued with, whatever you change on the form afterwards, and **Upload all** means the
 videos in Ready when you pressed it. Jobs start in order; one that fails doesn't stop
 the rest, and the queue lists how each one ended. A video deleted or uploaded while
-waiting is skipped. **Stop all** (**Stop** on an upload) puts what is queued on hold until you
-press **Resume**, **Skip, resume later** stops the run but starts the next job straight away, leaving
-the run under **Stopped runs** to continue later, and ✕ takes a job out of the queue. Adding or removing a job moves the running ETA, which
+waiting is skipped. **Stop** puts what is queued on hold until you resume it; **Cancel** stops the run but starts
+the next job straight away, leaving the run under **Pending** to continue later. Both run actions require two taps
+to confirm. ✕ takes a job out of the queue. Adding or removing a job moves the running ETA, which
 lists each queued job among what moved it; jobs on hold don't count. What is queued is saved
 in `logs/`, so after Shut down or a crash it comes back on hold until you press **Resume**.
 

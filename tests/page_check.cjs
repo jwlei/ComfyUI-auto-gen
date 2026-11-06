@@ -19,7 +19,7 @@ function element(id) {
     id, dataset: {}, style: {}, hidden: false, innerHTML: '', textContent: '', value: '', className: '', elements: [], options: [], selectedOptions: [{}],
     classList: { toggle() {}, add() {}, remove() {}, contains: () => false },
     listeners: {}, addEventListener(name, fn) { this.listeners[name] = fn; }, querySelectorAll: selector => (selector === 'input' ? [element('low'), element('high')] : []), querySelector: () => element('part'), setAttribute() {},
-    reportValidity() { return true; },
+    reportValidity() { return true; }, dispatchEvent() {},
     getBoundingClientRect: () => ({ top: 0, bottom: 100 }), appendChild() {}, offsetHeight: 90, insertAdjacentHTML() {}, showModal() { this.open = true; }, close() { this.open = false; }, scrollTo() {},
     pause() {}, play() { return Promise.resolve(); }, removeAttribute(name) { delete this[name]; },
   };
@@ -34,7 +34,7 @@ const context = {
   fetch: async () => { throw new Error('offline'); },
   FormData: class { delete() {} append() {} },
   location: { reload() { context.reloads++; } }, reloads: 0, AbortController,
-  URL, setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, requestAnimationFrame: () => 0, cancelAnimationFrame() {},
+  URL, Event: class { constructor(type, options) { this.type = type; this.bubbles = options.bubbles; } }, setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, requestAnimationFrame: () => 0, cancelAnimationFrame() {},
   confirm: () => true, alert() {}, console, Date, Math, JSON, Set, Object, String,
 };
 vm.createContext(context);
@@ -55,13 +55,13 @@ function imageBox(number) {
     get value() { return this.text; }, set value(text) { this.text = text; if (!text) this.files = []; } };
   const parts = { input, img: { src: '', classList: hiddenClass() }, button: { classList: hiddenClass() }, label: { textContent: '' },
     select: { disabled: true, value: 'view', classList: hiddenClass() } };
-  return { hidden: false, parts, querySelector: tag => parts[tag], classList: hiddenClass() };
+  return { hidden: false, parts, querySelector: tag => tag === '[data-clear]' ? parts.button : tag === 'input[type="file"]' ? parts.input : parts[tag], classList: hiddenClass() };
 }
 const boxes = [];
 const holder = context.document.getElementById('imageBoxes');
 holder.querySelectorAll = () => boxes;
 holder.insertAdjacentHTML = (_, html) => {
-  assert(/type="file"/.test(html) && /<img class="preview hidden"/.test(html) && /data-clear/.test(html));
+  assert(/type="file"/.test(html) && /<img class="preview hidden"/.test(html) && /data-clear/.test(html) && /data-pick="1"/.test(html));
   assert(/<div class="image-line">[\s\S]*type="file"[\s\S]*data-clear[\s\S]*<\/div>/.test(html), 'the image and what it is share one line');
   const number = boxes.length + 1;
   assert.strictEqual(html.includes(`name="image_${number}_role"`), number > 1, 'every image after the first has a role');
@@ -325,6 +325,13 @@ context.imageRun = imageRun;
 const imageDialog = run('shotsHtml(imageRun)');
 assert(!imageDialog.includes('<script>'), 'prompts are escaped');
 assert(imageDialog.includes('data-redo="1"') && !imageDialog.includes('data-redo="2"') && imageDialog.includes('Make the 1 left') && imageDialog.includes('data-delete-image="2"'));
+context.imageRun.pending = true;
+const pendingImageDialog = run('shotsHtml(imageRun)');
+assert(pendingImageDialog.includes('data-save="1"') && !pendingImageDialog.includes('readonly') && !pendingImageDialog.includes('data-redo=') && !pendingImageDialog.includes('data-delete-image=') && !pendingImageDialog.includes('data-render='), 'pending images allow prompt edits but not duplicate or destructive actions');
+delete context.imageRun.pending;
+context.pendingFilm = { ...shots, busy: false, pending: true, finished: false };
+const pendingFilmDialog = run('shotsHtml(pendingFilm)');
+assert(pendingFilmDialog.includes('data-save="1"') && !pendingFilmDialog.includes('readonly') && !pendingFilmDialog.includes('data-redo=') && !pendingFilmDialog.includes('data-render='), 'pending films allow prompt edits without starting twice');
 // A set's prompts: a carousel, its count on the right of the title, the original prompt behind the title; small buttons under it.
 assert(/<div class="shots-list carousel" id="shotsCarousel">/.test(imageDialog) && /<button type="button" class="shots-title" data-fold="briefFold"[^>]*>T<\/button>\s*<span class="shots-count" id="shotsCount">1 of 2<\/span>/.test(imageDialog));
 assert(/<div class="seed-fold brief-fold" id="briefFold" hidden>\s*<div class="fold-text" id="briefText">"b"<\/div>/.test(imageDialog), 'the original prompt, a tap away');
@@ -424,7 +431,9 @@ const stoppedBox = els.stoppedRuns.innerHTML;
 assert(stoppedBox.includes('class="stopped-run"'), 'in a box of its own');
 assert(stoppedBox.indexOf('Wardrobe') < stoppedBox.indexOf('Image · 1 of 2 images') && stoppedBox.indexOf('Image · 1 of 2 images') < stoppedBox.indexOf('class="stopped-actions"'), 'in that order');
 assert(stoppedBox.includes('<div class="hint">02 Nov 23:46</div>') && stoppedBox.indexOf('Image · 1 of 2 images') < stoppedBox.indexOf('02 Nov 23:46') && stoppedBox.indexOf('02 Nov 23:46') < stoppedBox.indexOf('class="stopped-actions"'), 'the date on its own line, under the details');
-assert(stoppedBox.indexOf('class="stopped-actions"') < stoppedBox.indexOf('data-shots') && stoppedBox.indexOf('data-shots') < stoppedBox.indexOf('data-continue') && stoppedBox.indexOf('data-continue') < stoppedBox.indexOf('data-discard'), 'the buttons last');
+assert(stoppedBox.indexOf('class="stopped-actions"') < stoppedBox.indexOf('data-shots') && stoppedBox.indexOf('data-shots') < stoppedBox.indexOf('data-config') && stoppedBox.indexOf('data-config') < stoppedBox.indexOf('data-continue') && stoppedBox.indexOf('data-continue') < stoppedBox.indexOf('data-discard'), 'the buttons last');
+assert(/class="icon-btn start-item continue-item" data-continue="image_1"/.test(stoppedBox) && stoppedBox.includes('aria-label="Continue"'), 'continuation has an accessible play icon');
+assert(/\.queue \.stopped-actions \.continue-item \{[^}]*color: var\(--ok\)/.test(html) && /\.queue \.stopped-actions \.icon-btn:not\(\.continue-item\) \{ color: var\(--muted\)/.test(html), 'only continuations have a green play icon');
 assert(/\.stopped-run \{[^}]*border: 1px solid/.test(html));
 run('renderStopped([])');
 
@@ -468,16 +477,21 @@ run(`renderStopped([{ id: 'run_1', pipeline: 'video', label: 'A <b>plan', detail
 const box = els.stoppedRuns;
 assert.strictEqual(box.hidden, false);
 assert(box.innerHTML.includes('A &lt;b&gt;plan') && box.innerHTML.includes('~31 min'));
-assert(box.innerHTML.includes('data-shots="run_1"') && box.innerHTML.includes('data-continue="run_1"') && box.innerHTML.includes('>Render<'));
+assert(box.innerHTML.includes('data-shots="run_1"') && box.innerHTML.includes('data-continue="run_1"') && box.innerHTML.includes('aria-label="Render"'));
 const written = box.innerHTML;
 box.innerHTML = 'untouched';
 run(`renderStopped([{ id: 'run_1', pipeline: 'video', label: 'A <b>plan', detail: 'Plan ready, 8 shots', clips: 0, estimate: 1860 }])`);
 assert.strictEqual(box.innerHTML, 'untouched', 'a poll must not replace buttons that have not changed');
 assert(written.length > 0);
 run(`renderStopped([{ id: 'run_1', pipeline: 'video', label: 'x', detail: 'y', clips: 2, estimate: 60 }])`);
-assert(box.innerHTML.includes('>Continue<'));
+assert(box.innerHTML.includes('aria-label="Continue"'));
+run(`renderStopped([], [{ id: 7, pipeline: 'video', label: 'Continue', detail: '', resume: 'run_1', continuation: true }, { id: 8, pipeline: 'image', label: 'new', detail: '', continuation: false }, { id: 9, pipeline: 'image', label: 'upscale', detail: '', resume: 'image_1', continuation: false }])`);
+assert(box.innerHTML.includes('data-shots="run_1"') && box.innerHTML.includes('data-edit="7"') && box.innerHTML.includes('data-start="7"'), 'a parked continuation exposes prompts and its other controls');
+assert(box.innerHTML.includes('class="icon-btn start-item continue-item" data-start="7"') && box.innerHTML.includes('class="icon-btn start-item" data-start="8"') && box.innerHTML.includes('class="icon-btn start-item" data-start="9"'), 'only the continued job is green');
 run('renderStopped([])');
 assert.strictEqual(box.hidden, true);
+run(`renderStopped([], [], [{ job_id: 7, pipeline: 'image', label: 'No plan', outcome: 'failed', note: 'Failed to start' }])`);
+assert(els.failedRuns.innerHTML.includes('data-job-id="7"') && els.failedRuns.innerHTML.includes('No saved run to retry'), 'failures without a saved run still appear under Failed');
 
 // How a run or upload ended is said once, under Finished, newest first; the status itself goes back to Idle.
 run(`renderUpload({ lines: [{ n: 1, t: '17:00', text: 'x' }], running: false, started_at: '17:00', elapsed: 1, returncode: 1, stopped: true, queue: { items: [], held: false, results: [] } })`);
@@ -854,6 +868,26 @@ run('syncFilter(lastVideos.video)');
 assert(els.outputFilter.innerHTML.includes('<option value="ltx">ltx</option>') && els.outputFilter.innerHTML.includes('<option value="wan">wan</option>') && els.outputFilter.hidden === false);
 run(`outputFilter = 'wan'`);
 assert.deepStrictEqual(JSON.parse(run('JSON.stringify(visibleFilms().map(v => v.name))')), ['a.mp4', 'c.mp4']);
+run(`lastVideos.video.push({ name: 'private.mp4', model: 'wan', mtime: 4, nsfw: true });
+  imageSets = [{ id: 'image_private', label: 'Private', model: 'test', size: '1x1', when: '', total: 1, nsfw: true,
+    images: [{ position: 1, title: 'Private', version: 1 }] }];
+  outputFilter = ''; syncFilter(lastVideos.video)`);
+assert(els.outputFilter.innerHTML.indexOf('>All workflows</option>') < els.outputFilter.innerHTML.indexOf('>NSFW</option>'));
+assert(els.outputFilter.innerHTML.indexOf('>NSFW</option>') < els.outputFilter.innerHTML.indexOf('>ltx</option>'));
+assert.deepStrictEqual(JSON.parse(run('JSON.stringify(visibleFilms().map(v => v.name))')), ['a.mp4', 'b.mp4', 'c.mp4']);
+assert.strictEqual(run('filtered(imageSets).length'), 0, 'tagged image batches are hidden normally');
+let nsfwView = false;
+const bodyToggle = context.document.body.classList.toggle;
+context.document.body.classList.toggle = (name, value) => { if (name === 'nsfw-view') nsfwView = value; };
+run(`outputFilter = NSFW_FILTER; syncFilter(lastVideos.video); renderVideos(); renderImageSets()`);
+assert.deepStrictEqual(JSON.parse(run('JSON.stringify(visibleFilms().map(v => v.name))')), ['private.mp4']);
+assert(els.imageSets.innerHTML.includes('data-nsfw-image="image_private"') && els.imageSets.innerHTML.includes('Remove NSFW tag'));
+assert(els.videos.innerHTML.includes('data-nsfw-video="private.mp4"') && els.videos.innerHTML.includes('data-film-folder="video"'));
+assert(nsfwView && html.includes('body.nsfw-view .videos-card #imageSets, body.nsfw-view .videos-card #videos'), 'the combined Image and Video view is active');
+context.document.body.classList.toggle = bodyToggle;
+run(`renderFinished([], [], []);`);
+assert.strictEqual(els.finishedList.innerHTML, '', 'an open Finished list is cleared when nothing remains');
+run('imageSets = []');
 run(`outputFilter = ''; folder = 'output'; pipeline = 'shorts'`);
 // The footer's bar says how many more are waiting.
 assert(/right: left \+ \(runsQueued \? ` · \+\$\{runsQueued\} queued` : ''\)/.test(script));
@@ -878,7 +912,7 @@ assert(/const PRESET_SKIP = \['prompt', 'narration', 'seed', 'topic', 'output', 
 assert((html.match(/<input type="checkbox" name="try_first">/g) || []).length === 1, 'one Preview run, under the button, for whichever form it is in');
 assert(/<button type="button" class="start-later" id="goLater"[^>]*>Start later<\/button>/.test(html) && !html.includes('type="time"'), 'Start later: a quiet button, no clock');
 assert(!html.includes('id="toast"') && !script.includes('announceResults'), 'nothing pops up when something ends: Finished has it');
-assert(/class="icon-btn start-item" data-start="\$\{item\.id\}"/.test(script) && script.includes('ICONS.play'), 'one pending has a play button');
+assert(/class="icon-btn start-item\$\{item\.continuation/.test(script) && script.includes('ICONS.play'), 'one pending has a play button');
 
 assert(/\.output-filter-line \{ display: flex; justify-content: center;/.test(html) && /\.output-filter-line select \{ width: 220px;/.test(html), 'the filter: centred, one size');
 
@@ -908,6 +942,7 @@ assert.strictEqual(run('stepSet(1)'), false, 'nothing after the last');
 assert.strictEqual(run('stepSet(-1)'), true);
 assert.strictEqual(run('viewing.id'), 'image_a');
 run('closeViewer()');
+run('imageSets = []');
 
 assert(/<div class="estimate-line"><span id="estimateTotal"><\/span><span id="estimateDetail"><\/span><\/div>/.test(html)
   && script.includes('`Estimate: <b>${fmtEta(plan.total)}</b>`') && !script.includes('Estimated time:'), 'the estimate on one quiet line');
@@ -924,8 +959,8 @@ for (const [form, generation, prompt] of [['formImage', 'imageGeneration', 'imag
   const g = html.indexOf(`id="${generation}"`), p = html.lastIndexOf('<details', html.indexOf(`id="${prompt}"`));
   assert(g > 0 && p > g && html.slice(html.indexOf('</details>', g), p).replace(/<\/details>|\s/g, '') === '', `${form}: Prompt right below Generation`);
 }
-assert(/id="imagePromptSection">\s*<summary class="section-title">Prompt<\/summary>[\s\S]*?id="imagePrompt"[\s\S]*?id="imageLlm"[\s\S]*?id="imageReview"[\s\S]*?<\/details>/.test(html));
-assert(/id="videoPromptSection">\s*<summary class="section-title">Prompt<\/summary>[\s\S]*?id="prompt"[\s\S]*?id="llm"[\s\S]*?id="review"[\s\S]*?<\/details>/.test(html));
+assert(/id="imagePromptSection">\s*<summary class="section-title">Prompt [\s\S]*?id="clearImagePrompt"[\s\S]*?<\/summary>[\s\S]*?id="imagePrompt"[\s\S]*?id="imageLlm"[\s\S]*?id="imageReview"[\s\S]*?<\/details>/.test(html));
+assert(/id="videoPromptSection">\s*<summary class="section-title">Prompt [\s\S]*?id="clearVideoPrompt"[\s\S]*?<\/summary>[\s\S]*?id="prompt"[\s\S]*?id="llm"[\s\S]*?id="review"[\s\S]*?<\/details>/.test(html));
 assert(/<summary class="section-title">Avatar<\/summary>\s*<label for="voice">Narrator<\/label>/.test(html) && !html.includes('id="formVoice"') && !html.includes('id="formAdvanced"') && !html.includes('name="fail_fast"'));
 // Video's clip length: a range within the model's; at its full span nothing is chosen.
 assert(/<div class="range" id="videoClipRange">/.test(html) && /<input id="videoClipSeconds" name="clip_seconds" hidden>/.test(html));
@@ -949,6 +984,12 @@ assert(/<summary class="section-title">Other<\/summary>\s*<label for="imageSeed"
 assert(/<div class="go-under">\s*<label class="check preview-run not-shorts"><input type="checkbox" name="try_first"><span>Preview run<\/span><\/label>\s*<button type="button" class="start-later" id="goLater"/.test(html) && (html.match(/name="try_first"/g) || []).length === 1, 'Preview run under the button, left of Start later');
 assert(/<select id="avatarSize" name="avatar_size">/.test(html), 'Shorts has a resolution');
 assert(/<div id="imageToPromptSlot"><\/div>/.test(html) && /imageRole\(\) === 'image_to_prompt' \? \$\('imageToPromptSlot'\)/.test(script), "image to prompt's image right under the choice");
+for (const n of [1, 2, 20]) {
+  const imageInput = run(`sourceHtml(${n})`), videoInput = run(`imageBoxHtml(${n})`);
+  for (const input of [imageInput, videoInput]) {
+    assert(input.includes('data-pick="1"') && input.includes(`aria-label="Select image ${n} from Output"`), `image ${n} has an accessible output picker`);
+  }
+}
 
 // Typing on a phone, the footer steps aside for the keyboard.
 assert(/body\.typing \.stick \{ opacity: 0; transform: translateY\(100%\);/.test(html));
@@ -1031,6 +1072,7 @@ assert(status.indexOf('id="logBox"') < status.indexOf('id="finished"'), 'on a ph
 
 // The GPU line is right under the running line, on both.
 assert(status.indexOf('id="statusText"') < status.indexOf('id="gpuLine"') && status.indexOf('id="gpuLine"') < status.indexOf('id="runProgress"'));
+assert(/\.gpu \{[^}]*padding-bottom: 12px; border-bottom: 1px solid var\(--line\)/.test(html) && /\.gpu:empty, #stageDetail:empty \{ display: none; \}/.test(html), 'the GPU stats have a divider only when shown');
 
 // The clip being rendered is said quietly in ComfyUI's box, which no longer names ComfyUI.
 assert(!status.includes('<span>ComfyUI:</span>'));
@@ -1072,15 +1114,39 @@ run(`renderQueue(queue, { items: [], results: [{ label: 'x', outcome: 'done', at
 assert.strictEqual(queue.hidden, true, 'what finished is under Finished, not in the queue');
 assert.strictEqual(queue.innerHTML, '', 'and nothing stale, with its Resume, is left in it');
 run(`renderQueue(queue, { items: [{ id: 3, label: 'a', detail: 'd' }, { id: 4, label: 'b', detail: 'd' }], results: [], held: false, current: null }, 0)`);
-assert(queue.innerHTML.includes('data-grip="3"') && queue.innerHTML.includes('data-grip="4"'), 'each has a grip to drag it by');
+assert(queue.innerHTML.includes('data-grip="3" hidden disabled') && queue.innerHTML.includes('data-grip="4" hidden disabled'), 'grips cannot be used until a row is selected');
+run('dragQueue(queue)');
+const selectedRow = { dataset: { id: '3' }, querySelector: () => ({}) };
+const selectedTarget = { closest: selector => selector === '.queue-item' ? selectedRow : null };
+queue.listeners.click({ target: selectedTarget });
+assert(queue.innerHTML.includes('data-grip="3" aria-label=') && queue.innerHTML.includes('data-grip="4" hidden disabled'), 'selecting an entry enables only its grip');
+queue.listeners.click({ target: selectedTarget });
+assert(queue.innerHTML.includes('data-grip="3" hidden disabled'), 'selecting it again hides its grip');
+queue.listeners.click({ target: selectedTarget });
 run(`queue._dragging = true; renderQueue(queue, { items: [{ id: 4, label: 'b', detail: 'd' }], results: [], held: false, current: null }, 0); queue._dragging = false`);
 assert(queue.innerHTML.includes('data-grip="3"'), 'nothing is drawn over a job being dragged');
+run(`renderQueue(queue, { items: [{ id: 4, label: 'b', detail: 'd' }, { id: 5, label: 'c', detail: 'd' }], held: false, current: null }, 0)`);
+assert.strictEqual(queue._selected, null, 'a departed selected entry cannot leave another grip enabled');
 queue.dataset.lane = 'run';
 run(`renderQueue(queue, { items: [], held: false, running: true, pipeline: 'image', stopAfter: false }, 0)`);
 assert(!queue.hidden && queue.innerHTML.includes('aria-label="Pause after current"'), 'a running batch can be paused even with an empty queue');
 run(`renderQueue(queue, { items: [{ id: 3, label: 'a', detail: 'd' }], held: true, running: true, pipeline: 'image', stopAfter: true }, 0)`);
 assert(queue.innerHTML.includes('aria-label="Resume queue"') && !queue.innerHTML.includes('data-resume'), 'play is in the queue header, not a second Resume button');
+run(`renderQueue(queue, { items: [{ id: 4, label: 'continue', detail: 'd', pipeline: 'video', resume: 'run_1' }], held: true }, 0)`);
+assert(queue.innerHTML.includes('data-shots="run_1"'), 'continued jobs in the queue expose their prompts');
+assert(/class="queue-item run-card"[^>]*>[\s\S]*class="queue-item-top"[\s\S]*class="what"[\s\S]*class="hint"[\s\S]*<\/div><\/div><div class="queue-item-actions">[\s\S]*data-shots="run_1"[\s\S]*data-edit="4"[\s\S]*data-pause="4"[\s\S]*data-remove="4"/.test(queue.innerHTML), 'run details and actions occupy separate rows in a card');
+assert(/\.queue-item\.run-card \{[^}]*background: var\(--panel-2\); border: 1px solid var\(--line\); border-radius: 10px/.test(html) && /\.queue-item\.run-card \.queue-item-actions \{ display: flex; flex-wrap: wrap/.test(html), 'run cards match Pending and their controls can wrap');
+assert(/\.queue \.queue-item-actions button, \.queue \.stopped-actions button \{\s*flex: none; width: 34px; height: 28px; padding: 0;/.test(html), 'queue and pending action buttons use the same remove-button dimensions');
+assert(queue.innerHTML.includes('class="icon-btn" data-pause="4"') && queue.innerHTML.includes('class="icon-btn" data-remove="4"'), 'queue pause feedback and delete confirmation fit the fixed-size buttons');
+run(`renderQueue(queue, { items: [{ id: 1, label: 'new', detail: '', pipeline: 'image', continuation: false },
+  { id: 2, label: 'continue', detail: '', pipeline: 'image', resume: 'image_1', continuation: true }], held: true }, 0, false, true)`);
+assert(queue.innerHTML.includes('class="run-item" data-run="1"') && queue.innerHTML.includes('class="run-item continue-item" data-run="2"'), 'only the continued queued job has a green play control');
+assert(queue.innerHTML.indexOf('data-shots="image_1"') < queue.innerHTML.indexOf('data-run="2"'), 'prompts precede play');
+assert(/\.queue \.run-item \{[^}]*color: var\(--text\)/.test(html) && /\.queue \.queue-item-actions \.continue-item \{ color: var\(--ok\)/.test(html), 'new jobs use the ordinary button colour and continuations use green');
+assert(!/class="queue-item run-card"/.test(written), 'Pending remains separate from the queue');
 assert(!/id="stopAfter"/.test(html), 'pause moved out of the run actions');
+assert(!script.includes('ComfyUI is making each image.'), 'the redundant image stage hint is not shown');
+assert(/\.queue \.queue-head button\[data-queue-toggle\] \{ width: 30px; height: 30px;/.test(html), 'the queue header control is smaller');
 
 // ComfyUI's status, a tap on its icon away: one that's up but doesn't answer, on a PC out of memory, says why.
 run(`renderComfy({ online: false, listening: true, can_start: true, ram: { free: 2.1, total: 31.9 }, gpu: { util: 7, mem_used: 5.8, mem_total: 12, power: 26, temp: 40 } })`);
@@ -1091,6 +1157,59 @@ assert(els.comfyFacts.innerHTML.includes('Generating the image · 3/8') && els.c
 
 // The status recovers by itself.
 (async () => {
+  {
+    const savedPoll = run('poll');
+    const savedFetch = context.fetch;
+    const savedClasses = els.viewerDelete.classList;
+    els.viewerDelete.classList = classes();
+    run('poll = () => {}');
+    const image = (position, title) => ({ position, title, version: title });
+    const prepare = () => {
+      context.deleteSet = { id: 'image_delete', label: 'Batch', total: 3, size: '1x1', when: '', images: [
+        image(1, 'First'), image(2, 'Second'), image(3, 'Third')] };
+      run("imageSets = [deleteSet]; outputFilter = ''; pipeline = 'image'");
+    };
+    const remove = async (position, remaining) => {
+      context.fetch = async url => {
+        assert.strictEqual(url, `/image-runs/image_delete/delete/${position}`);
+        return { json: async () => ({ ok: true, images: remaining }) };
+      };
+      await els.viewerDelete.listeners.click();
+      await els.viewerDelete.listeners.click();
+    };
+    prepare();
+    run("openViewer('image_delete', 2)");
+    await remove(2, [image(1, 'First'), image(2, 'Third')]);
+    assert(els.imageViewer.open && els.viewerTitle.textContent === 'Third · 2 of 2', 'deletion opens the renumbered next image');
+    assert(els.viewerDownload.href.includes('/files/2?v=Third'), 'download points to the surviving image');
+    await remove(2, [image(1, 'First')]);
+    assert(els.imageViewer.open && els.viewerTitle.textContent === 'First', 'deleting the last visible image opens the previous one');
+    await remove(1, []);
+    assert(!els.imageViewer.open, 'deleting the only remaining image closes the preview');
+    prepare();
+    run("openViewer('image_delete', 1)");
+    let finishDelete;
+    context.fetch = () => new Promise(resolve => { finishDelete = resolve; });
+    await els.viewerDelete.listeners.click();
+    const pendingDelete = els.viewerDelete.listeners.click();
+    assert(els.viewerDelete.disabled, 'deletion cannot be submitted twice while in flight');
+    run('stepViewer(1)');
+    finishDelete({ json: async () => ({ ok: true, images: [image(1, 'Second'), image(2, 'Third')] }) });
+    await pendingDelete;
+    assert(els.imageViewer.open && els.viewerTitle.textContent === 'Second · 1 of 2', 'navigation during deletion keeps the selected image after renumbering');
+    let error = '';
+    const savedAlert = context.alert;
+    context.alert = text => { error = text; };
+    context.fetch = async () => ({ json: async () => ({ ok: false, error: 'Run is busy' }) });
+    await els.viewerDelete.listeners.click();
+    await els.viewerDelete.listeners.click();
+    assert(els.imageViewer.open && els.viewerTitle.textContent === 'Second · 1 of 2' && error === 'Run is busy', 'a failed deletion leaves the preview intact and reports the error');
+    context.alert = savedAlert;
+    context.fetch = savedFetch;
+    context.savedPoll = savedPoll;
+    run('poll = savedPoll; closeViewer(); imageSets = []');
+    els.viewerDelete.classList = savedClasses;
+  }
   const feedback = context.feedback = { innerHTML: 'Add to queue', textContent: '', disabled: false,
     classList: classes(), attrs: {}, getAttribute(name) { return this.attrs[name] ?? null; },
     setAttribute(name, value) { this.attrs[name] = value; }, removeAttribute(name) { delete this.attrs[name]; } };
@@ -1101,6 +1220,190 @@ assert(els.comfyFacts.innerHTML.includes('Generating the image · 3/8') && els.c
   context.setTimeout = fn => { fn(); return 0; };
   finishRequest({ ok: true, queued: true });
   assert((await feedbackResult).ok && !feedback.disabled && feedback.innerHTML === 'Add to queue', 'feedback restores the button after success');
+  run("setPipeline('image', false); showPage('generate')");
+  let promptEvents = 0;
+  els.imagePrompt.dispatchEvent = event => { if (event.type === 'input' && event.bubbles) promptEvents++; };
+  els.imagePrompt.value = 'a lighthouse';
+  els.imageCount.value = '4';
+  let prevented = false, stopped = false;
+  els.clearImagePrompt.listeners.click({ preventDefault() { prevented = true; }, stopPropagation() { stopped = true; } });
+  assert(prevented && stopped && els.imagePrompt.value === '' && els.imageCount.value === '4' && promptEvents === 1, 'clear affects only the prompt and updates the form without toggling its heading');
+  els.imagePrompt.value = 'variant';
+  run("showPage('generate')");
+  assert.strictEqual(els.imagePrompt.value, 'variant', 'remaining on Generate preserves a prompt');
+  run("showPage('output')");
+  assert.strictEqual(els.imagePrompt.value, '', 'leaving Generate clears its prompt');
+  els.imagePrompt.value = 'another variant';
+  run("setPipeline('video', false)");
+  assert.strictEqual(els.imagePrompt.value, '', 'switching sides clears the old prompt');
+  els.prompt.value = 'video prompt';
+  run("setPipeline('video', false)");
+  assert.strictEqual(els.prompt.value, 'video prompt', 'selecting the same side keeps its prompt');
+  run("setPipeline('shorts', false); showPage('generate')");
+  els.topic.value = 'short topic';
+  run("showPage('status')");
+  assert.strictEqual(els.topic.value, '', 'leaving Shorts clears its topic');
+  const savedJumps = run('JUMPS.slice()');
+  const jump = hash => ({ hash, classList: classes() });
+  context.testJumps = [jump('#runCard'), jump('#optionsCard'), jump('#videosCard')];
+  run('JUMPS.splice(0, JUMPS.length, ...testJumps)');
+  let desktopTop = { runCard: -500, optionsCard: 0, videosCard: 500 };
+  for (const id of Object.keys(desktopTop)) context.document.getElementById(id).getBoundingClientRect = () => ({ top: desktopTop[id], bottom: desktopTop[id] + 300 });
+  wide.matches = true;
+  run('markJump()');
+  els.topic.value = 'desktop topic';
+  desktopTop = { runCard: -900, optionsCard: -500, videosCard: 0 };
+  run('markJump()');
+  assert.strictEqual(els.topic.value, '', 'scrolling away from Generate on desktop clears the prompt');
+  wide.matches = false;
+  context.savedJumps = savedJumps;
+  run('JUMPS.splice(0, JUMPS.length, ...savedJumps); desktopGenerateActive = false');
+  const savedFetch = context.fetch;
+  run('var pickerRefreshPlan = refreshPlan; refreshPlan = async () => {}');
+  context.File = class { constructor(chunks, name, options) { this.name = name; this.type = options.type; } };
+  context.DataTransfer = class { constructor() { this.files = []; this.items = { add: file => this.files.push(file) }; } };
+  context.fetch = async url => String(url).includes('/files/')
+    ? { ok: true, blob: async () => ({ type: 'image/png' }) }
+    : { ok: true, json: async () => ({ ok: true, shots: [{ used_seed: 123 }] }) };
+  run("imageSets = []; outputFilter = ''; setPipeline('video', false); showPage('generate'); imagesShown = 2; syncImageInput()");
+  els.prompt.value = 'keep this video prompt';
+  boxes[1].parts.select.value = 'place';
+  run('chooseFromOutput(imageBoxes()[1], "video")');
+  assert.strictEqual(run('pipeline'), 'image');
+  assert.strictEqual(context.document.body.dataset.page, 'output');
+  assert.strictEqual(els.prompt.value, 'keep this video prompt');
+  await run("chooseThis('a set', 1)");
+  assert.strictEqual(run('pipeline'), 'video');
+  assert.strictEqual(context.document.body.dataset.page, 'generate');
+  assert.strictEqual(boxes[1].parts.input.files[0].name, 'image_1.png');
+  assert.strictEqual(boxes[1].parts.select.value, 'place');
+  assert.strictEqual(boxes[1].parts.select.disabled, false);
+  assert.strictEqual(els.prompt.value, 'keep this video prompt');
+  const pickButton = { dataset: { pick: '1' }, closest: () => boxes[0] };
+  els.imageBoxes.listeners.click({ target: { closest: () => pickButton } });
+  assert.strictEqual(run('pipeline'), 'image', 'the image box gallery control opens the picker');
+  els.chooseCancel.listeners.click();
+  assert.strictEqual(run('pipeline'), 'video');
+  assert.strictEqual(els.prompt.value, 'keep this video prompt', 'cancelling preserves the originating form');
+  const previous = boxes[0].parts.input.files[0];
+  context.fetch = async () => ({ ok: false });
+  run('chooseFromOutput(imageBoxes()[0], "video")');
+  await run("chooseThis('missing', 1)");
+  assert.strictEqual(boxes[0].parts.input.files[0], previous, 'a failed download leaves the existing image alone');
+  assert(els.formError.textContent.includes('Could not fetch'), 'a failed download is visible');
+  context.fetch = async url => String(url).includes('/files/')
+    ? { ok: true, blob: async () => ({ type: 'image/png' }) }
+    : { ok: true, json: async () => ({ ok: true, shots: [{ used_seed: 123 }] }) };
+  const source = imageBox(1), seed = { value: '' };
+  const sourceQuery = source.querySelector;
+  source.querySelector = selector => selector === '.source-seed' ? seed : sourceQuery(selector);
+  els.imageSources.querySelectorAll = () => [source];
+  run("setPipeline('image', false); showPage('generate')");
+  els.imagePrompt.value = 'keep this image prompt';
+  run('chooseFromOutput(sourceBoxes()[0])');
+  await run("chooseThis('set', 1)");
+  assert.strictEqual(source.parts.input.files[0].name, 'image_1.png');
+  assert.strictEqual(seed.value, '123', 'image edits keep the selected output seed');
+  assert.strictEqual(els.imagePrompt.value, 'keep this image prompt');
+  const source2 = imageBox(2), seed2 = { value: '' }, source2Query = source2.querySelector;
+  source2.querySelector = selector => selector === '.source-seed' ? seed2 : source2Query(selector);
+  els.imageSources.querySelectorAll = () => [source, source2];
+  run(`imageWorkflows = { multi: { min_images: 1, max_images: 2, options: [] },
+    text: { min_images: 0, max_images: 0, options: [{ id: 'image_to_prompt', takes: { min_images: 1, max_images: 1 } }] } };
+    $('imageWorkflow').value = 'multi'; sourcesShown = 2; syncImageSources()`);
+  assert(!source.hidden && !source2.hidden && !source2.parts.input.disabled, 'a multi-image workflow exposes both image boxes');
+  run('chooseFromOutput(sourceBoxes()[1])');
+  await run("chooseThis('set', 1)");
+  assert.strictEqual(source2.parts.input.files[0].name, 'image_1.png', 'a second image workflow input accepts output');
+  assert.strictEqual(seed2.value, '123');
+  run(`$('imageWorkflow').value = 'text'; $('imagePromptMode').value = 'llm'; $('imageLlm').value = 'image_to_prompt'; syncImageSources()`);
+  assert(!source.hidden && source2.hidden, 'image-to-prompt exposes its image even when the base workflow takes none');
+  run('chooseFromOutput(sourceBoxes()[0])');
+  assert.strictEqual(run('choosingFor.side'), 'image', 'image-to-prompt can use the picker');
+  els.chooseCancel.listeners.click();
+  run(`imageWorkflows = {}; $('imageWorkflow').value = ''; $('imageLlm').value = ''; sourcesShown = 1`);
+  els.imageSources.querySelectorAll = () => [source];
+  let releaseImage;
+  context.fetch = () => new Promise(resolve => { releaseImage = resolve; });
+  run('chooseFromOutput(sourceBoxes()[0])');
+  const pendingImage = run("chooseThis('set', 1)");
+  source.parts.input.disabled = true;
+  releaseImage({ ok: true, blob: async () => ({ type: 'image/png' }) });
+  context.fetch = async () => ({ ok: true, json: async () => ({ ok: true, shots: [{ used_seed: 123 }] }) });
+  await pendingImage;
+  assert(els.formError.textContent.includes('box changed'), 'a disabled box does not receive a late selection');
+  source.parts.input.disabled = false;
+  els.imageSources.querySelectorAll = () => [];
+  run("setPipeline('video', false); showPage('generate'); JUMPS.splice(0, JUMPS.length, ...testJumps)");
+  els.prompt.value = 'desktop video prompt';
+  els.videosCard.scrollIntoView = els.optionsCard.scrollIntoView = () => {};
+  wide.matches = true;
+  desktopTop = { runCard: -500, optionsCard: 0, videosCard: 500 };
+  run('markJump(); chooseFromOutput(imageBoxes()[0], "video")');
+  desktopTop = { runCard: -900, optionsCard: -500, videosCard: 0 };
+  run('markJump()');
+  els.chooseCancel.listeners.click();
+  desktopTop = { runCard: -500, optionsCard: 0, videosCard: 500 };
+  run('markJump()');
+  assert.strictEqual(els.prompt.value, 'desktop video prompt', 'desktop picker navigation preserves the prompt');
+  wide.matches = false;
+  run('JUMPS.splice(0, JUMPS.length, ...savedJumps); desktopGenerateActive = false');
+  context.fetch = savedFetch;
+  run('refreshPlan = pickerRefreshPlan');
+  for (const id of ['stop', 'skip']) {
+    const button = els[id];
+    button.classList = classes();
+    button.innerHTML = id === 'stop' ? 'Stop' : 'Cancel';
+    button.attrs = {};
+    button.getAttribute = name => button.attrs[name] ?? null;
+    button.setAttribute = (name, value) => { button.attrs[name] = value; };
+    button.removeAttribute = name => { delete button.attrs[name]; };
+  }
+  const requests = [];
+  context.confirm = () => { throw new Error('run actions must not show a confirmation popup'); };
+  context.fetch = async url => { requests.push(url); return { json: async () => ({ ok: true }) }; };
+  run('var originalPoll = poll; poll = async () => {}');
+  context.setTimeout = () => 0;
+  await els.skip.listeners.click();
+  assert(els.skip.classList.contains('armed') && requests.length === 0, 'first cancel tap only arms it');
+  await els.stop.listeners.click();
+  assert(!els.skip.classList.contains('armed') && els.stop.classList.contains('armed'), 'switching action cancels the previous confirmation');
+  context.setTimeout = fn => { fn(); return 0; };
+  await els.stop.listeners.click();
+  assert.deepStrictEqual(requests, ['/stop'], 'second stop tap sends the stop request');
+  context.setTimeout = () => 0;
+  await els.skip.listeners.click();
+  assert.strictEqual(requests.length, 1, 'first cancel tap does not stop the run');
+  context.setTimeout = fn => { fn(); return 0; };
+  await els.skip.listeners.click();
+  assert.deepStrictEqual(requests, ['/stop', '/skip'], 'second cancel tap sends the cancel request');
+  run('poll = originalPoll');
+  context.confirm = () => true;
+  assert.strictEqual(run(`queueDetail({detail: 'film · renders straight away', facts: {resolution: '1280x736'}})`), 'film · 1280x736');
+  run(`var oldViewer = openViewer, oldFilm = openFilm, oldClosePanel = closePanel, oldGoOutput = goToOutput;
+    var navigated = []; openViewer = (id, position) => navigated.push(['image', id, position]);
+    openFilm = name => navigated.push(['film', name]); closePanel = () => {};
+    goToOutput = (side, tab) => navigated.push(['output', side, tab]);
+    imageSets = [{id:'image_1', images:[{position: 1}, {position: 2}]}];
+    lastVideos = { video:[{name:'film.mp4', run:'run_1'}], output:[], uploaded:[] }`);
+  const clickResult = dataset => els.finishedList.listeners.click({ target: { closest: () => ({ dataset }) } });
+  clickResult({ goto: 'image', runId: 'image_1', position: '2' });
+  clickResult({ goto: 'video', runId: 'run_1' });
+  assert.deepStrictEqual(JSON.parse(run('JSON.stringify(navigated)')), [['image', 'image_1', 2], ['output', 'video', null], ['film', 'film.mp4']]);
+  const failedRow = { dataset: {runId: 'image_1'}, classList: classes(), scrollIntoView() { this.scrolled = true; } };
+  const failedFold = { open: false };
+  els.failedRuns.querySelector = () => failedFold;
+  els.failedRuns.querySelectorAll = () => [failedRow];
+  context.setTimeout = () => 0;
+  clickResult({ goto: 'image', runId: 'image_1', failed: '1' });
+  assert(failedFold.open && failedRow.scrolled && failedRow.classList.contains('highlight'), 'failed result opens and highlights its saved entry, not its preview');
+  assert.strictEqual(run('navigated.length'), 3);
+  failedRow.dataset = {jobId: '7'};
+  failedRow.classList.remove('highlight');
+  clickResult({ goto: 'image', jobId: '7', failed: '1' });
+  assert(failedRow.classList.contains('highlight'), 'a failure without a saved run still highlights its Failed entry');
+  run('openViewer = oldViewer; openFilm = oldFilm; closePanel = oldClosePanel; goToOutput = oldGoOutput');
+  context.setTimeout = fn => { fn(); return 0; };
   run(`queueUpscaleEdit = { id: 8, token: 'edit-token', kind: 'image_upscale' }`);
   for (const id of ['queueUpscaleResolution', 'queueUpscaleStrength', 'queueUpscaleResolutionRow', 'queueUpscaleStrengthRow', 'queueUpscaleFilmRow']) context.document.getElementById(id);
   els.queueUpscaleMethod.value = 'seedvr2';

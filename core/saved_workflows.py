@@ -821,6 +821,14 @@ def _label(name):
     return name[:-5] if name.lower().endswith(".json") else name
 
 
+def display_label(name):
+    """A workflow name for the panel, without its categorization prefix."""
+    label = _label(name)
+    parts = re.split(r"([\\/])", label)
+    parts[-1] = re.sub(r"^(image|video|shorts?)_(?=.+)", "", parts[-1], flags=re.I)
+    return "".join(parts)
+
+
 def is_for_shorts(name):
     return _label(name).endswith(SHORTS_SUFFIX)
 

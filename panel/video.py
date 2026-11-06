@@ -9,14 +9,14 @@ from types import SimpleNamespace
 from flask import abort, request, send_file
 
 from core import seeds, workflow_options
-from panel.server import (read_outcome, form_options, PIPELINES, VIDEO_TIMINGS, _runs_cache, app, busy_runs, item_images, job,
+from panel.server import (read_outcome, form_options, PIPELINES, VIDEO_TIMINGS, _runs_cache, active_runs, app, busy_runs, item_images, job,
                           password_required, safe_video_path, saved_at, run_queue, saved_runs, saved_workflows, queue_form_snapshot)
 from panel.shorts import VOICES
 from pipelines.video import media, paths, planner, roles
 from pipelines.video.comfy import workflow_model
 from pipelines.video.main import BUILT_IN
 from pipelines.video.run_eta import RunEta
-from core.saved_workflows import shorthand
+from core.saved_workflows import display_label, shorthand
 from pipelines.video.run_state import STAGES, UPSCALED, RunState, films_of_runs, folder_size, list_runs, run_of_film
 from pipelines.video import upscale as film_upscale
 
@@ -40,9 +40,9 @@ def chosen_workflow(form):
         return {}, BUILT_IN_TAKES, None
     entry = next((w for w in saved_workflows() if w["name"] == name), None)
     if not entry:
-        return None, None, f"ComfyUI has no saved workflow called {name} any more."
+        return None, None, f"ComfyUI has no saved workflow called {display_label(name)} any more."
     if "problem" in entry:
-        return None, None, f"{entry['label']} can't run: {entry['problem']}"
+        return None, None, f"{display_label(entry['label'])} can't run: {entry['problem']}"
     return {"COMFYUI_WORKFLOW": entry["path"]}, entry["takes"], None
 
 
@@ -77,6 +77,7 @@ def describe_run(state):
     parts.append(f"{folder_size(state.folder) / 2 ** 20:.0f} MB")
     return {"id": state.id, "pipeline": "video", "label": state.title or state.brief, "detail": " · ".join(parts), "when": saved_at(state.path),
             "clips": len(state.clips), "finished": bool(state.final), "outcome": read_outcome(state.folder),
+            "size": f"{state.width}x{state.height}",
             "estimate": RunEta(resume_argv(state), VIDEO_TIMINGS).plan()["total"]}
 
 
@@ -311,11 +312,14 @@ def generate():
     plan_only = "--plan-only" in flags
     seconds = int(flags[flags.index("--duration") + 1])
     length = f"{seconds}s" if seconds < 60 else f"{seconds // 60}:{seconds % 60:02d}"
-    detail = ["film as long as its audio" if audio else f"{length} film", llm or "your prompt, every clip", "review the prompts first" if plan_only else "renders straight away"]
+    detail = ["film as long as its audio" if audio else f"{length} film", llm or "your prompt, every clip", *(["review the prompts first"] if plan_only else [])]
     if env:
         detail.append(request.form["workflow"].removesuffix(".json"))
-    # Titled like every side's: how much, with the prompt a tap away in what the title opens.
-    item = {"pipeline": "video", "label": "1 video", "prompt": prompt, "detail": " · ".join(detail), "argv": argv, "env": env,
+    chosen_size = size or "x".join(str(side) for side in media.render_size(
+        *(images[0].size if images else media.DEFAULT_SHAPE),
+        media.most_pixels(workflow_model(env.get("COMFYUI_WORKFLOW"))) or media.RENDER_AREA))
+    item = {"pipeline": "video", "label": f"1 video: {queue_label(prompt)}" if prompt else "1 video", "prompt": prompt, "detail": " · ".join(detail), "argv": argv, "env": env,
+            "resolution": chosen_size,
             "image": image_paths[0] if image_paths else None, "references": image_paths[1:] + ([audio_path] if audio_path else []) + media_paths, "plan_only": plan_only, "first_only": "--first-only" in flags,
             "form": queue_form_snapshot(), "form_files": saved_files,
             "estimate": RunEta(argv, VIDEO_TIMINGS, env).plan()["total"]}
@@ -353,12 +357,12 @@ def queue_saved_run(state, redo=None):
     return {"ok": True, "queued": queued}
 
 
-def load_idle_run(run_id):
+def load_idle_run(run_id, allow_pending=False):
     """The saved run, or the reply saying why it can't be touched now."""
     state = RunState.load(run_id)
     if not state or not state.shots:
         return None, ({"ok": False, "error": "That run is no longer saved."}, 404)
-    if run_id in busy_runs():
+    if run_id in (active_runs() if allow_pending else busy_runs()):
         return None, ({"ok": False, "error": "That run is going or queued. Stop it or take it out of the queue first."}, 409)
     return state, None
 
@@ -370,8 +374,11 @@ def run_detail(run_id):
     state = RunState.load(run_id)
     if not state or not state.shots:
         return {"ok": False, "error": "That run is no longer saved."}, 404
+    with run_queue.lock:
+        busy = run_id in active_runs()
+        pending = not busy and run_id in busy_runs()
     return {"ok": True, "id": state.id, "title": state.title, "brief": state.brief, "start": state.start,
-            "llm": state.llm, "busy": run_id in busy_runs(), "finished": bool(state.final), "settings": settings_of(state),
+            "llm": state.llm, "busy": busy, "pending": pending, "finished": bool(state.final), "settings": settings_of(state),
             "shots": [{"title": shot["title"], "seconds": shot["seconds"], "prompt": shot["prompt"],
                        "seed": shot.get("seed"), "used_seed": shot.get("used_seed"),
                        "rendered": i in state.clips} for i, shot in enumerate(state.shots)]}
@@ -429,20 +436,21 @@ def run_clip(run_id, shot):
 @password_required
 def save_shots(run_id):
     """Saves changed prompts. A clip already rendered stays as it is until you redo it."""
-    state, refused = load_idle_run(run_id)
-    if refused:
-        return refused
-    body = request.get_json(silent=True) or {}
-    prompts = body.get("prompts")
-    if not isinstance(prompts, list) or len(prompts) != len(state.shots) or not all(isinstance(p, str) and p.strip() for p in prompts):
-        return {"ok": False, "error": "Every shot needs a prompt."}, 400
-    chosen, error = shot_seeds(body, len(state.shots))
-    if error:
-        return {"ok": False, "error": error}, 400
-    for shot, prompt, seed in zip(state.shots, prompts, chosen):
-        shot["prompt"] = prompt.strip()
-        shot["seed"] = seed
-    state.save()
+    with run_queue.lock:
+        state, refused = load_idle_run(run_id, allow_pending=True)
+        if refused:
+            return refused
+        body = request.get_json(silent=True) or {}
+        prompts = body.get("prompts")
+        if not isinstance(prompts, list) or len(prompts) != len(state.shots) or not all(isinstance(p, str) and p.strip() for p in prompts):
+            return {"ok": False, "error": "Every shot needs a prompt."}, 400
+        chosen, error = shot_seeds(body, len(state.shots))
+        if error:
+            return {"ok": False, "error": error}, 400
+        for shot, prompt, seed in zip(state.shots, prompts, chosen):
+            shot["prompt"] = prompt.strip()
+            shot["seed"] = seed
+        state.save()
     return {"ok": True}
 
 

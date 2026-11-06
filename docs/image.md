@@ -37,6 +37,18 @@ A workflow that writes its own prompts adds them to **Who writes the prompts**, 
 
 Otherwise both stay off: the LLM or you write the prompt.
 
+For any image input a workflow accepts, use the gallery button beside the file chooser to select an image from
+Output instead. This includes additional reference images and the image-to-prompt input.
+
+When you delete an image in the preview, it stays open on the next image in that batch, or the previous
+one if there is no next image. Deleting the only remaining image closes the preview.
+
+In Output, use the eye icon at the top of an image batch or Video card to mark it NSFW. It disappears
+from normal output and Finished. Choose **NSFW**, just below **All workflows**, to see tagged Image
+and Video output together and use the eye icon again to restore it. Image batches remain selectable
+as inputs through that filter. Videos from the same saved run, including upscaled copies, share a tag.
+Shorts are unaffected. This is a display filter, not access control: the media stays on disk.
+
 **How many images:** 1 to 100, or 30 when the LLM writes Fibo 2.0's prompts (see below).
 
 **Resolution:**
@@ -59,7 +71,7 @@ An edit comes out the size its source goes in, so the source is fitted to the si
 if the shape differs. The original stays whole in the run's folder.
 
 **While it runs:** each image appears in the gallery as it's finished. Generate adds more to the queue, shared with
-Shorts and Video. **Stop all** and **Skip, resume later** work as they do on Video. One image that won't come out, after
+Shorts and Video. **Stop** and **Cancel** work as they do on Video and require two taps to confirm. One image that won't come out, after
 a second try, doesn't cost the rest of the set: the run ends as failed with the others kept, and **Continue** makes what's missing.
 
 **Generate** continues a stopped set with the same brief, images, count and workflow rather than paying for new prompts.
@@ -187,6 +199,8 @@ any of these, and may decline an explicit brief: your own prompt, word for word,
 and no video, such as `Fibo2_turbo_edit_test`. Renamed in ComfyUI, a workflow shows under its new name within half a
 minute, still on the Image side; runs made under its old name can't be continued, as its converted copy goes with it. One that can't run is greyed out, and the hint under the list says why, such as a
 model that isn't installed. Automatic tries them in name order, those made for what you gave it first.
+The panel hides the `image_`, `video_` and `shorts_` categorization prefixes in displayed workflow names;
+the original names remain unchanged in ComfyUI.
 
 A model file the workflow names that isn't installed, but is in another folder or another precision, is used as installed:
 `krea2_turbo_fp8` runs on `krea2_turbo_fp8_scaled`. Only when just one fits: two candidates, or another model, still say
