@@ -11,7 +11,7 @@ import time
 
 from dotenv import load_dotenv
 
-from core import batch_stop, seeds
+from core import batch_stop, h3_refiner, seeds
 from core.saved_workflows import shorthand, title_words, unique_name
 from pipelines.image import media, models, paths, regions
 from pipelines.image import planner as image_planner
@@ -133,7 +133,13 @@ def check_setup(args):
     """Each thing a run needs, without making anything."""
     llm = args.llm or planner.default_llm()
     problems = []
-    if planner.llm_configured(llm):
+    if llm == "local":
+        try:
+            h3_refiner._paths(h3_refiner.selected_model(), require_compiler=False)
+            print("✅ Local model and llama.cpp found.")
+        except (RuntimeError, ValueError) as e:
+            problems.append(str(e))
+    elif planner.llm_configured(llm):
         print(f"✅ {llm} has credentials.")
     else:
         problems.append(f"{llm} has no credentials, so only your own prompts can run: see .env.example.")
@@ -179,6 +185,8 @@ def plan_run(args, stages):
         raise RuntimeError(f"This workflow takes {takes['min_images']}-{takes['max_images']} images, not {len(images)}.")
     direct = args.direct or region_edit
     llm = None if direct else args.llm or planner.default_llm()
+    if llm == "local" and images and h3_refiner.selected_model() == "qwen3-14b":
+        raise RuntimeError("Qwen3 14B is text-only and cannot analyze attached images. Choose Gemma 4 in Settings.")
     if llm and not planner.llm_configured(llm):
         raise RuntimeError(f"{llm} has no credentials: see .env.example.")
     width, height = media.pick_size(args.size, args.aspect, args.megapixels, images[0].size if images else None,
@@ -209,8 +217,13 @@ def plan_run(args, stages):
         versions = [{"title": f"Version {number}", "prompt": args.prompt} for number in range(1, args.count + 1)]
     else:
         print(f"🧠 {llm} is writing {args.count} {'prompt' if args.count == 1 else 'prompts'}...")
-        title, versions = image_planner.write_prompts([video_media.preview_jpeg(image) for image in images], args.prompt, args.count, llm, model,
-                                                      compose=args.compose, transparent=args.transparent)
+        plan_args = ([video_media.preview_jpeg(image) for image in images], args.prompt, args.count, llm, model)
+        if llm == "local":
+            with h3_refiner.Refiner(comfy.url, require_compiler=False) as refiner:
+                title, versions = image_planner.write_prompts(*plan_args, compose=args.compose,
+                                                              transparent=args.transparent, refiner=refiner)
+        else:
+            title, versions = image_planner.write_prompts(*plan_args, compose=args.compose, transparent=args.transparent)
     shots = [{"number": number, "file": None, "seed": seeds.nth(args.seed, number - 1), **version}
              for number, version in enumerate(versions, 1)]
     # At once: the prompts are what was paid for.

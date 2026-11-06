@@ -23,6 +23,16 @@ Choosing one yourself asks for what it takes.
 
 **Prompts:**
 
+Use **Write prompt** beside the prompt field to rewrite an idea locally with the model selected in Settings. On
+success the text is replaced and Exact prompt is selected when available. It needs an idle, reachable ComfyUI and
+temporarily unloads its models; queued panel generations wait. Your text is kept if it fails.
+The writer receives only the text in the prompt box, not attached images. Its image instructions focus on a
+single composition, spatial relationships, lighting and other visible details.
+Alternatively, select **Local model (Settings)** under **Prompts → LLM** to write a separate prompt for each image
+with the workflow's existing planning instructions. Gemma can analyze attached images; Qwen rejects them because
+it is text-only. ComfyUI must be reachable and idle while the local model plans; it unloads before rendering.
+Large sets may exceed the local model's context or output limits.
+
 | Choice | What each image gets |
 |---|---|
 | **The LLM writes one per image** | Its own prompt, written from what you say. A sentence or two is enough. They're written together in one request, so they can differ from each other. |

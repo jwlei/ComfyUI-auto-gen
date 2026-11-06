@@ -46,6 +46,7 @@ for (const side of ['video', 'shorts']) {
   for (const choice of ['restrained', 'balanced', 'bold', 'extreme']) assert(section.includes(`value="${choice}"`));
   assert(section.includes('value="balanced" selected'), `${side} defaults to balanced`);
 }
+assert(html.includes('value="gemma-4-12b"') && html.includes('value="qwen3-14b"'), 'Settings offers both OpenH3 models');
 assert(html.includes('value="review">Enhance before review') && html.includes('value="render">Enhance before each clip'));
 
 // Remembered options never touch a file input, which throws if you set its value.
@@ -1282,6 +1283,30 @@ assert(els.comfyFacts.innerHTML.includes('Generating the image · 3/8') && els.c
 
 // The status recovers by itself.
 (async () => {
+  {
+    const savedFetch = context.fetch;
+    let resolve;
+    context.fetch = (url, options) => {
+      assert.strictEqual(url, '/api/write-prompt');
+      assert.strictEqual(JSON.parse(options.body).pipeline, 'video');
+      return new Promise(done => { resolve = done; });
+    };
+    els.prompt.value = 'a harbour';
+    const writing = run("writePrompt('video')");
+    assert(els.prompt.readOnly && els.writeVideoPrompt.disabled, 'prompt locked while writing');
+    resolve({ ok: true, json: async () => ({ ok: true, prompt: 'A cinematic harbour.' }) });
+    await writing;
+    assert.strictEqual(els.prompt.value, 'A cinematic harbour.');
+    assert.strictEqual(els.videoPromptMode.value, 'direct');
+    assert(!els.prompt.readOnly && !els.writeVideoPrompt.disabled);
+    context.fetch = async () => ({ ok: false, json: async () => ({ ok: false, error: 'model failed' }) });
+    els.imagePrompt.value = 'a tree';
+    await run("writePrompt('image')");
+    assert.strictEqual(els.imagePrompt.value, 'a tree', 'failure preserves the input');
+    assert.strictEqual(els.imagePromptWriteError.textContent, 'model failed');
+    assert(!els.imagePromptWriteError.hidden && !els.imagePrompt.readOnly);
+    context.fetch = savedFetch;
+  }
   {
     const savedNavigator = context.navigator, savedCreateElement = context.document.createElement;
     const savedExec = context.document.execCommand, savedAlert = context.alert;

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from flask import abort, request, send_file
 from PIL import Image
 
-from core import seeds, workflow_options
+from core import h3_refiner, seeds, workflow_options
 from core.saved_workflows import display_label, shorthand
 from panel.server import (read_outcome, IMAGE_TIMINGS, PIPELINES, _runs_cache, active_runs, app, busy_runs, form_options, password_required, run_queue, saved_at, queue_form_snapshot,
                           saved_workflows)
@@ -310,6 +310,8 @@ def generate():
         return {"ok": False, "error": f"{llm} has no credentials. See .env.example, or use your own prompt."}, 400
 
     uploads = form_uploads(request.files)
+    if llm == "local" and uploads and h3_refiner.selected_model() == "qwen3-14b":
+        return {"ok": False, "error": "Qwen3 14B is text-only and cannot analyze attached images. Choose Gemma 4 in Settings."}, 400
     env, takes, error = chosen_workflow(request.form, len(uploads))
     if error:
         return {"ok": False, "error": error}, 400
@@ -408,7 +410,8 @@ def run_to_continue(prompt, flags, env, images):
     count, direct = int(option(flags, "--count")), "--direct" in flags
     for state in reversed(list_runs()):
         if (state.id not in busy and state.shots and not state.finished and state.inputs == inputs and state.brief == prompt
-                and state.count == count and state.direct == direct and state.workflow == env.get("COMFYUI_WORKFLOW")):
+                and state.count == count and state.direct == direct and state.workflow == env.get("COMFYUI_WORKFLOW")
+                and (state.llm == "local") == (option(flags, "--llm") == "local")):
             return state
     return None
 

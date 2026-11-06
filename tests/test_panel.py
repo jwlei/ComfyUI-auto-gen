@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -49,6 +50,9 @@ SAVED_OPTIONS = [{"id": "steps", "kind": "number", "label": "Steps", "default": 
 
 class PanelTest(unittest.TestCase):
     def setUp(self):
+        closing = mock.patch.object(webapp, "_panel_closing", False)
+        closing.start()
+        self.addCleanup(closing.stop)
         self.temp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.temp, ignore_errors=True)
         self.comfy = fake_comfy(self.temp)
@@ -108,6 +112,64 @@ class PanelTest(unittest.TestCase):
 
     def texts_rendered(self):
         return [p["prompt"]["121"]["inputs"]["text"] for p in self.comfy.prompts]
+
+    def test_write_prompt_validation_lifecycle_and_exclusivity(self):
+        from core import h3_refiner
+        for data in ({}, {"pipeline": "shorts", "prompt": "idea"}, {"pipeline": "video", "prompt": " "},
+                     {"pipeline": "image", "prompt": "x" * 16001}):
+            self.assertEqual(self.client.post("/api/write-prompt", json=data).status_code, 400)
+        entered, release = threading.Event(), threading.Event()
+        refiner = mock.MagicMock()
+        refiner.__enter__.return_value = refiner
+
+        def write(text, side):
+            entered.set()
+            self.assertTrue(release.wait(5))
+            return "finished"
+
+        refiner.write_prompt.side_effect = write
+        replies = []
+        def request_write():
+            with webapp.app.test_client() as client:
+                replies.append(client.post("/api/write-prompt", json={"pipeline": "video", "prompt": " idea "}))
+
+        with mock.patch.object(h3_refiner, "Refiner", return_value=refiner) as factory:
+            thread = threading.Thread(target=request_write)
+            thread.start()
+            try:
+                self.assertTrue(entered.wait(5))
+                self.assertTrue(webapp.restart_blocked())
+                self.assertTrue(webapp.run_queue.blocked())
+                self.assertEqual(self.client.post("/api/write-prompt", json={"pipeline": "image", "prompt": "x"}).status_code, 409)
+                self.assertEqual(self.client.post("/shutdown").status_code, 409)
+                self.assertEqual(self.client.post("/restart/comfyui").status_code, 409)
+                self.assertEqual(self.client.post("/restart/panel").status_code, 409)
+                self.assertEqual(self.client.post("/launcher/refresh", data={"code_changed_at": str(time.time() + 60)}).get_json(), {"restarting": False})
+            finally:
+                release.set()
+                thread.join(10)
+            self.assertEqual(replies[0].get_json(), {"ok": True, "prompt": "finished"})
+            factory.assert_called_once_with(self.comfy.url, require_compiler=False)
+            refiner.write_prompt.assert_called_once_with("idea", "video")
+            refiner.__exit__.assert_called_once()
+            self.assertFalse(webapp.run_queue.blocked())
+        with mock.patch.object(h3_refiner, "Refiner", side_effect=RuntimeError("model failed")):
+            result = self.client.post("/api/write-prompt", json={"pipeline": "image", "prompt": "x"})
+            self.assertEqual(result.status_code, 500)
+            self.assertIn("model failed", result.get_json()["error"])
+            self.assertFalse(webapp.run_queue.blocked())
+
+    def test_local_qwen_rejects_attached_images_before_queuing(self):
+        with mock.patch.object(video_panel.h3_refiner, "selected_model", return_value="qwen3-14b"):
+            result = self.generate(llm="local")
+            self.assertEqual(result.status_code, 400)
+            self.assertIn("text-only", result.get_json()["error"])
+            result = self.client.post("/generate/image", data={"prompt": "tree", "llm": "local",
+                                      "image": (io.BytesIO(png_bytes()), "tree.png")},
+                                      content_type="multipart/form-data")
+            self.assertEqual(result.status_code, 400)
+            self.assertIn("text-only", result.get_json()["error"])
+            self.assertTrue(webapp.job.idle)
 
     # --- The whole way through ---
 
@@ -1045,6 +1107,9 @@ class PanelTest(unittest.TestCase):
             self.assertTrue(saved["settings"]["low_priority"])
             self.assertEqual(saved["settings"]["default_workflow"], {"shorts": "", "video": "", "image": "image_x"})
             self.assertTrue(webapp.settings.load()["low_priority"], "kept in the file")
+            self.assertEqual(self.client.post("/api/settings", json={"h3_model": "qwen3-14b"}).get_json()["settings"]["h3_model"], "qwen3-14b")
+            self.assertEqual(self.client.post("/api/settings", json={"h3_model": "unknown"}).status_code, 400)
+            self.assertEqual(webapp.settings.load()["h3_model"], "qwen3-14b")
             self.assertEqual(webapp.priority_flags(), webapp.BELOW_NORMAL)
             saved = self.client.post("/api/settings", json={"reserve_ram_gb": "8"}).get_json()["settings"]
             self.assertEqual(saved["reserve_ram_gb"], 8)

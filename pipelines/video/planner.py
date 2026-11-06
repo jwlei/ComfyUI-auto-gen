@@ -12,7 +12,8 @@ from core.gemini import _generate
 from pipelines.video import h3_prompt, roles, wan_prompt
 
 # Who can write the plan: (name, what the panel calls it).
-LLMS = (("gemini", "Gemini (free tier)"), ("claude", "Claude Opus 5.5 (API)"))
+LLMS = (("gemini", "Gemini (free tier)"), ("claude", "Claude Opus 5.5 (API)"),
+        ("local", "Local model (Settings)"))
 
 DEFAULT_CLAUDE_MODEL = "claude-opus-5-5"
 # Its default is 'medium'. A film's worth of prompts that have to fit together earns more thought.
@@ -115,6 +116,8 @@ def llm_configured(llm):
     """Whether this LLM has credentials. Claude's can also be an `ant auth login` profile on disk."""
     if llm == "gemini":
         return bool(os.getenv("GEMINI_API_KEY"))
+    if llm == "local":
+        return True
     return bool(os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN") or os.getenv("ANTHROPIC_PROFILE")
                 or os.path.isdir(os.path.expanduser(os.path.join("~", ".config", "anthropic"))))
 
@@ -358,7 +361,11 @@ def _ask_claude(prompt, schema, image_jpeg=None):
     return texts[-1] if texts else ""
 
 
-def _ask(llm, prompt, model, schema, image_jpeg=None):
+def _ask(llm, prompt, model, schema, image_jpeg=None, refiner=None):
+    if llm == "local":
+        if refiner is None:
+            raise RuntimeError("The local model is not running.")
+        return refiner.plan(prompt, schema, _image_list(image_jpeg))
     if llm == "claude":
         return _ask_claude(prompt, schema, image_jpeg)
     return _ask_gemini(prompt, model, image_jpeg)
@@ -367,7 +374,7 @@ def _ask(llm, prompt, model, schema, image_jpeg=None):
 # --- What the pipeline asks for ---
 
 def plan_film(image_jpeg, brief, seconds, start, llm="gemini", video_model=None, image_2_role=EXTRA_CONTEXT, image_2_in_words=None,
-              references=None, chosen=None):
+              references=None, chosen=None, refiner=None):
     """
     Turns the image (several in a list, or none) and the short brief into a film's shot list. One request for the
     whole film rather than one per clip: the prompts have to know each other, and a
@@ -387,7 +394,10 @@ def plan_film(image_jpeg, brief, seconds, start, llm="gemini", video_model=None,
     for attempt in range(1, PLAN_ATTEMPTS + 1):
         # H3's rules are strict enough that saying what went wrong is worth it.
         correction = f"\n\n    Your last reply came back with {problem}. Fix that." if is_h3 and problem else ""
-        reply = _ask(llm, instructions + correction, Plan, PLAN_SCHEMA, attached)
+        if llm == "local":
+            reply = _ask(llm, instructions + correction, Plan, PLAN_SCHEMA, attached, refiner=refiner)
+        else:
+            reply = _ask(llm, instructions + correction, Plan, PLAN_SCHEMA, attached)
         try:
             plan = Plan.model_validate_json(reply)
         except ValidationError as e:

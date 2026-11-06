@@ -163,7 +163,7 @@ def _usable(versions, tidy):
     return usable
 
 
-def write_prompts(image_jpegs, brief, count, llm_name, model=None, compose=False, transparent=False):
+def write_prompts(image_jpegs, brief, count, llm_name, model=None, compose=False, transparent=False, refiner=None):
     """
     The set's title and {count} versions from one request, however many: the prompts have to know each other
     to differ, and it spends one of a free model's daily requests rather than {count}.
@@ -173,7 +173,10 @@ def write_prompts(image_jpegs, brief, count, llm_name, model=None, compose=False
     best, title, problem = [], None, None
     for attempt in range(1, PROMPT_ATTEMPTS + 1):
         correction = f"\n\n    Your last reply came back with {problem}. Fix that." if problem else ""
-        reply = llm._ask(llm_name, instructions + correction, Versions, VERSIONS_SCHEMA, image_jpegs)
+        if llm_name == "local":
+            reply = llm._ask(llm_name, instructions + correction, Versions, VERSIONS_SCHEMA, image_jpegs, refiner=refiner)
+        else:
+            reply = llm._ask(llm_name, instructions + correction, Versions, VERSIONS_SCHEMA, image_jpegs)
         try:
             versions = Versions.model_validate_json(reply)
         except ValidationError as e:

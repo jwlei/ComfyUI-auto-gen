@@ -270,6 +270,8 @@ def generate():
     uploads, error = form_uploads(request.files, takes)
     if error:
         return {"ok": False, "error": error}, 400
+    if llm == "local" and uploads and h3_refiner.selected_model() == "qwen3-14b":
+        return {"ok": False, "error": "Qwen3 14B is text-only and cannot analyze attached images. Choose Gemma 4 in Settings."}, 400
     try:
         images = [media.load_image(upload.stream) for upload in uploads]
     except RuntimeError:
@@ -350,6 +352,7 @@ def run_to_continue(prompt, flags, env, takes, images, audio=None, references=()
     for state in reversed(list_runs()):
         if (state.id not in busy and state.shots and not state.final and state.inputs == inputs and state.brief == prompt
                 and (audio or state.seconds == seconds) and state.workflow == env.get("COMFYUI_WORKFLOW")
+                and (state.llm == "local") == (option(flags, "--llm") == "local")
                 and state.h3_mode == option(flags, "--h3-enhance", "off")
                 and state.h3_creativity == option(flags, "--h3-creativity", "balanced")
                 and (state.start == start or takes["max_images"] != 1)):

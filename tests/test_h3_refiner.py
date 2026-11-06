@@ -9,15 +9,113 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fakes import DATA  # noqa: F401, isolate application data before importing the panel
 
-from core import director, h3_refiner
+from core import director, h3_refiner, h3_refiner_worker
 from panel import video
+from panel import image
 from panel import shorts
+from pipelines.image import planner as image_planner
 from pipelines.shorts.avatar_generator import AvatarGenerator
 from pipelines.video import main
+from pipelines.video import planner as video_planner
 from pipelines.video.run_state import RunState
 
 
 class H3RefinerTest(unittest.TestCase):
+    def test_local_planner_uses_structured_request_and_vision(self):
+        refiner = object.__new__(h3_refiner.Refiner)
+        refiner.url = "http://127.0.0.1:42/v1"
+        refiner.model_id = "gemma-4-12b"
+        response = mock.Mock()
+        response.json.return_value = {"choices": [{"message": {"content": '{"title":"Test","versions":[]}'}, "finish_reason": "stop"}]}
+        with mock.patch.object(h3_refiner.requests, "post", return_value=response) as post:
+            result = refiner.plan("write", image_planner.VERSIONS_SCHEMA, [b"jpeg"])
+            self.assertEqual(json.loads(result)["title"], "Test")
+            body = post.call_args.kwargs["json"]
+            self.assertEqual(body["response_format"]["json_schema"]["schema"], image_planner.VERSIONS_SCHEMA)
+            self.assertEqual(body["messages"][0]["content"][0]["image_url"]["url"], "data:image/jpeg;base64,anBlZw==")
+            refiner.model_id = "qwen3-14b"
+            with self.assertRaisesRegex(RuntimeError, "text-only"):
+                refiner.plan("write", image_planner.VERSIONS_SCHEMA, [b"jpeg"])
+            response.json.return_value["choices"][0]["finish_reason"] = "length"
+            with self.assertRaisesRegex(RuntimeError, "cut off"):
+                refiner.plan("write", image_planner.VERSIONS_SCHEMA)
+
+    def test_local_choice_is_available_and_plans_each_side(self):
+        self.assertIn("local", dict(video_planner.LLMS))
+        self.assertTrue(video_planner.llm_configured("local"))
+        for build in (video.build_options, image.build_options):
+            flags, error = build({"llm": "local", "prompt_mode": "llm"})
+            self.assertIsNone(error)
+            self.assertIn("local", flags)
+        refiner = mock.Mock()
+        refiner.plan.return_value = json.dumps({"title": "Set", "versions": [
+            {"title": "One", "prompt": "A tree."}, {"title": "Two", "prompt": "A lake."}]})
+        title, versions = image_planner.write_prompts([], "landscapes", 2, "local", refiner=refiner)
+        self.assertEqual((title, len(versions)), ("Set", 2))
+        refiner.plan.return_value = json.dumps({"title": "Film", "shots": [
+            {"title": "One", "seconds": 5, "prompt": "A boat moves."}]})
+        title, shots = video_planner.plan_film(None, "boat", 5, "image", "local", refiner=refiner)
+        self.assertEqual((title, len(shots)), ("Film", 1))
+
+    def test_video_prompt_sections_are_ordered_and_normalized(self):
+        formatted = h3_refiner.video_prompt_format(
+            "T2VA\n[Shot 1] A boat.\n\noverall_soundscape\nWater.\n\nnon_diegetic_music\nN/A")
+        self.assertTrue(formatted.startswith("integrated_multimodal_description: [Shot 1]"))
+        self.assertIn("\noverall_soundscape:\n", formatted)
+        self.assertIn("\nnon_diegetic_music:\n", formatted)
+        for value in ("[Shot 1] Only a shot.", "Here is your prompt:\nintegrated_multimodal_description: [Shot 1]\noverall_soundscape: N/A\nnon_diegetic_music: N/A",
+                      "integrated_multimodal_description: [Shot 1]\nnon_diegetic_music: N/A\noverall_soundscape: N/A",
+                      "integrated_multimodal_description: [Shot 1]\noverall_soundscape:\nnon_diegetic_music: N/A"):
+            with self.assertRaises(RuntimeError):
+                h3_refiner.video_prompt_format(value)
+
+    def test_qwen_reasoning_is_separated_without_accepting_incomplete_output(self):
+        split = h3_refiner_worker.split_qwen_reasoning
+        self.assertEqual(split("<think>private</think> final"), ("private", "final"))
+        self.assertEqual(split("private</think> final"), ("private", "final"))
+        self.assertEqual(split("final"), ("", "final"))
+        for value in ("<think>unfinished", "<think>thought</think>", "answer</think><think>unfinished"):
+            with self.assertRaises(ValueError):
+                split(value)
+
+    def test_write_prompt_uses_side_specific_instructions_and_checks_output(self):
+        refiner = object.__new__(h3_refiner.Refiner)
+        refiner.url = "http://127.0.0.1:42/v1"
+        refiner.model_id = "gemma-4-12b"
+        response = mock.Mock()
+        response.json.return_value = {"choices": [{"message": {"content": "  A vivid scene.  "}, "finish_reason": "stop"}]}
+        with mock.patch.object(h3_refiner.requests, "post", return_value=response) as post:
+            for side in ("video", "image"):
+                content = ("integrated_multimodal_description: [Shot 1] A vivid scene.\noverall_soundscape: N/A\nnon_diegetic_music: N/A"
+                           if side == "video" else "A vivid scene.")
+                response.json.return_value["choices"][0]["message"]["content"] = content
+                self.assertEqual(refiner.write_prompt("a harbour", side), content)
+                payload = post.call_args.kwargs["json"]
+                self.assertIn(side + "-generation", payload["messages"][0]["content"])
+                self.assertIn("cannot see", payload["messages"][0]["content"])
+                if side == "video":
+                    for section in ("integrated_multimodal_description", "overall_soundscape", "non_diegetic_music"):
+                        self.assertIn(section, payload["messages"][0]["content"])
+                else:
+                    self.assertIn("single still moment", payload["messages"][0]["content"])
+                self.assertEqual(payload["messages"][1]["content"], "a harbour")
+                self.assertFalse(payload["chat_template_kwargs"]["enable_thinking"])
+            refiner.model_id = "qwen3-14b"
+            response.json.return_value["choices"][0]["message"]["content"] = "integrated_multimodal_description: [Shot 1] A boat.\noverall_soundscape: N/A\nnon_diegetic_music: N/A"
+            refiner.write_prompt("a harbour", "video")
+            self.assertTrue(post.call_args.kwargs["json"]["chat_template_kwargs"]["enable_thinking"])
+            response.json.return_value["choices"][0]["finish_reason"] = "length"
+            with self.assertRaisesRegex(RuntimeError, "cut off"):
+                refiner.write_prompt("a harbour", "video")
+            response.json.return_value["choices"][0] = {"message": {"content": ""}}
+            with self.assertRaisesRegex(RuntimeError, "empty"):
+                refiner.write_prompt("a harbour", "image")
+            response.json.return_value["choices"][0] = {"message": {"content": "thought</think>prompt"}}
+            self.assertEqual(refiner.write_prompt("a harbour", "image"), "prompt")
+            response.json.return_value["choices"][0] = {"message": {"content": "<think>unfinished"}}
+            with self.assertRaisesRegex(RuntimeError, "reasoning"):
+                refiner.write_prompt("a harbour", "image")
+
     def test_settings_and_video_form(self):
         self.assertEqual(h3_refiner.settings(None, None), ("off", "balanced"))
         for creativity in h3_refiner.CREATIVITY:
@@ -50,6 +148,7 @@ class H3RefinerTest(unittest.TestCase):
                 file.write(b"image")
             refiner = object.__new__(h3_refiner.Refiner)
             refiner.root, refiner.python, refiner.url = temp, "python", "http://127.0.0.1:42/v1"
+            refiner.model_id = "gemma-4-12b"
             captured = []
 
             def invoke(args, **kwargs):
@@ -83,6 +182,7 @@ class H3RefinerTest(unittest.TestCase):
                     file.write(path.encode())
             refiner = object.__new__(h3_refiner.Refiner)
             refiner.root, refiner.python, refiner.url = temp, "python", "http://127.0.0.1:42/v1"
+            refiner.model_id = "gemma-4-12b"
 
             def invoke(args, **kwargs):
                 request = json.loads(kwargs["input"])
@@ -110,6 +210,24 @@ class H3RefinerTest(unittest.TestCase):
                                          videos=[{"path": paths[1], "role": "motion", "seconds": 2, "sound": True}],
                                          audios=[{"path": paths[2], "role": "voice", "seconds": 2}])
             self.assertEqual(result, "enhanced")
+
+    def test_text_only_model_rejects_visual_references(self):
+        refiner = object.__new__(h3_refiner.Refiner)
+        refiner.model_id = "qwen3-14b"
+        for kwargs in ({"images": ["image.png"]}, {"videos": [{"path": "clip.mp4"}]}):
+            with self.assertRaisesRegex(RuntimeError, "text-only"):
+                refiner.compile("scene", 5, 640, 384, "balanced", **kwargs)
+
+    def test_model_selection_saved_and_invalid_selection_rejected(self):
+        from panel import settings
+        path = os.path.join(DATA, "h3-settings-test.json")
+        with mock.patch.object(settings, "PATH", path):
+            self.assertEqual(settings.load()["h3_model"], "gemma-4-12b")
+            settings.update({"h3_model": "qwen3-14b"})
+            self.assertEqual(h3_refiner.selected_model(), "qwen3-14b")
+            with self.assertRaisesRegex(ValueError, "Unknown"):
+                settings.update({"h3_model": "missing"})
+            self.assertEqual(settings.load()["h3_model"], "qwen3-14b")
 
     def test_before_review_saves_each_prompt_and_skips_completed(self):
         state = RunState.new("brief", 10, "image", 1280, 736, image_count=0)
@@ -146,6 +264,8 @@ class H3RefinerTest(unittest.TestCase):
                 file.write(b"one")
             state = RunState.new("brief", 5, "image", 640, 384, image_count=0)
             shot = {"prompt": "hello", "seconds": 5, "seed": 1}
+            self.assertNotEqual(main.refinement_key(state, shot, [path], "gemma-4-12b"),
+                                main.refinement_key(state, shot, [path], "qwen3-14b"))
             old = main.refinement_key(state, shot, [path])
             state.h3_creativity = "bold"
             self.assertNotEqual(old, main.refinement_key(state, shot, [path]))

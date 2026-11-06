@@ -53,6 +53,17 @@ python webapp.py
 the prompts are written and opens them for you. Change any of them, then press **Render the film**. Untick
 "Let me read the prompts" to go straight through.
 
+**Write prompt:** enter an idea and press the button beside the prompt field to rewrite it locally using the model
+selected in Settings. On success it replaces your text and selects Exact prompt. It needs an idle, reachable ComfyUI
+and temporarily unloads its models; queued panel generations wait until the writer finishes. The text is kept if it fails.
+The writer receives only the text in the prompt box, not attached references or the selected duration. Its video
+instructions describe shot composition, motion, sound and user-supplied dialogue and text; it cannot inspect references.
+
+Alternatively, under **Prompts → LLM**, choose **Local model (Settings)** to plan a separate prompt per clip using
+the existing workflow-specific planner. Gemma can analyze attached images; Qwen rejects them because it is text-only.
+The local model unloads before rendering and needs an idle, reachable ComfyUI. Large plans can take substantial
+time and may exceed the local model's context or output limits.
+
 **OpenH3-IR (MiniMax H3).** The Prompt section offers this optional compiler on supported H3 workflows. It is off
 by default. Choose **before review** to compile each planned prompt before editing it (using the original reference
 images), or **before each clip** to compile with the actual start frame, including a frame from the previous clip.
@@ -67,11 +78,16 @@ in place; H3 director workflows use H3's 24-fps frame grid for enhanced clips. R
 rendering, and duplicate reference files are refused rather than ambiguously assigned.
 Motion Director is supported when the panel has adapted its inputs; manually wired Director timelines are not.
 
+Choose the OpenH3-IR model in Settings: **Gemma 4 12B** is the default and supports images and reference videos;
+**Qwen3 14B** is text-only and rejects visual references. This selection applies to subsequent compilations.
+The GGUF models live in the project's ignored `models/gemma-4-12b-heretic` and `models/qwen3-14b-abliterated`
+directories. Gemma also requires its `mmproj.gguf`.
+
 For the portable Windows ComfyUI layout, the defaults locate `python_embeded/python.exe` and
 `ComfyUI/custom_nodes/ComfyUI-OpenH3-IR` beside `COMFYUI_LAUNCHER`, and expect the Vulkan llama.cpp
-`b12177-vulkan/llama-server.exe` and the Qwen model and `mmproj.gguf` in sibling `llama.cpp` and `models`
-directories. Other layouts can set `H3IR_COMFY_ROOT`, `H3IR_PYTHON`, `H3IR_LLAMA_SERVER`, `H3IR_MODEL_FILE`,
-and `H3IR_PROJECTOR_FILE` in `.env`; `H3IR_GPU_LAYERS` defaults to 16. The selected GGUF needs vision support.
+at `1_Misc/llama.cpp/b12177-vulkan/llama-server.exe` beside the ComfyUI directory. Other layouts can set
+`H3IR_COMFY_ROOT`, `H3IR_PYTHON`, `H3IR_LLAMA_SERVER`, `H3IR_MODEL_FILE`, and `H3IR_PROJECTOR_FILE`
+in `.env`; `H3IR_GPU_LAYERS` defaults to 16. Model-file overrides apply to the currently selected model.
 From the command line use `--h3-enhance review` or `--h3-enhance render`, and optionally
 `--h3-creativity restrained|balanced|bold|extreme`.
 

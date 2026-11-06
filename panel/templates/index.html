@@ -466,6 +466,15 @@
   body.on-video { --accent: #4c8dff; }
   body.on-image { --accent: #2fbf71; }
   .pipeline-form textarea { min-height: 84px; resize: vertical; }
+  .prompt-label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .prompt-label-row label { margin-bottom: 4px; }
+  .prompt-label-row button { width: auto; margin: 0; padding: 4px 9px; font-size: .75rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+  .prompt-writing { position: relative; overflow: hidden; border-radius: 8px; }
+  .prompt-writing textarea { display: block; }
+  .prompt-writing.busy textarea { opacity: .5; background: var(--panel-2); }
+  .prompt-writing.busy::after { content: ""; position: absolute; top: 0; left: 0; height: 3px; width: 35%; background: var(--accent); animation: prompt-progress 1.4s ease-in-out infinite alternate; }
+  @keyframes prompt-progress { from { transform: translateX(0); } to { transform: translateX(185%); } }
+  @media (prefers-reduced-motion: reduce) { .prompt-writing.busy::after { animation: none; width: 100%; } }
   /* Side by side, the fields line up by their boxes, not their labels: a label that wraps doesn't push its box down. */
   .pipeline-form .row > div { display: flex; flex-direction: column; justify-content: flex-end; }
   /* A dashed box to drop into, with a real button in it rather than the browser's own. */
@@ -1321,14 +1330,17 @@
       <option value="llm">LLM</option>
       <option value="direct">Exact prompt</option>
     </select>
-    <label for="prompt" id="videoPromptLabel">What should happen</label>
-    <textarea id="prompt" name="prompt" placeholder="e.g. A storm rolls in over the harbour and the fishing boats race home"></textarea>
+    <div class="prompt-label-row"><label for="prompt" id="videoPromptLabel">What should happen</label><button type="button" id="writeVideoPrompt">Write prompt</button></div>
+    <div class="prompt-writing" id="videoPromptWriting"><textarea id="prompt" name="prompt" placeholder="e.g. A storm rolls in over the harbour and the fishing boats race home"></textarea></div>
+    <div class="err" id="videoPromptWriteError" role="alert" hidden></div>
+    <div class="hint">Write prompt uses the text only; it cannot see attached references or the selected duration.</div>
     <div class="hint" id="videoPromptHint">A sentence or two is enough.</div>
     <div id="videoLlmBox">
     <label for="llm">What writes the prompts</label>
     <select id="llm" name="llm">
       {% for llm in llms %}<option value="{{ llm.name }}" {% if not llm.ready %}disabled{% endif %}>{{ llm.label }}{% if not llm.ready %} (no key in .env){% endif %}</option>{% endfor %}
     </select>
+    <div class="hint">Local model uses the model in Settings. Qwen cannot analyze attached images; choose Gemma for those.</div>
     </div>
     <div id="videoH3Box" hidden>
       <label for="videoH3Mode">OpenH3-IR</label>
@@ -1478,14 +1490,17 @@
       <option value="llm">LLM</option>
       <option value="direct">Exact prompt</option>
     </select>
-    <label for="imagePrompt" id="imagePromptLabel">What you want</label>
-    <textarea id="imagePrompt" name="prompt"></textarea>
+    <div class="prompt-label-row"><label for="imagePrompt" id="imagePromptLabel">What you want</label><button type="button" id="writeImagePrompt">Write prompt</button></div>
+    <div class="prompt-writing" id="imagePromptWriting"><textarea id="imagePrompt" name="prompt"></textarea></div>
+    <div class="err" id="imagePromptWriteError" role="alert" hidden></div>
+    <div class="hint">Write prompt uses the text only; it cannot see attached images.</div>
     <div class="hint" id="imagePromptHint"></div>
     <div id="imageLlmBox">
       <label for="imageLlm">What writes the prompts</label>
       <select id="imageLlm" name="llm">
         {% for llm in image_llms %}<option value="{{ llm.name }}" {% if not llm.ready %}disabled{% endif %}>{{ llm.label }}{% if not llm.ready %} (no key in .env){% endif %}</option>{% endfor %}
       </select>
+      <div class="hint">Local model uses the model in Settings. Qwen cannot analyze attached images; choose Gemma for those.</div>
       <div id="imageToPromptSlot"></div>
       <label class="check" id="imageReviewBox">
         <input type="checkbox" name="review" id="imageReview">
@@ -1590,6 +1605,9 @@
   <div class="settings-row reserve-row"><label for="reserveRam">Reserve free RAM</label><b id="reserveRamValue"></b><button type="button" id="reserveSet">Set</button><input type="range" id="reserveRam" min="3" max="12" step="1"></div>
   <label class="settings-check"><input type="checkbox" id="lowPriority"><span>Run generation at lower priority<small>The pipeline and ComfyUI give way to your other programs, so the PC stays responsive while it renders.</small></span></label>
   <label class="settings-check"><input type="checkbox" id="poweroff"><span>Shut down the PC when the queue is empty<small id="poweroffNote">This session only: it isn't saved. You get a minute to cancel it.</small></span></label>
+  <div class="settings-group">OpenH3-IR model</div>
+  <div class="settings-row"><label for="h3Model">Prompt enhancer</label><select id="h3Model"><option value="gemma-4-12b">Gemma 4 12B (vision)</option><option value="qwen3-14b">Qwen3 14B (text only)</option></select></div>
+  <div class="hint">Qwen3 cannot analyze image or video references; choose Gemma for those.</div>
   <div class="settings-group">Default workflow</div>
   <div class="settings-row"><label for="defaultShorts">Shorts</label><select id="defaultShorts" data-side="shorts"></select></div>
   <div class="settings-row"><label for="defaultVideo">Video</label><select id="defaultVideo" data-side="video"></select></div>
@@ -2505,6 +2523,7 @@ function formatBytes(n) {
 }
 async function fillSettings() {
   $('lowPriority').checked = !!SETTINGS.low_priority;
+  $('h3Model').value = SETTINGS.h3_model;
   $('reserveRam').value = SETTINGS.reserve_ram_gb || 3;
   $('reserveRamValue').textContent = $('reserveRam').value + ' GB';
   $('reserveSet').classList.remove('changed');
@@ -2536,6 +2555,7 @@ $('settingsBtn').addEventListener('click', e => {
 $('settingsClose').addEventListener('click', () => settingsDialog.close());
 settingsDialog.addEventListener('click', e => { if (e.target === settingsDialog) settingsDialog.close(); });
 $('lowPriority').addEventListener('change', () => saveSettings({ low_priority: $('lowPriority').checked }));
+$('h3Model').addEventListener('change', () => saveSettings({ h3_model: $('h3Model').value }));
 const reserveSaved = () => SETTINGS.reserve_ram_gb || 3;
 // Shut down when the queue is empty: kept by the server for this session only.
 function renderPoweroff(p) {
@@ -3548,8 +3568,8 @@ function syncImageLlm() {
   for (const role of [...roles].sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))) {
     select.insertAdjacentHTML('beforeend', `<option value="${esc(role.id)}" data-role="1">${esc(ROLE_LABELS[role.id] || role.label)}</option>`);
   }
-  // A workflow with its own Prompt Enhancer: that, rather than Gemini, unless one of its own was chosen.
-  if (roles.some(role => role.id === 'prompt_enhancer') && !ROLE_LABELS[wanted]) select.value = 'prompt_enhancer';
+  // Keep an explicitly selected local model when switching workflows.
+  if (roles.some(role => role.id === 'prompt_enhancer') && !ROLE_LABELS[wanted] && wanted !== 'local') select.value = 'prompt_enhancer';
   else if ([...(select.options || [])].some(option => option.value === wanted)) select.value = wanted;
   else if (ROLE_LABELS[wanted]) select.value = IMAGE_DEFAULTS.llm;
 }
@@ -6170,6 +6190,10 @@ function showSending(share) {
 }
 async function startJob(url, later = false) {
   if (submitting) return;
+  if ((pipeline === 'video' || pipeline === 'image') && $(pipeline + 'PromptWriting').classList.contains('busy')) {
+    showFormError('Wait for the prompt writer to finish first.');
+    return;
+  }
   if (queueEdit && pipeline !== queueEdit.pipeline) {
     showFormError('Return to the run being edited, or cancel editing first.');
     return;
@@ -6235,6 +6259,41 @@ $('goLater').addEventListener('click', () => {
 });
 
 const PROMPT_FIELDS = { shorts: 'topic', video: 'prompt', image: 'imagePrompt' };
+async function writePrompt(side) {
+  const field = $(PROMPT_FIELDS[side]), button = $(side === 'video' ? 'writeVideoPrompt' : 'writeImagePrompt');
+  const box = $(side + 'PromptWriting'), error = $(side + 'PromptWriteError'), original = field.value;
+  error.hidden = true;
+  if (!original.trim()) { error.textContent = 'Enter an idea first.'; error.hidden = false; return; }
+  button.disabled = true;
+  field.readOnly = true;
+  box.classList.add('busy');
+  box.setAttribute('aria-busy', 'true');
+  try {
+    const response = await fetch('/api/write-prompt', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pipeline: side, prompt: original }) });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || 'Could not write the prompt.');
+    if (field.value !== original) throw new Error('The prompt changed while writing; it was not replaced.');
+    field.value = result.prompt;
+    const mode = $(side + 'PromptMode');
+    if (!mode.disabled) {
+      mode.value = 'direct';
+      mode.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    if (side === 'video') saveVideoForm(); else saveImageForm();
+  } catch (e) {
+    error.textContent = e.message || 'Could not write the prompt.';
+    error.hidden = false;
+  } finally {
+    button.disabled = false;
+    field.readOnly = false;
+    box.classList.remove('busy');
+    box.setAttribute('aria-busy', 'false');
+  }
+}
+$('writeVideoPrompt').addEventListener('click', () => writePrompt('video'));
+$('writeImagePrompt').addEventListener('click', () => writePrompt('image'));
 function clearPrompt(side) {
   const field = $(PROMPT_FIELDS[side]);
   if (!field.value) return;

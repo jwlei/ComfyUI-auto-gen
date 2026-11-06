@@ -1402,7 +1402,10 @@ def prepare_upload(item):
     return None
 
 
-run_queue = JobQueue(job, prepare_run, path=os.path.join(LOGS_DIR, "queue_runs.json"))
+_writing_prompt = False
+_panel_closing = False
+_comfy_restarting = False
+run_queue = JobQueue(job, prepare_run, blocked=lambda: _writing_prompt or _panel_closing, path=os.path.join(LOGS_DIR, "queue_runs.json"))
 # A run's own upload step is waited out, when its video sits in Ready with no topic recorded yet.
 upload_queue = JobQueue(uploads, prepare_upload, blocked=lambda: job.uploading,
                         path=os.path.join(LOGS_DIR, "queue_uploads.json"))
@@ -1410,7 +1413,7 @@ QUEUES = {"run": run_queue, "upload": upload_queue}
 
 
 def work_left():
-    return job.running or uploads.running or run_queue.pending() or upload_queue.pending()
+    return _writing_prompt or job.running or uploads.running or run_queue.pending() or upload_queue.pending()
 
 
 def restart_blocked():
@@ -1418,7 +1421,7 @@ def restart_blocked():
     Something a restart would cut short: a run or upload going, or a queue about to start one. A queue on hold
     isn't: it's saved, and comes back on hold.
     """
-    return job.running or uploads.running or any(
+    return _writing_prompt or job.running or uploads.running or any(
         not queue.held and any(not item.get("later") for item in queue.pending())
         for queue in (run_queue, upload_queue)
     )
@@ -2065,12 +2068,43 @@ def api_settings():
             return {"ok": False, "error": "Settings are a JSON object."}, 400
         try:
             saved = settings.update(changes)
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}, 400
         except OSError as e:
             return {"ok": False, "error": f"Could not save it: {e}"}, 500
         if "low_priority" in changes:
             threading.Thread(target=apply_comfyui_priority, daemon=True).start()
         return {"ok": True, "settings": saved}
     return {"ok": True, "settings": settings.load(), "disk": disk_usage()}
+
+
+@app.route("/api/write-prompt", methods=["POST"])
+@password_required
+def write_prompt():
+    from core import h3_refiner
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or data.get("pipeline") not in ("image", "video"):
+        return {"ok": False, "error": "Choose an image or video prompt."}, 400
+    text = data.get("prompt")
+    if not isinstance(text, str) or not text.strip() or len(text) > 16000:
+        return {"ok": False, "error": "Enter a prompt of up to 16,000 characters."}, 400
+    global _writing_prompt
+    with run_queue.lock:
+        if _writing_prompt or _panel_closing or _comfy_restarting or job.running or (run_queue.pending() and not run_queue.held):
+            return {"ok": False, "error": "Wait for the current generation or prompt writer to finish."}, 409
+        _writing_prompt = True
+    try:
+        url = (os.getenv("COMFYUI_URL") or "http://127.0.0.1:8188").rstrip("/")
+        with h3_refiner.Refiner(url, require_compiler=False) as refiner:
+            prompt = refiner.write_prompt(text.strip(), data["pipeline"])
+        return {"ok": True, "prompt": prompt}
+    except (RuntimeError, OSError, ValueError) as e:
+        return {"ok": False, "error": str(e)}, 500
+    finally:
+        with run_queue.lock:
+            _writing_prompt = False
+        run_queue._advance_locked()
 
 
 _disk_cache = {"at": 0.0, "value": None}
@@ -2181,12 +2215,15 @@ def respawn_command():
 @password_required
 def restart_panel():
     """Starts the panel again, to load new code. Only when nothing is running that it would cut short."""
-    if restart_blocked():
-        return {"ok": False, "error": "A run or upload is going, or a queue is about to start one. Stop it or let it finish first."}, 409
-    command, flags = respawn_command()
-    subprocess.Popen(command, cwd=PROJECT_ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, creationflags=flags)
-    threading.Timer(0.5, os._exit, args=(0,)).start()
+    global _panel_closing
+    with run_queue.lock:
+        if restart_blocked():
+            return {"ok": False, "error": "A run, upload or prompt writer is going, or a queue is about to start one. Wait for it first."}, 409
+        command, flags = respawn_command()
+        subprocess.Popen(command, cwd=PROJECT_ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, creationflags=flags)
+        _panel_closing = True
+        threading.Timer(0.5, os._exit, args=(0,)).start()
     return {"ok": True}
 
 
@@ -2210,11 +2247,21 @@ def restart_comfyui_now():
 @app.route("/restart/comfyui", methods=["POST"])
 @password_required
 def restart_comfyui():
-    if job.running:
-        return {"ok": False, "error": "A run is going: it would lose what ComfyUI is making. Stop it first."}, 409
-    if not comfyui_launcher():
-        return {"ok": False, "error": "COMFYUI_LAUNCHER isn't set in .env, so the panel can't start ComfyUI again."}, 400
-    threading.Thread(target=restart_comfyui_now, daemon=True).start()
+    global _comfy_restarting
+    with run_queue.lock:
+        if job.running or _writing_prompt or _comfy_restarting:
+            return {"ok": False, "error": "A run or prompt writer is going, or ComfyUI is restarting. Wait for it first."}, 409
+        if not comfyui_launcher():
+            return {"ok": False, "error": "COMFYUI_LAUNCHER isn't set in .env, so the panel can't start ComfyUI again."}, 400
+        _comfy_restarting = True
+        def restart():
+            global _comfy_restarting
+            try:
+                restart_comfyui_now()
+            finally:
+                with run_queue.lock:
+                    _comfy_restarting = False
+        threading.Thread(target=restart, daemon=True).start()
     return {"ok": True}
 
 
@@ -2225,8 +2272,13 @@ def shutdown():
     Force-stops everything the panel is doing, then the server itself: started
     from start_webapp.pyw it has no window to close.
     """
-    for queue in QUEUES.values():
-        queue.close()
+    global _panel_closing
+    with run_queue.lock:
+        if _writing_prompt:
+            return {"ok": False, "error": "Wait for the prompt writer to finish before shutting down."}, 409
+        for queue in QUEUES.values():
+            queue.close()
+        _panel_closing = True
     stop_run()
     uploads.stop()
     # Exiting now would leave it running with nothing in the panel to stop it.
@@ -2250,9 +2302,12 @@ def launcher_refresh():
         code_changed_at = float(request.form.get("code_changed_at", 0))
     except ValueError:
         abort(400)
-    if code_changed_at <= STARTED_AT or restart_blocked():
-        return {"restarting": False}
-    threading.Timer(0.5, os._exit, args=(0,)).start()
+    global _panel_closing
+    with run_queue.lock:
+        if code_changed_at <= STARTED_AT or restart_blocked():
+            return {"restarting": False}
+        _panel_closing = True
+        threading.Timer(0.5, os._exit, args=(0,)).start()
     return {"restarting": True}
 
 

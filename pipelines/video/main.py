@@ -152,7 +152,13 @@ def check_setup(args):
         print("✅ ffmpeg found.")
     else:
         problems.append("ffmpeg isn't installed, or isn't on the PATH.")
-    if planner.llm_configured(llm):
+    if llm == "local":
+        try:
+            h3_refiner._paths(h3_refiner.selected_model(), require_compiler=False)
+            print("✅ Local model and llama.cpp found.")
+        except (RuntimeError, ValueError) as e:
+            problems.append(str(e))
+    elif planner.llm_configured(llm):
         print(f"✅ {llm} has credentials.")
     else:
         problems.append(f"{llm} has no credentials: see .env.example.")
@@ -243,6 +249,8 @@ def plan_run(args, stages):
     width, height = args.size or media.render_size(*(images[0].size if images else media.DEFAULT_SHAPE),
                                                    media.most_pixels(video_model) or media.RENDER_AREA)
     llm = args.llm or planner.default_llm()
+    if not args.direct and llm == "local" and h3_refiner.selected_model() == "qwen3-14b" and (images or image_2_in_words):
+        raise RuntimeError("Qwen3 14B is text-only and cannot analyze attached images. Choose Gemma 4 in Settings.")
     if not args.direct and not planner.llm_configured(llm):
         raise RuntimeError(f"{llm} has no credentials: see .env.example.")
     state = RunState.new(args.prompt, args.duration, start, width, height, llm,
@@ -281,9 +289,14 @@ def plan_run(args, stages):
           f"{width}x{height}, {shortest}-{longest}s a clip...")
     if image_2_in_words:
         print("🖼️ This workflow's clips take one image, so image 2 only reaches them through what the prompts say.")
-    title, shots = planner.plan_film([media.preview_jpeg(image) for image in images], brief, state.seconds, state.start, llm,
-                                     video_model, args.image_roles, media.preview_jpeg(image_2_in_words) if image_2_in_words else None,
-                                     state.references(), chosen=args.clip_seconds)
+    plan_args = ([media.preview_jpeg(image) for image in images], brief, state.seconds, state.start, llm,
+                 video_model, args.image_roles, media.preview_jpeg(image_2_in_words) if image_2_in_words else None,
+                 state.references())
+    if llm == "local":
+        with h3_refiner.Refiner(comfy.url, require_compiler=False) as refiner:
+            title, shots = planner.plan_film(*plan_args, chosen=args.clip_seconds, refiner=refiner)
+    else:
+        title, shots = planner.plan_film(*plan_args, chosen=args.clip_seconds)
     for image, path in zip(images, state.image_paths):
         media.save_input(image, path)
     for index, shot in enumerate(shots):
@@ -313,10 +326,11 @@ def refine_shot(refiner, state, shot, images, workflow):
                            first_frame=h3_refiner.first_frame(workflow, images))
 
 
-def refinement_key(state, shot, images):
+def refinement_key(state, shot, images, model_id=None):
     refs = [state.reference_path(ref) for ref in state.ref_videos + state.ref_audios]
     data = {"prompt": shot["prompt"], "seconds": shot["seconds"], "seed": shot.get("seed"),
             "size": [state.width, state.height], "creativity": state.h3_creativity,
+            "h3_model": model_id or h3_refiner.selected_model(),
             "image_roles": state.image_roles, "videos": state.ref_videos, "audios": state.ref_audios,
             "files": [h3_refiner.digest(path) for path in [*images, *refs]]}
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
@@ -400,6 +414,7 @@ def render_clips(state, comfy, most=None):
             else:
                 with h3_refiner.Refiner(comfy.url) as refiner:
                     enhanced = refine_shot(refiner, state, shot, image_paths, comfy.workflow)
+                    key = refinement_key(state, shot, image_paths, refiner.model_id)
                 shot["enhanced_prompt"], shot["h3_key"] = enhanced, key
                 state.save()
             print(f"   ✍️ OpenH3-IR prompt:\n{enhanced}")

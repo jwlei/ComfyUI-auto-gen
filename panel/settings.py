@@ -8,7 +8,9 @@ from core.paths import LOGS_DIR
 PATH = os.path.join(LOGS_DIR, "settings.json")
 SIDES = ("shorts", "video", "image")
 MAX_RESERVE_GB = 64
-DEFAULTS = {"low_priority": False, "reserve_ram_gb": 0, "default_workflow": {side: "" for side in SIDES}}
+H3_MODELS = ("gemma-4-12b", "qwen3-14b")
+DEFAULTS = {"low_priority": False, "reserve_ram_gb": 0, "h3_model": H3_MODELS[0],
+            "default_workflow": {side: "" for side in SIDES}}
 _lock = threading.Lock()
 
 
@@ -30,8 +32,12 @@ def load():
     if not isinstance(saved, dict):
         saved = {}
     workflows = saved.get("default_workflow") if isinstance(saved.get("default_workflow"), dict) else {}
+    model = saved.get("h3_model", DEFAULTS["h3_model"])
+    if model not in H3_MODELS:
+        raise ValueError(f"Unknown OpenH3-IR model: {model!r}")
     return {"low_priority": bool(saved.get("low_priority")),
             "reserve_ram_gb": _gigabytes(saved.get("reserve_ram_gb")),
+            "h3_model": model,
             "default_workflow": {side: str(workflows.get(side) or "") for side in SIDES}}
 
 
@@ -43,6 +49,10 @@ def update(changes):
             current["low_priority"] = bool(changes["low_priority"])
         if "reserve_ram_gb" in changes:
             current["reserve_ram_gb"] = _gigabytes(changes["reserve_ram_gb"])
+        if "h3_model" in changes:
+            if changes["h3_model"] not in H3_MODELS:
+                raise ValueError("Unknown OpenH3-IR model.")
+            current["h3_model"] = changes["h3_model"]
         if isinstance(changes.get("default_workflow"), dict):
             for side in SIDES:
                 if side in changes["default_workflow"]:
