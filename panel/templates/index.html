@@ -2059,6 +2059,7 @@ function loadVideoForm() {
 }
 // --- Workflows saved in ComfyUI ---
 const BUILT_IN_TAKES = { min_images: 1, max_images: 1, max_videos: 0, max_audios: 0, max_references: 1 };
+const BUILT_IN_SAVED = 'video_LTX23_I2V_T2V.json';
 // How long the built-in workflow's video model makes a clip: [shortest, longest, usual] seconds.
 const BUILT_IN_CLIPS = {{ clip_seconds | tojson }};
 let workflowTakes = {}, workflowClips = {};
@@ -2074,9 +2075,13 @@ async function loadVideoWorkflows() {
   if (select.dataset.key === key) return;
   const wanted = select.dataset.key ? select.value : startingWorkflow('video', rememberedVideoWorkflow);
   select.dataset.key = key;
-  select.innerHTML = '<option value="">LTX23_I2V_T2V</option>' + data.workflows.map(w =>
+  // Its saved copy in ComfyUI is the same workflow with its options: it takes the built-in's place in the list.
+  const saved = data.workflows.find(w => w.name === BUILT_IN_SAVED && !w.problem);
+  const builtIn = saved ? '' : '<option value="">LTX23_I2V_T2V</option>';
+  select.innerHTML = builtIn + data.workflows.map(w =>
     `<option value="${esc(w.name)}">${esc(w.label)}</option>`).join('');
-  if (data.workflows.some(w => w.name === wanted)) select.value = wanted;
+  const target = saved && !wanted ? BUILT_IN_SAVED : wanted;
+  if (data.workflows.some(w => w.name === target)) select.value = target;
   workflowTakes = Object.fromEntries(data.workflows.map(w => [w.name, w.takes]));
   workflowClips = Object.fromEntries(data.workflows.map(w => [w.name, w.clip_seconds || BUILT_IN_CLIPS]));
   syncVideoForm();
