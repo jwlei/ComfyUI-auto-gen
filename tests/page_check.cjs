@@ -661,6 +661,7 @@ assert.strictEqual(context.tapped.style.width, '', 'and its own size again');
 
 // The generation queue redraws together with Pending and Failed; upload departures keep their own animation.
 const queueEl = { dataset: { title: 'Queue', lane: 'run' }, hidden: false, innerHTML: '', nodes: [],
+  querySelector() { return null; },
   querySelectorAll(selector) { return selector.startsWith('.queue-request') || selector.startsWith('.armed') ? [] : this.nodes; } };
 const queueTimers = [];
 context.queueEl = queueEl;
@@ -1147,6 +1148,20 @@ assert(!/class="queue-item run-card"/.test(written), 'Pending remains separate f
 assert(!/id="stopAfter"/.test(html), 'pause moved out of the run actions');
 assert(!script.includes('ComfyUI is making each image.'), 'the redundant image stage hint is not shown');
 assert(/\.queue \.queue-head button\[data-queue-toggle\] \{ width: 30px; height: 30px;/.test(html), 'the queue header control is smaller');
+assert(queue.innerHTML.includes('data-fold-queue="1" aria-expanded="true"') && queue.innerHTML.includes('class="queue-list" tabindex="0"'), 'run queue has a separate collapsible scrollable list');
+queue._open = false;
+run(`renderQueue(queue, { items: [{ id: 1, label: 'new', detail: '', pipeline: 'image' }] }, 0)`);
+assert(queue.innerHTML.includes('aria-expanded="false"') && queue.innerHTML.includes('class="queue-list" tabindex="0" hidden'), 'collapsed queue stays collapsed through redraws');
+{
+  const rows = [0, 60, 170, 265].map((top, index) => ({ offsetTop: top, offsetHeight: [54, 104, 89, 80][index], getClientRects: () => [1] }));
+  const properties = {};
+  const list = { scrollTop: 0, style: { setProperty: (key, value) => { properties[key] = value; } }, querySelectorAll: () => rows };
+  context.measuredSection = { querySelector: () => list };
+  run("setupQueueScroll(measuredSection, '.queue-list', '.queue-item', 40)");
+  assert.strictEqual(properties['--three-rows'], '259px', 'the cap fits exactly the first three variable-height cards');
+  assert.strictEqual(list.scrollTop, 40, 'redraw restores the scroll position');
+}
+assert(html.includes('.queue-list, .stopped-body') && html.includes('max-height: min(var(--three-rows, 55dvh), 55dvh)'), 'queue, pending and failed scroll rather than growing past the viewport');
 
 // ComfyUI's status, a tap on its icon away: one that's up but doesn't answer, on a PC out of memory, says why.
 run(`renderComfy({ online: false, listening: true, can_start: true, ram: { free: 2.1, total: 31.9 }, gpu: { util: 7, mem_used: 5.8, mem_total: 12, power: 26, temp: 40 } })`);
@@ -1157,6 +1172,41 @@ assert(els.comfyFacts.innerHTML.includes('Generating the image · 3/8') && els.c
 
 // The status recovers by itself.
 (async () => {
+  run("imageSets = []; lastVideos = {output: [], uploaded: [], video: []}; pipeline = 'image'; outputFilter = NSFW_FILTER; document.body.dataset.page = 'status'; showPage('output')");
+  assert.strictEqual(run('outputFilter'), '', 'entering Output resets even the NSFW filter');
+  run("outputFilter = NSFW_FILTER; showPage('output')");
+  assert.strictEqual(run('outputFilter'), '__nsfw__', 'remaining on Output preserves the chosen filter');
+  run("outputFilter = ''; showPage('status')");
+  {
+    const savedFetch = context.fetch, savedPoll = run('poll');
+    let calls = [];
+    context.fetch = async (url, options) => {
+      calls.push({ url, body: JSON.parse(options.body) });
+      return { ok: true, json: async () => ({ ok: true }) };
+    };
+    run('poll = () => {}');
+    for (const [kind, nsfw] of [['image', true], ['video', false]]) {
+      const button = { dataset: {}, innerHTML: 'dots', style: {}, disabled: false, classList: classes(),
+        getBoundingClientRect: () => ({ width: 34, height: 28 }) };
+      button.classList.add('icon-btn');
+      context.nsfwButtonTest = button;
+      context.nsfwKind = kind;
+      context.nsfwValue = nsfw;
+      const previous = calls.length;
+      await run("tagOutput(nsfwKind, 'item', nsfwValue, nsfwButtonTest)");
+      assert.strictEqual(calls.length, previous, 'first tap only arms the NSFW action');
+      assert(button.classList.contains('armed') && button.innerHTML.includes('<svg'), 'first tap shows confirmation');
+      await run("tagOutput(nsfwKind, 'item', nsfwValue, nsfwButtonTest)");
+      assert.strictEqual(calls.length, previous + 1, 'second tap sends the action');
+      assert.deepStrictEqual(calls[previous], { url: '/api/output/nsfw', body: { kind, id: 'item', nsfw } });
+      assert(!button.classList.contains('armed') && button.innerHTML === 'dots', 'the button is restored');
+    }
+    assert.strictEqual(run("nsfwButton('image', 'a', false).match(/<svg[\\s\\S]*<\\/svg>/)[0]"),
+      run("nsfwButton('image', 'a', true).match(/<svg[\\s\\S]*<\\/svg>/)[0]"), 'the icon is neutral and the same in both states');
+    context.fetch = savedFetch;
+    context.savedNsfwPoll = savedPoll;
+    run('poll = savedNsfwPoll');
+  }
   {
     const savedPoll = run('poll');
     const savedFetch = context.fetch;

@@ -47,6 +47,10 @@
   .queue-head b { font-weight: 600; }
   .queue-foot { display: flex; justify-content: flex-end; margin-top: 8px; }
   .queue-head .when { color: var(--muted); font-size: .78rem; }
+  .queue-head .queue-fold-toggle { flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 0; border: 0; background: transparent; text-align: left; }
+  .queue-fold-toggle .chev { width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); margin-right: 4px; }
+  .queue-fold-toggle[aria-expanded="true"] .chev { transform: rotate(-135deg); }
+  .queue-list, .stopped-body { position: relative; max-height: min(var(--three-rows, 55dvh), 55dvh); overflow-y: auto; overscroll-behavior: contain; }
   .queue-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
   .queue-item .what { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .queue-item.run-card { display: block; margin-top: 6px; padding: 9px 11px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; }
@@ -2779,6 +2783,7 @@ function chooseFromOutput(box, side = 'image') {
   const boxes = side === 'video' ? imageBoxes() : sourceBoxes();
   if (!boxes.includes(box) || box.hidden || box.querySelector('input').disabled) return;
   choosingFor = { box, side, filter: outputFilter };
+  resetOutputFilter();
   $('chooseBannerText').textContent = `Tap an image to use it as image ${boxes.indexOf(box) + 1}.`;
   $('chooseBanner').hidden = false;
   if (pipeline !== 'image') {
@@ -3525,14 +3530,14 @@ const ICONS = {
   again: ICON_SVG('<path d="M4 12a8 8 0 0 1 13.7-5.7L20 8.5"/><path d="M20 4v4.5h-4.5"/><path d="M20 12a8 8 0 0 1-13.7 5.7L4 15.5"/><path d="M4 20v-4.5h4.5"/>'),
   play: ICON_SVG('<path d="M7 4.5v15l12-7.5z" fill="currentColor"/>'),
   config: ICON_SVG('<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>'),
-  hide: ICON_SVG('<path d="M3 3l18 18"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.8 5.2A10.7 10.7 0 0 1 12 5c5.5 0 9 7 9 7a15 15 0 0 1-3 3.8M6.2 6.2A16 16 0 0 0 3 12s3.5 7 9 7a10 10 0 0 0 4.2-.9"/>'),
-  show: ICON_SVG('<path d="M3 12s3.5-7 9-7 9 7 9 7-3.5 7-9 7-9-7-9-7z"/><circle cx="12" cy="12" r="3"/>'),
+  category: ICON_SVG('<circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/>'),
 };
 function nsfwButton(kind, id, tagged) {
   const label = tagged ? 'Remove NSFW tag' : 'Mark as NSFW';
-  return `<button type="button" class="icon-btn nsfw-button" data-nsfw-${kind}="${esc(id)}" aria-label="${label}" title="${label}">${tagged ? ICONS.show : ICONS.hide}</button>`;
+  return `<button type="button" class="icon-btn nsfw-button" data-nsfw-${kind}="${esc(id)}" aria-label="${label}" title="${label} (tap twice)">${ICONS.category}</button>`;
 }
 async function tagOutput(kind, id, nsfw, button) {
+  if (button.disabled || !secondTap(button)) return;
   button.disabled = true;
   try {
     const response = await fetch('/api/output/nsfw', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -4664,7 +4669,8 @@ function renderQueue(el, q, doneIn, moving = false, idle = false) {
     el.dataset.html = '';
     return;
   }
-  const head = `<b>${el.dataset.title} (${waiting.length})</b>` + (q.held
+  const heading = `<b>${el.dataset.title} (${waiting.length})</b>`;
+  const head = (el.dataset.lane === 'run' ? `<button type="button" class="queue-fold-toggle" data-fold-queue="1" aria-expanded="${el._open !== false}">${heading}<span class="chev" aria-hidden="true"></span></button>` : heading) + (q.held
     ? `<span class="when">On hold until you press play</span>`
     : doneIn ? `<span class="when">All done around ${clockIn(doneIn)}</span>` : '')
     + (el.dataset.lane === 'run' ? `<button type="button" class="icon-btn" data-queue-toggle="1" aria-label="${q.held || q.stopAfter ? 'Resume queue' : 'Pause after current'}" title="${q.held || q.stopAfter ? 'Resume queue' : 'Stop after the current image or video'}">${q.held || q.stopAfter ? ICONS.play : '❚❚'}</button>` : '');
@@ -4685,11 +4691,33 @@ function renderQueue(el, q, doneIn, moving = false, idle = false) {
     </div>`).join('');
   // Resume under what it lets go, where a thumb ends up after reading the list.
   const foot = q.held && el.dataset.lane !== 'run' ? `<div class="queue-foot"><button type="button" data-resume="1">Resume</button></div>` : '';
-  const html = `<div class="queue-head">${head}</div>${items}${foot}`;
+  const html = `<div class="queue-head">${head}</div>` + (el.dataset.lane === 'run'
+    ? `<div class="queue-list" tabindex="0"${el._open === false ? ' hidden' : ''}>${items}</div>` : items) + foot;
   // Only when it changed, so a poll can't swallow a click on a button it just replaced; nor one waiting for its second tap.
   if (el.dataset.html !== html && !el.querySelectorAll('.armed, .queue-request, .queue-request-done').length) {
+    const scroll = el.dataset.lane === 'run' && el.querySelector('.queue-list');
+    const top = scroll ? scroll.scrollTop : 0;
     el.innerHTML = html;
     el.dataset.html = html;
+    if (el.dataset.lane === 'run') setupQueueScroll(el, '.queue-list', '.queue-item', top);
+  }
+}
+function setupQueueScroll(section, selector, rowSelector, top = 0) {
+  const list = section.querySelector(selector);
+  if (!list) return;
+  list.scrollTop = top;
+  if (section._scrollObserver) section._scrollObserver.disconnect();
+  const rows = [...list.querySelectorAll(rowSelector)];
+  const measure = () => {
+    const first = rows.slice(0, 3);
+    if (!first.length || !first[0].getClientRects().length) return;
+    const end = first[first.length - 1];
+    list.style.setProperty('--three-rows', `${end.offsetTop + end.offsetHeight}px`);
+  };
+  measure();
+  if (window.ResizeObserver) {
+    section._scrollObserver = new window.ResizeObserver(measure);
+    for (const row of rows.slice(0, 3)) section._scrollObserver.observe(row);
   }
 }
 // Every run and upload that has ended, in one list, newest first.
@@ -4776,6 +4804,7 @@ function goToOutput(side, tab) {
   closePanel();
   if (side !== pipeline) setPipeline(side);
   if (tab && side === 'shorts') setTab(tab);
+  resetOutputFilter();
   if (WIDE.matches) $('videosCard').scrollIntoView({ behavior: 'smooth' }); else showPage('output');
 }
 $('finishedList').addEventListener('click', e => {
@@ -4935,8 +4964,11 @@ function renderStopped(runs, parked = [], results = []) {
     const html = !rows.length ? '' : `<details class="stopped-fold"${el._open ? ' open' : ''}><summary><b>${title} (${rows.length})</b><span class="chev" aria-hidden="true"></span></summary><div class="stopped-body">${rows.join('')}</div></details>`;
     // Only when it changed, so a poll can't swallow a click on a button it just replaced; nor one waiting for its second tap.
     if (el.dataset.html !== html && !el.querySelectorAll('.armed, .queue-request, .queue-request-done').length) {
+      const old = el.querySelector('.stopped-body');
+      const top = old ? old.scrollTop : 0;
       el.innerHTML = html;
       el.dataset.html = html;
+      setupQueueScroll(el, '.stopped-body', '.stopped-run', top);
     }
   };
   fold('stoppedRuns', 'Pending', [...parked.map(parkedRow), ...idle.map(run => runRow(run))]);
@@ -5005,6 +5037,27 @@ async function sendOrder(el) {
 }
 function dragQueue(el) {
   let drag = null;
+  const moveRow = y => {
+    const rows = [...el.querySelectorAll('.queue-item[data-id]')].filter(row => row !== drag.row);
+    const after = rows.find(row => { const box = row.getBoundingClientRect(); return y < box.top + box.height / 2; });
+    if (after) { if (drag.row.nextElementSibling !== after) glide(el, () => after.before(drag.row)); }
+    else if (rows.length && rows[rows.length - 1].nextElementSibling !== drag.row) glide(el, () => rows[rows.length - 1].after(drag.row));
+  };
+  const scrollDrag = () => {
+    if (!drag) return;
+    drag.frame = 0;
+    const list = drag.row.parentElement;
+    if (!list.classList.contains('queue-list')) return;
+    const box = list.getBoundingClientRect();
+    const amount = drag.y < box.top + 36 ? -8 : drag.y > box.bottom - 36 ? 8 : 0;
+    if (!amount) return;
+    const before = list.scrollTop;
+    list.scrollTop += amount;
+    if (list.scrollTop !== before) {
+      moveRow(drag.y);
+      drag.frame = requestAnimationFrame(scrollDrag);
+    }
+  };
   const select = target => {
     if (!target.closest || target.closest('button')) return false;
     const row = target.closest('.queue-item');
@@ -5019,21 +5072,20 @@ function dragQueue(el) {
     if (!grip || e.button > 0) return;
     e.preventDefault();
     const row = grip.closest('.queue-item');
-    drag = { row, pointer: e.pointerId, before: queueOrder(el).join() };
+    drag = { row, pointer: e.pointerId, before: queueOrder(el).join(), y: e.clientY, frame: 0 };
     el._dragging = true;
     row.classList.add('dragging');
     try { grip.setPointerCapture(e.pointerId); } catch (err) {}
   });
   el.addEventListener('pointermove', e => {
     if (!drag || e.pointerId !== drag.pointer) return;
-    // Past the middle of the one above or below, it takes that one's place.
-    const rows = [...el.querySelectorAll('.queue-item[data-id]')].filter(row => row !== drag.row);
-    const after = rows.find(row => { const box = row.getBoundingClientRect(); return e.clientY < box.top + box.height / 2; });
-    if (after) { if (drag.row.nextElementSibling !== after) glide(el, () => after.before(drag.row)); }
-    else if (rows.length && rows[rows.length - 1].nextElementSibling !== drag.row) glide(el, () => rows[rows.length - 1].after(drag.row));
+    drag.y = e.clientY;
+    moveRow(drag.y);
+    if (!drag.frame) drag.frame = requestAnimationFrame(scrollDrag);
   });
   const drop = e => {
     if (!drag || e.pointerId !== drag.pointer) return;
+    if (drag.frame) cancelAnimationFrame(drag.frame);
     drag.row.classList.remove('dragging');
     const moved = queueOrder(el).join() !== drag.before;
     drag = null;
@@ -5065,6 +5117,15 @@ function dragQueue(el) {
 for (const id of ['runQueue', 'uploadQueue']) {
   dragQueue($(id));
   $(id).addEventListener('click', async e => {
+    const fold = e.target.closest && e.target.closest('button[data-fold-queue]');
+    if (fold) {
+      const el = $(id), list = el.querySelector('.queue-list');
+      el._open = el._open === false;
+      fold.setAttribute('aria-expanded', String(el._open));
+      if (list) list.hidden = !el._open;
+      if (el._open) setupQueueScroll(el, '.queue-list', '.queue-item', list ? list.scrollTop : 0);
+      return;
+    }
     const button = e.target.closest && e.target.closest('button[data-run], button[data-pause], button[data-remove], button[data-resume], button[data-queue-toggle], button[data-edit], button[data-shots]');
     const d = button ? button.dataset : {}, lane = $(id).dataset.lane;
     if (d.edit) {
@@ -5804,8 +5865,16 @@ $('shutdown').addEventListener('click', async e => {
 const JUMPS = [...$('jump').querySelectorAll('a')];
 // A phone shows one section at a time, the one chosen in the footer. A desktop shows them all, with no footer.
 const PAGE_KEY = 'comfyui-auto-gen.page';
+function resetOutputFilter() {
+  if (!outputFilter) return;
+  outputFilter = '';
+  $('videos').dataset.key = $('imageSets').dataset.key = '';
+  renderVideos();
+  renderImageSets();
+}
 function showPage(page) {
   if (!WIDE.matches && !choosingFor && document.body.dataset.page === 'generate' && page !== 'generate') clearPrompt(pipeline);
+  if (page === 'output' && document.body.dataset.page !== 'output') resetOutputFilter();
   document.body.dataset.page = page;
   try { sessionStorage.setItem(PAGE_KEY, page); } catch (e) {}
   if (!WIDE.matches) window.scrollTo(0, 0);

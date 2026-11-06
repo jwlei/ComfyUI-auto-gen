@@ -43,11 +43,12 @@ Output instead. This includes additional reference images and the image-to-promp
 When you delete an image in the preview, it stays open on the next image in that batch, or the previous
 one if there is no next image. Deleting the only remaining image closes the preview.
 
-In Output, use the eye icon at the top of an image batch or Video card to mark it NSFW. It disappears
+In Output, tap the three-dot button twice at the top of an image batch or Video card to mark it NSFW. It disappears
 from normal output and Finished. Choose **NSFW**, just below **All workflows**, to see tagged Image
-and Video output together and use the eye icon again to restore it. Image batches remain selectable
+and Video output together and tap the button twice again to restore it. Image batches remain selectable
 as inputs through that filter. Videos from the same saved run, including upscaled copies, share a tag.
 Shorts are unaffected. This is a display filter, not access control: the media stays on disk.
+Each time you enter Output, the filter starts at **All workflows**.
 
 **How many images:** 1 to 100, or 30 when the LLM writes Fibo 2.0's prompts (see below).
 

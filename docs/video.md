@@ -121,6 +121,8 @@ its edges. The ETA scales with the pixel count.
 log. Generate adds more films to a queue, and each keeps the options it was queued with.
 The setup button on a queued generation moves it to Pending while you edit its settings and inputs.
 To reorder queued jobs, select an entry to reveal its drag handle; drag it or use the arrow keys.
+Tap the Queue heading to collapse or expand it. Queue, Pending and Failed scroll internally when their
+lists exceed three cards or the available screen height.
 Queue and Pending entries show their resolution and a shortened prompt. Finished items open their output when available;
 failed items open and highlight their entry under Failed. A failure before a run was saved has no saved run to retry.
 Generate keeps the prompt after queuing so you can make variants. Use **Clear** beside Prompt to empty it, or leave
