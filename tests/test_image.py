@@ -654,7 +654,7 @@ class PanelTest(unittest.TestCase):
         sent = self.comfy.prompts[prompts]["prompt"]
         self.assertEqual({node["class_type"] for node in sent.values()},
                          {"LoadImage", "SeedVR2LoadDiTModel", "SeedVR2LoadVAEModel", "SeedVR2VideoUpscaler", "PreviewImage"})
-        self.assertEqual(next(n for n in sent.values() if n["class_type"] == "SeedVR2LoadDiTModel")["inputs"]["attention_mode"], "sdpa")
+        self.assertEqual(next(n for n in sent.values() if n["class_type"] == "SeedVR2LoadDiTModel")["inputs"]["attention_mode"], "sageattn_2")
         self.assertEqual(self.client.post(f"/image-runs/{run.id}/upscale/1?method=seedvr2&resolution=999").status_code, 400)
         self.assertEqual(self.client.post(f"/image-runs/{run.id}/upscale/1?method=seedvr2&resolution=1").status_code, 400)
         prompts = len(self.comfy.prompts)

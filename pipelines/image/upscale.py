@@ -42,7 +42,7 @@ def upscale_workflow(image, resolution):
         "1": {"class_type": "LoadImage", "inputs": {"image": image}},
         "2": {"class_type": "SeedVR2LoadDiTModel", "inputs": {
             "model": DIT_MODEL, "device": "cuda:0", "blocks_to_swap": 36, "swap_io_components": False,
-            "offload_device": "cpu", "cache_model": False, "attention_mode": "sdpa"}},
+            "offload_device": "cpu", "cache_model": False, "attention_mode": "sageattn_2"}},
         "3": {"class_type": "SeedVR2LoadVAEModel", "inputs": {
             "model": VAE_MODEL, "device": "cuda:0", "encode_tiled": True, "encode_tile_size": 1024, "encode_tile_overlap": 128,
             "decode_tiled": True, "decode_tile_size": 1024, "decode_tile_overlap": 128, "tile_debug": "false",

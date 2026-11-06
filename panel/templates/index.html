@@ -3533,16 +3533,21 @@ $('viewerUpscale').addEventListener('click', () => {
   if (box.open) return;
   const film = !!(viewing && viewing.film);
   for (const b of box.querySelectorAll('[data-for]')) b.hidden = (b.dataset.for === 'film') !== film;
-  const img = $('viewerImage'), w = img.naturalWidth, h = img.naturalHeight;
-  $('upscaleNote').textContent = film ? ($('viewerRes').textContent || '') : w ? `${w} × ${h}` : '';
+  const options = [...box.querySelectorAll('button[data-method]')].filter(b => !b.hidden);
+  if (options.length === 1) { openUpscaleSettings(options[0].dataset.method); return; }
   box.classList.remove('closing');
   box.showModal();
-  // Over the parent's buttons: as wide as its button bar, on the parent's bottom edge, and at least as tall as the bar, growing upwards for more rows.
-  const parent = $('imageViewer').getBoundingClientRect(), bar = document.querySelector('#imageViewer .viewer-bar').getBoundingClientRect();
-  const barTop = Math.min(bar.top, $('viewerDownload').getBoundingClientRect().top);
-  Object.assign(box.style, { margin: '0', right: 'auto', bottom: 'auto', height: 'auto', left: `${bar.left}px`, width: `${bar.width}px`, minHeight: `${parent.bottom - barTop}px` });
-  box.style.top = `${parent.bottom - box.getBoundingClientRect().height}px`;
+  placeOverViewerButtons(box);
 });
+// Both upscale dialogs sit over the viewer's buttons: as wide as its button bar, on its bottom edge, and at least as tall as the buttons.
+function placeOverViewerButtons(box) {
+  const bar = document.querySelector('#imageViewer .viewer-bar').getBoundingClientRect();
+  const first = $('viewerTools').hidden ? $('viewerDownload') : $('viewerTools');
+  const bottom = Math.min(bar.bottom, window.innerHeight);
+  Object.assign(box.style, { margin: '0', inset: 'auto', height: 'auto', left: `${bar.left}px`, width: `${bar.width}px`,
+    minHeight: `${bottom - first.getBoundingClientRect().top}px` });
+  box.style.top = `${bottom - box.getBoundingClientRect().height}px`;
+}
 function openUpscaleSettings(method) {
   upscaleMethod = method;
   const film = method === 'vsr', img = $('viewerImage'), w = img.naturalWidth, h = img.naturalHeight;
@@ -3553,6 +3558,7 @@ function openUpscaleSettings(method) {
   for (const o of $('viewerUpscaleSize').options) o.disabled = +o.value > 0 && +o.value <= shorter;
   $('viewerUpscaleSize').value = '0';
   $('upscaleSettings').showModal();
+  placeOverViewerButtons($('upscaleSettings'));
 }
 // A tap outside either dialog, on the dimmed viewer, closes it.
 for (const id of ['viewerUpscaleBar', 'upscaleSettings']) $(id).addEventListener('click', e => {

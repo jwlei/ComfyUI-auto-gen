@@ -36,7 +36,6 @@ PROMPT_GROUPS = re.compile(r"prompt", re.I)
 SIZE_GROUPS = re.compile(r"image size|resolution", re.I)
 LORA_LOADER = "Power Lora Loader (rgthree)"
 ENHANCER = "ComfyUI-Krea2T-Enhancer"
-UPSCALER_LOADER = "SeedVR2LoadDiTModel"
 CHOOSER = "CustomCombo"
 ON, OFF = "1", "0"
 BYPASSED = 4
@@ -456,7 +455,7 @@ def _steps(api):
 
 
 def _after(api, options, chosen, info):
-    """The LoRAs and the enhancer as chosen, and the upscaler on attention every install has."""
+    """The LoRAs and the enhancer as chosen. (SeedVR2 falls back to SDPA itself where SageAttention isn't installed.)"""
     loras = (info.get("LoraLoader") or info.get("LoraLoaderModelOnly") or {}).get("input", {}).get("required", {}).get("lora_name", [[]])[0]
     for option in options:
         if option["kind"] != "strength":
@@ -477,10 +476,6 @@ def _after(api, options, chosen, info):
             if entry["lora"] not in loras:
                 entry["lora"] = next((name for name in loras if os.path.basename(name.replace("\\", "/")) == wanted), entry["lora"])
             node["inputs"][option["entry"]] = entry
-    for node in api.values():
-        # Sage attention isn't on every install, and the workflow's own note says to use SDPA without it.
-        if node["class_type"] == UPSCALER_LOADER and str(node["inputs"].get("attention_mode", "")).startswith("sage"):
-            node["inputs"]["attention_mode"] = "sdpa"
 
 
 def lora_problem(option, info, model=None):
