@@ -57,7 +57,7 @@ VIDEO_SAVES = ("SaveVideo", "VHS_VideoCombine", "CreateVideo", "SaveWEBM", "Save
 # The image models whose prompts or limits are their own (pipelines/image/models.py), by the node that says which it is,
 # or else by the type its text encoder is loaded as.
 IMAGE_MODEL_NODES = {"TextEncodeFibo2": "fibo2", "TextEncodeQwenImageEditPlus": "qwen_image_edit"}
-IMAGE_MODEL_ENCODERS = ("fibo2", "krea2")
+IMAGE_MODEL_ENCODERS = ("fibo2", "krea2", "moss_image")
 # Qwen-Image 2.1's encoder, for making images and editing them: which it does depends on whether it's given an image.
 QWEN_IMAGE_21_ENCODER = "TextEncodeQwenImage21"
 # How a subgraph's links name the two ends it has in place of nodes.

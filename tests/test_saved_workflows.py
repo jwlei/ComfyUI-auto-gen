@@ -185,6 +185,75 @@ class ImageWorkflowTest(unittest.TestCase):
             to_api(missing, OBJECT_INFO, images=True)
 
 
+class MossImageWorkflowTest(unittest.TestCase):
+    def workflow(self):
+        return {"nodes": [
+            _ui_node(1, "UNETLoader", {"unet_name": "moss.safetensors"}),
+            _ui_node(2, "CLIPLoader", {"clip_name": "qwen.safetensors", "type": "moss_image"}),
+            _ui_node(3, "CLIPTextEncode", {"text": "positive"}, {"clip": 1}),
+            _ui_node(4, "CLIPTextEncode", {"text": "negative"}, {"clip": 2}),
+            _ui_node(5, "ResolutionSelector", {"megapixels": 2}),
+            _ui_node(6, "EmptyFlux2LatentImage", {"batch_size": 1}, {"width": 3, "height": 4}),
+            _ui_node(7, "BasicScheduler", {"steps": 25}, {"model": 5}),
+            _ui_node(8, "SamplerCustom", {"noise_seed": 1, "cfg": 3.0},
+                     {"model": 6, "positive": 7, "negative": 8, "sigmas": 9, "latent_image": 10}),
+            _ui_node(9, "VAEDecode", links={"samples": 11}),
+            _ui_node(10, "PreviewImage", links={"images": 12}),
+        ], "links": [
+            [1, 2, 0, 3, 0, "CLIP"], [2, 2, 0, 4, 0, "CLIP"],
+            [3, 5, 0, 6, 0, "INT"], [4, 5, 1, 6, 1, "INT"],
+            [5, 1, 0, 7, 0, "MODEL"], [6, 1, 0, 8, 0, "MODEL"],
+            [7, 3, 0, 8, 1, "CONDITIONING"], [8, 4, 0, 8, 2, "CONDITIONING"],
+            [9, 7, 0, 8, 3, "SIGMAS"], [10, 6, 0, 8, 4, "LATENT"],
+            [11, 8, 0, 9, 0, "LATENT"], [12, 9, 0, 10, 0, "IMAGE"],
+        ]}
+
+    def info(self):
+        specs = {
+            "UNETLoader": {"unet_name": [["moss.safetensors"]]},
+            "CLIPLoader": {"clip_name": [["qwen.safetensors"]], "type": [["moss_image"]]},
+            "ResolutionSelector": {"megapixels": ["FLOAT", {}]},
+            "EmptyFlux2LatentImage": {"width": ["INT", {}], "height": ["INT", {}], "batch_size": ["INT", {}]},
+            "SamplerCustom": {"model": ["MODEL"], "positive": ["CONDITIONING"], "negative": ["CONDITIONING"],
+                              "sigmas": ["SIGMAS"], "latent_image": ["LATENT"], "noise_seed": ["INT", {}],
+                              "cfg": ["FLOAT", {}]},
+        }
+        return {**OBJECT_INFO, **{name: {"display_name": name, "input": {"required": required}}
+                                  for name, required in specs.items()}}
+
+    def test_import_mapping_options_and_filled_render(self):
+        from unittest import mock
+        from pipelines.image.comfy import ImageClient
+        from pipelines.image import models
+
+        ui, info = self.workflow(), self.info()
+        api, fields, model, options = workflow_options.convert(ui, info, {"steps": "12", "cfg": "2"}, pipeline="image")
+        self.assertEqual(model, models.MOSS_IMAGE)
+        self.assertEqual(models.label(model), "MOSS Image")
+        self.assertEqual(image_takes(fields, model), {"min_images": 0, "max_images": 0, "size": True, "model": model})
+        self.assertEqual(fields, {"prompt": ["3", "text"], "width": ["6", "width"], "height": ["6", "height"]})
+        self.assertEqual(api["7"]["inputs"]["steps"], 12)
+        self.assertEqual(api["8"]["inputs"]["cfg"], 2)
+        self.assertTrue({"steps", "cfg", "negative"} <= {option["id"] for option in options})
+        client = ImageClient.__new__(ImageClient)
+        client.workflow, client.fields = api, fields
+        client._run = mock.Mock(return_value={})
+        client._download = mock.Mock(return_value="image.png")
+        self.assertEqual(client._render_once("new prompt", [], 768, 1024, "output", 123), "image.png")
+        sent, seed = client._run.call_args.args
+        self.assertEqual((sent["3"]["inputs"]["text"], sent["6"]["inputs"]["width"], sent["6"]["inputs"]["height"]),
+                         ("new prompt", 768, 1024))
+        self.assertEqual((sent["4"]["inputs"]["text"], seed), ("negative", 123))
+        self.assertTrue(seeds.apply(sent, seed))
+        self.assertEqual(sent["8"]["inputs"]["noise_seed"], 123)
+
+    def test_missing_text_encoder_is_reported(self):
+        info = self.info()
+        info["CLIPLoader"]["input"]["required"]["clip_name"][0][:] = ["other.safetensors"]
+        with self.assertRaisesRegex(Unusable, "qwen.safetensors"):
+            workflow_options.convert(self.workflow(), info, pipeline="image")
+
+
 class EditorOnlyTest(unittest.TestCase):
     def api(self, chosen=None):
         return workflow_options.convert(switchable_workflow(), OBJECT_INFO, chosen)

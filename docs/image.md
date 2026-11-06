@@ -150,8 +150,12 @@ a model's limit, and Generate refuses them before anything is paid for. "Same as
 |---|---|---|---|
 | **Fibo 2.0** (Bria), edit turbo | Up to 1.1 MP. Trained at about 1 MP, every size within 10% of it: above that the prompt leaks into the top left corner and it stops following it. No desktop or phone screen fits, so those are greyed out. | JSON captions (below). The LLM writes at most 30 a set, as each is a few hundred words. | 4, CFG 1 |
 | **Krea-2** Turbo | Up to 4.2 MP: its 1K and 2K sizes, up to 2048x2048. 1440p and the phones fit; 4K and 1440p ultrawide don't. | A descriptive paragraph | 8 |
+| **MOSS Image** | No model-specific size limit is enforced by the panel; larger sizes may need more memory. | A descriptive prompt | As saved in the workflow |
 | **Qwen-Image-Edit** 2511 | Up to the form's own 16 MP | An edit instruction | 40, or 4 with turbo |
 | **Qwen-Image 2.1** Turbo, 12 GB | 3.2 MP from text; 1.6 MP for an edit, which is shown its image at the same size beside it; 2.2 MP from references. Native 2K needs 16 GB. These are Kokon's measurements of what fits on 12 GB. | An instruction or a paragraph. Images are `<image1>`, `<image2>`. | 8 (its own schedule), CFG 1 |
+
+The imported MOSS text-to-image workflow is offered once its saved diffusion model, text encoder and VAE are installed
+in ComfyUI. The panel uses its prompt, seed and requested size, with steps, CFG and negative prompt under workflow options.
 
 **Fibo 2.0's prompts.** It was trained on structured JSON captions (Bria's VGL) and reads them far better than prose: in
 Bria's tests an edit written as "keep X unchanged" redrew the whole frame and invented things, where a caption changed only

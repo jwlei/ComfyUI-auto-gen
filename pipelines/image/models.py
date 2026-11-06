@@ -16,9 +16,9 @@ model cards at huggingface.co/briaai/Fibo-2.0-edit-turbo and huggingface.co/Comf
 """
 from pipelines.image.media import PIXELS_PER_MEGAPIXEL
 
-FIBO2, KREA2, QWEN_IMAGE_EDIT = "fibo2", "krea2", "qwen_image_edit"
+FIBO2, KREA2, MOSS_IMAGE, QWEN_IMAGE_EDIT = "fibo2", "krea2", "moss_image", "qwen_image_edit"
 QWEN_IMAGE_21, QWEN_IMAGE_21_EDIT = "qwen_image_21", "qwen_image_21_edit"
-LABELS = {FIBO2: "Fibo 2.0", KREA2: "Krea-2", QWEN_IMAGE_EDIT: "Qwen-Image-Edit", QWEN_IMAGE_21: "Qwen-Image 2.1",
+LABELS = {FIBO2: "Fibo 2.0", KREA2: "Krea-2", MOSS_IMAGE: "MOSS Image", QWEN_IMAGE_EDIT: "Qwen-Image-Edit", QWEN_IMAGE_21: "Qwen-Image 2.1",
           QWEN_IMAGE_21_EDIT: "Qwen-Image 2.1 (edit)"}
 # The most megapixels each makes well. A model left out takes what the form offers.
 MOST_MEGAPIXELS = {FIBO2: 1.1, KREA2: 4.2, QWEN_IMAGE_21: 3.2, QWEN_IMAGE_21_EDIT: 1.6}
